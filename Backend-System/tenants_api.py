@@ -13,6 +13,50 @@ tenants_bp = Blueprint('tenants', __name__, url_prefix='/api')
 @tenants_bp.route('/tenants', methods=['GET'])
 @token_required
 def api_list_tenants(current_user):
+    """
+    获取租户列表
+    ---
+    tags:
+      - Tenants
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: 成功获取租户列表
+        schema:
+          type: object
+          properties:
+            tenants:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  name:
+                    type: string
+                  gender:
+                    type: string
+                  nation:
+                    type: string
+                  birth_date:
+                    type: string
+                  id_card:
+                    type: string
+                  address:
+                    type: string
+                  phone:
+                    type: string
+                  room_no:
+                    type: string
+                  status:
+                    type: string
+                    description: 在住/已退租
+                  check_in_date:
+                    type: string
+                  check_out_date:
+                    type: string
+    """
     conn = connect()
     cursor = conn.cursor()
 
@@ -104,6 +148,25 @@ def api_list_tenants(current_user):
 @tenants_bp.route('/tenants/<id_card>/checkout', methods=['POST'])
 @token_required
 def api_checkout_tenant(current_user, id_card):
+    """
+    办理退租
+    ---
+    tags:
+      - Tenants
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: id_card
+        type: string
+        required: true
+        description: 身份证号
+    responses:
+      200:
+        description: 退租成功
+      404:
+        description: 未找到该租户或已退租
+    """
     conn = connect()
     cursor = conn.cursor()
 
@@ -289,6 +352,27 @@ def api_update_tenant(current_user, id_card):
 @tenants_bp.route('/tenants/<id_card>', methods=['DELETE'])
 @token_required
 def api_delete_tenant(current_user, id_card):
+    """
+    删除租户
+    ---
+    tags:
+      - Tenants
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: id_card
+        type: string
+        required: true
+        description: 身份证号
+    responses:
+      200:
+        description: 删除成功
+      400:
+        description: 在住状态不可删除，或存在关联数据
+      404:
+        description: 租户不存在
+    """
     conn = connect()
     cursor = conn.cursor()
 

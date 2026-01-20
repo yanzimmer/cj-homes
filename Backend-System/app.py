@@ -1,6 +1,7 @@
 import logging
-from flask import Flask
+from flask import Flask, jsonify
 from flask_cors import CORS
+from flasgger import Swagger
 
 from common import SECRET_KEY, JWT_EXPIRATION_DELTA
 from contract_templates_api import templates_bp, ensure_contract_templates_schema
@@ -12,6 +13,7 @@ from rooms_api import rooms_bp
 from tenants_api import tenants_bp
 from moves_api import moves_bp
 from repair_records_api import repair_bp
+from system_api import system_bp
 import forgot_password as fp
 
 
@@ -34,6 +36,26 @@ CORS(
 # 应用基础配置（集中在 common.py）
 app.config['SECRET_KEY'] = SECRET_KEY
 app.config['JWT_EXPIRATION_DELTA'] = JWT_EXPIRATION_DELTA
+
+# 配置 Swagger
+app.config['SWAGGER'] = {
+    'title': 'Homes Rental Management API',
+    'uiversion': 3,
+    'version': '1.0.0',
+    'description': 'API documentation for Homes Rental Management System',
+    'securityDefinitions': {
+        'Bearer': {
+            'type': 'apiKey',
+            'name': 'Authorization',
+            'in': 'header',
+            'description': 'JWT Authorization header using the Bearer scheme. Example: "Bearer {token}"'
+        }
+    },
+    'security': [
+        {'Bearer': []}
+    ]
+}
+swagger = Swagger(app)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 app.logger.setLevel(logging.INFO)
@@ -69,6 +91,18 @@ app.register_blueprint(rooms_bp)
 app.register_blueprint(tenants_bp)
 app.register_blueprint(moves_bp)
 app.register_blueprint(repair_bp)
+app.register_blueprint(system_bp)
+
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({"error": "Resource not found"}), 404
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    app.logger.error(f"Server Error: {error}")
+    return jsonify({"error": "Internal Server Error"}), 500
 
 
 if __name__ == "__main__":

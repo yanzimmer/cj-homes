@@ -143,6 +143,8 @@ def ensure_tables():
         """
         CREATE TABLE IF NOT EXISTS contracts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER,
+            room_id INTEGER,
             template_id INTEGER NOT NULL,
             tenant_name TEXT,
             id_card TEXT,
@@ -152,7 +154,10 @@ def ensure_tables():
             rent REAL,
             rendered_html TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT
+            updated_at TEXT,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+            FOREIGN KEY (room_id) REFERENCES rooms(id),
+            FOREIGN KEY (template_id) REFERENCES contract_templates(id)
         )
         """
     )
@@ -375,16 +380,17 @@ def seed_demo_data():
     landlord = "某某公寓运营方"
     # 选取在住租户生成合同
     cur.execute(
-        "SELECT t.name, t.id_card, r.room_no, t.check_in_date, t.check_out_date FROM tenants t LEFT JOIN rooms r ON r.id = t.room_id WHERE t.status = '在住'"
+        "SELECT t.id, t.name, t.id_card, r.id, r.room_no, t.check_in_date, t.check_out_date FROM tenants t LEFT JOIN rooms r ON r.id = t.room_id WHERE t.status = '在住'"
     )
     for row in cur.fetchall():
-        name, id_card, room_no, start_date, end_date = row
+        tenant_id, name, id_card, room_id, room_no, start_date, end_date = row
         rent = 0.0
         try:
-            cur.execute("SELECT price FROM rooms WHERE room_no = ?", (room_no,))
-            pr = cur.fetchone()
-            if pr:
-                rent = float(pr[0])
+            if room_no:
+                cur.execute("SELECT price FROM rooms WHERE room_no = ?", (room_no,))
+                pr = cur.fetchone()
+                if pr:
+                    rent = float(pr[0])
         except Exception:
             rent = 0.0
         rendered_html = (
@@ -393,12 +399,20 @@ def seed_demo_data():
             f"<p>乙方（租客）：{name}（身份证号：{id_card}）</p>"
             f"<p>租赁房屋：{room_no}，租期：{start_date} 至 {end_date}，租金：{rent} 元/月。</p>"
         )
+        
+        # 确保有 room_id，如果 tenants 表里有 room_id 但 r.id 为空（脏数据），则尝试重新查找
+        if not room_id and room_no:
+             cur.execute("SELECT id FROM rooms WHERE room_no = ?", (room_no,))
+             r_row = cur.fetchone()
+             if r_row:
+                 room_id = r_row[0]
+
         cur.execute(
             """
-            INSERT INTO contracts (template_id, tenant_name, id_card, room_no, start_date, end_date, rent, rendered_html)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO contracts (tenant_id, room_id, template_id, tenant_name, id_card, room_no, start_date, end_date, rent, rendered_html)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (tpl_id, name, id_card, room_no, start_date, end_date, rent, rendered_html),
+            (tenant_id, room_id, tpl_id, name, id_card, room_no, start_date, end_date, rent, rendered_html),
         )
 
     # 7) 根据租户入住情况更新房间状态

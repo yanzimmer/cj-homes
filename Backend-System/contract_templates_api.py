@@ -1,7 +1,6 @@
-import sqlite3
+﻿﻿﻿﻿import sqlite3
 from flask import Blueprint, request, jsonify
-import jwt
-from functools import wraps
+from auth_api import token_required
 from common import connect
 
 
@@ -27,66 +26,77 @@ def ensure_contract_templates_schema():
 templates_bp = Blueprint("contract_templates", __name__, url_prefix="/api/contract-templates")
 
 
-def token_required_bp(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = None
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header.split(" ")[1]
-        if not token:
-            return jsonify({"error": "缺少认证令牌"}), 401
-        try:
-            data = jwt.decode(token, "homes_rental_secret_key", algorithms=["HS256"])  # 与主应用一致
-            conn = connect()
-            cursor = conn.cursor()
-            try:
-                cursor.execute("SELECT * FROM admins WHERE username = ?", (data.get("username"),))
-            except sqlite3.OperationalError as e:
-                # 友好提示数据库未初始化或路径不一致
-                conn.close()
-                return jsonify({"error": f"数据库未初始化或不可用：{e}"}), 500
-            user_data = cursor.fetchone()
-            conn.close()
-            if not user_data:
-                return jsonify({"error": "无效的认证令牌"}), 401
-            current_user = {
-                "id": user_data[0],
-                "username": user_data[1],
-                "full_name": user_data[3],
-            }
-        except jwt.ExpiredSignatureError:
-            return jsonify({"error": "认证令牌已过期，请重新登录"}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({"error": "无效的认证令牌"}), 401
-        return f(current_user=current_user, *args, **kwargs)
-    return decorated
-
-
 @templates_bp.route("", methods=["GET"])
-@token_required_bp
+@token_required
 def list_templates(current_user):
+    """
+    获取合同模板列表
+    ---
+    tags:
+      - Contract Templates
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: 成功获取模板列表
+        schema:
+          type: object
+          properties:
+            templates:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  created_at:
+                    type: string
+                  updated_at:
+                    type: string
+    """
     conn = connect()
     cursor = conn.cursor()
     cursor.execute("SELECT id, name, description, created_at, updated_at FROM contract_templates ORDER BY updated_at DESC")
     rows = cursor.fetchall()
     conn.close()
-    templates = [
-        {
-            "id": r[0],
-            "name": r[1],
-            "description": r[2],
-            "created_at": r[3],
-            "updated_at": r[4],
-        }
-        for r in rows
-    ]
+
+    templates = []
+    for row in rows:
+        templates.append({
+            "id": row[0],
+            "name": row[1],
+            "description": row[2],
+            "created_at": row[3],
+            "updated_at": row[4],
+        })
     return jsonify({"templates": templates})
 
 
 @templates_bp.route("/<int:tid>", methods=["GET"])
-@token_required_bp
-def get_template(current_user, tid: int):
+@token_required
+def get_template(current_user, tid):
+    """
+    获取单个合同模板详情
+    ---
+    tags:
+      - Contract Templates
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: tid
+        type: integer
+        required: true
+    responses:
+      200:
+        description: 成功获取模板详情
+      404:
+        description: 模板不存在
+    """
     conn = connect()
     cursor = conn.cursor()
     cursor.execute("SELECT id, name, description, content_html, created_at, updated_at FROM contract_templates WHERE id = ?", (tid,))
@@ -106,8 +116,36 @@ def get_template(current_user, tid: int):
 
 
 @templates_bp.route("", methods=["POST"])
-@token_required_bp
+@token_required
 def add_template(current_user):
+    """
+    添加合同模板
+    ---
+    tags:
+      - Contract Templates
+    security:
+      - Bearer: []
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - name
+            - content_html
+          properties:
+            name:
+              type: string
+            content_html:
+              type: string
+            description:
+              type: string
+    responses:
+      200:
+        description: 模板已创建
+      400:
+        description: 缺少必填字段
+    """
     data = request.json or {}
     name = data.get("name")
     content_html = data.get("content_html")
@@ -127,7 +165,7 @@ def add_template(current_user):
 
 
 @templates_bp.route("/<int:tid>", methods=["PUT"])
-@token_required_bp
+@token_required
 def update_template(current_user, tid: int):
     data = request.json or {}
     allowed = {"name", "description", "content_html"}
@@ -148,7 +186,7 @@ def update_template(current_user, tid: int):
 
 
 @templates_bp.route("/<int:tid>", methods=["DELETE"])
-@token_required_bp
+@token_required
 def delete_template(current_user, tid: int):
     """删除模板时总是连同删除关联合同。"""
     conn = connect()
@@ -191,9 +229,34 @@ def delete_template(current_user, tid: int):
 
 
 @templates_bp.route("/<int:tid>/render", methods=["POST"])
-@token_required_bp
+@token_required
 def render_template(current_user, tid: int):
-    """使用传入的数据渲染模板：占位符语法 {{key}}"""
+    """
+    渲染模板预览
+    ---
+    tags:
+      - Contract Templates
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: tid
+        type: integer
+        required: true
+      - in: body
+        name: body
+        schema:
+          type: object
+          properties:
+            vars:
+              type: object
+              description: 模板变量
+    responses:
+      200:
+        description: 渲染成功
+      404:
+        description: 模板不存在
+    """
     data = request.json or {}
     conn = connect()
     cursor = conn.cursor()

@@ -4,8 +4,12 @@
     "notification_methods": [
         "email"
     ],
-    "tenant_notification_methods": [],
-    "landlord_notification_methods": [],
+    "tenant_notification_methods": [
+        "email"
+    ],
+    "landlord_notification_methods": [
+        "email"
+    ],
     "smtp_config": {
         "server": "smtp.qq.com",
         "port": 587,
@@ -42,6 +46,6 @@
             "phone": "15286304124"
         }
     ],
-    "last_updated": "2025-11-07 13:00:43",
+    "last_updated": "2026-01-20 01:51:39",
     "reminder_count": 2
 }

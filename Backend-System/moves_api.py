@@ -11,6 +11,35 @@ moves_bp = Blueprint('moves', __name__, url_prefix='/api')
 @moves_bp.route('/moves', methods=['GET'])
 @token_required
 def api_list_moves(current_user):
+    """
+    获取搬迁记录列表
+    ---
+    tags:
+      - Moves
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: 成功获取搬迁记录
+        schema:
+          type: object
+          properties:
+            moves:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  tenant_name:
+                    type: string
+                  from_room:
+                    type: string
+                  to_room:
+                    type: string
+                  move_date:
+                    type: string
+    """
     conn = connect()
     cursor = conn.cursor()
     cursor.execute(
@@ -42,6 +71,42 @@ def api_list_moves(current_user):
 @moves_bp.route('/moves/tenant', methods=['POST'])
 @token_required
 def api_move_tenant(current_user):
+    """
+    租户搬迁（单人或整间）
+    ---
+    tags:
+      - Moves
+    security:
+      - Bearer: []
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - to_room
+          properties:
+            move_type:
+              type: integer
+              description: 1=选择租户搬迁, 2=整间搬迁
+              default: 1
+            to_room:
+              type: string
+              description: 目标房间号
+            tenant_id:
+              type: integer
+              description: 租户ID (move_type=1时必填)
+            from_room:
+              type: string
+              description: 源房间号 (move_type=2时必填)
+    responses:
+      200:
+        description: 搬迁成功
+      400:
+        description: 参数错误
+      404:
+        description: 房间或租户不存在
+    """
     data = request.json
     if not data:
         return jsonify({'error': '缺少请求数据'}), 400
@@ -188,6 +253,34 @@ def api_move_tenant(current_user):
 @moves_bp.route('/moves/room', methods=['POST'])
 @token_required
 def api_move_room(current_user):
+    """
+    房间整体搬迁（旧接口兼容）
+    ---
+    tags:
+      - Moves
+    security:
+      - Bearer: []
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - from_room_no
+            - to_room_no
+          properties:
+            from_room_no:
+              type: string
+            to_room_no:
+              type: string
+    responses:
+      200:
+        description: 搬迁成功
+      400:
+        description: 参数错误
+      404:
+        description: 房间不存在
+    """
     data = request.json
     if not data or not all(k in data for k in ('from_room_no', 'to_room_no')):
         return jsonify({'error': '缺少必要参数'}), 400
@@ -262,9 +355,27 @@ def api_move_room(current_user):
 @moves_bp.route('/moves/<int:move_id>', methods=['DELETE'])
 @token_required
 def api_delete_move(current_user, move_id):
-    """删除一条搬迁记录。
-
-    仅删除 tenant_moves 表中的历史记录，不影响当前房间与租户状态。
+    """
+    删除搬迁记录
+    ---
+    tags:
+      - Moves
+    security:
+      - Bearer: []
+    description: 仅删除 tenant_moves 表中的历史记录，不影响当前房间与租户状态。
+    parameters:
+      - in: path
+        name: move_id
+        type: integer
+        required: true
+        description: 搬迁记录ID
+    responses:
+      200:
+        description: 删除成功
+      404:
+        description: 记录不存在
+      503:
+        description: 数据库繁忙
     """
     conn = connect()
     cursor = conn.cursor()

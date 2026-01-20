@@ -1,5 +1,9 @@
 import os
 import sqlite3
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Base directory for resolving paths
 BASE_DIR = os.path.dirname(__file__)
@@ -25,5 +29,5 @@ def connect():
 
 
 # Authentication constants (keep consistent with existing modules)
-SECRET_KEY = 'homes_rental_secret_key'
-JWT_EXPIRATION_DELTA = 30 * 60  # 30 minutes, sliding expiration window
+SECRET_KEY = os.getenv('SECRET_KEY', 'homes_rental_secret_key')
+JWT_EXPIRATION_DELTA = int(os.getenv('JWT_EXPIRATION_DELTA', 30)) * 60  # minutes to seconds

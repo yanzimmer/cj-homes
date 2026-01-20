@@ -13,6 +13,49 @@ repair_bp = Blueprint('repair_records', __name__, url_prefix='/api')
 @repair_bp.route('/repair-records', methods=['GET'])
 @token_required
 def api_list_repair_records(current_user):
+    """
+    获取维修记录列表
+    ---
+    tags:
+      - Repair Records
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: 成功获取维修记录
+        schema:
+          type: object
+          properties:
+            repair_records:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  building:
+                    type: string
+                  room_no:
+                    type: string
+                  repair_type:
+                    type: string
+                  description:
+                    type: string
+                  report_date:
+                    type: string
+                  report_by:
+                    type: string
+                  status:
+                    type: string
+                  repair_date:
+                    type: string
+                  repair_cost:
+                    type: number
+                  repair_person:
+                    type: string
+                  remarks:
+                    type: string
+    """
     conn = connect()
     cursor = conn.cursor()
     cursor.execute(
@@ -51,6 +94,25 @@ def api_list_repair_records(current_user):
 @repair_bp.route('/repair-records/<int:record_id>', methods=['GET'])
 @token_required
 def api_get_repair_record(current_user, record_id):
+    """
+    获取单条维修记录
+    ---
+    tags:
+      - Repair Records
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: record_id
+        type: integer
+        required: true
+        description: 维修记录ID
+    responses:
+      200:
+        description: 成功获取记录
+      404:
+        description: 记录不存在
+    """
     conn = connect()
     cursor = conn.cursor()
     cursor.execute(
@@ -91,6 +153,52 @@ def api_get_repair_record(current_user, record_id):
 @repair_bp.route('/repair-records', methods=['POST'])
 @token_required
 def api_add_repair_record(current_user):
+    """
+    添加维修记录
+    ---
+    tags:
+      - Repair Records
+    security:
+      - Bearer: []
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - room_no
+            - repair_type
+            - description
+            - report_by
+          properties:
+            room_no:
+              type: string
+            repair_type:
+              type: string
+            description:
+              type: string
+            report_by:
+              type: string
+            report_date:
+              type: string
+            status:
+              type: string
+            repair_date:
+              type: string
+            repair_cost:
+              type: number
+            repair_person:
+              type: string
+            remarks:
+              type: string
+    responses:
+      200:
+        description: 添加成功
+      400:
+        description: 参数缺失
+      404:
+        description: 房间不存在
+    """
     data = request.json
     required_fields = ['room_no', 'repair_type', 'description', 'report_by']
 
@@ -149,6 +257,46 @@ def api_add_repair_record(current_user):
 @repair_bp.route('/repair-records/<int:record_id>', methods=['PUT'])
 @token_required
 def api_update_repair_record(current_user, record_id):
+    """
+    更新维修记录
+    ---
+    tags:
+      - Repair Records
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: record_id
+        type: integer
+        required: true
+        description: 维修记录ID
+      - in: body
+        name: body
+        schema:
+          type: object
+          properties:
+            repair_type:
+              type: string
+            description:
+              type: string
+            status:
+              type: string
+            repair_date:
+              type: string
+            repair_cost:
+              type: number
+            repair_person:
+              type: string
+            remarks:
+              type: string
+    responses:
+      200:
+        description: 更新成功
+      400:
+        description: 参数错误
+      404:
+        description: 记录不存在
+    """
     data = request.json
     if not data:
         return jsonify({'error': '缺少更新数据'}), 400
@@ -195,6 +343,25 @@ def api_update_repair_record(current_user, record_id):
 @repair_bp.route('/repair-records/<int:record_id>', methods=['DELETE'])
 @token_required
 def api_delete_repair_record(current_user, record_id):
+    """
+    删除维修记录
+    ---
+    tags:
+      - Repair Records
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: record_id
+        type: integer
+        required: true
+        description: 维修记录ID
+    responses:
+      200:
+        description: 删除成功
+      404:
+        description: 记录不存在
+    """
     conn = connect()
     cursor = conn.cursor()
 
@@ -217,6 +384,25 @@ def api_delete_repair_record(current_user, record_id):
 @repair_bp.route('/repair-records/room/<room_no>', methods=['GET'])
 @token_required
 def api_get_room_repair_records(current_user, room_no):
+    """
+    获取指定房间的维修记录
+    ---
+    tags:
+      - Repair Records
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: room_no
+        type: string
+        required: true
+        description: 房间号
+    responses:
+      200:
+        description: 成功获取记录列表
+      404:
+        description: 房间不存在
+    """
     conn = connect()
     cursor = conn.cursor()
 

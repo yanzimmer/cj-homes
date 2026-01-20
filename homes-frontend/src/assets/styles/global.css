@@ -1,0 +1,108 @@
+/* Global Variables */
+:root {
+  --el-color-primary: #409eff;
+  --el-color-success: #67c23a;
+  --el-color-warning: #e6a23c;
+  --el-color-danger: #f56c6c;
+  --el-color-info: #909399;
+  
+  --bg-color: #f0f2f5;
+  --text-main: #303133;
+  --text-regular: #606266;
+  --text-secondary: #909399;
+  
+  --card-bg: #ffffff;
+  --card-radius: 12px;
+  --card-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  --header-height: 60px;
+  --sidebar-width: 240px;
+  --sidebar-width-collapsed: 64px;
+}
+
+/* Prevent transitions on load */
+.no-transition,
+.no-transition * {
+  transition: none !important;
+}
+
+/* Dark Mode Variables */
+html.dark {
+  --bg-color: #141414; /* Neutral dark background */
+  --text-main: #E5EAF3;
+  --text-regular: #A3A6AD;
+  --text-secondary: #8D9095;
+  
+  --card-bg: #1d1e1f;
+  --card-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+#app {
+  width: 100%;
+  height: 100vh;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(144, 147, 153, 0.3);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(144, 147, 153, 0.5);
+}
+
+/* Common Utilities */
+.page-container {
+  padding: 20px;
+  animation: fadeIn 0.5s ease-in-out;
+}
+
+.card-box {
+  background: var(--card-bg);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  padding: 24px;
+  margin-bottom: 20px;
+  transition: all 0.3s ease;
+}
+
+html.dark .card-box {
+  border: 1px solid #363637;
+}
+
+.card-box:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}

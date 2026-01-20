@@ -1,0 +1,41 @@
+stages:
+  - build
+  - docker
+
+variables:
+  IMAGE_NAME: "homes-frontend"
+  IMAGE_TAG: "latest"
+
+# -------------------------------
+# 构建前端项目
+# -------------------------------
+build_app:
+  stage: build
+  script:
+    - echo "开始安装依赖并构建项目"
+    - node -v
+    - yarn -v || npm -v
+    - npm install
+    - npm run build
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 hour
+  # 不指定 tags，Runner 允许执行未打标签作业
+  # tags:
+  #   - build
+
+# -------------------------------
+# 打包 Docker 镜像
+# -------------------------------
+docker_build:
+  stage: docker
+  script:
+    - echo "开始构建 Docker 镜像"
+    - docker build -t $IMAGE_NAME:$IMAGE_TAG .
+    # 暂时不推送，如果需要推送可以取消注释下面一行
+    # - docker login -u root -p "你的GitLab或Harbor密码" 192.168.120.119:8880
+    # - docker push $IMAGE_NAME:$IMAGE_TAG
+  # 不指定 tags
+  # tags:
+  #   - docker

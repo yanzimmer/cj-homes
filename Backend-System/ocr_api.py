@@ -179,6 +179,52 @@ def _ocr_extract_text(save_path, cfg):
 @ocr_bp.route('/ocr/idcard', methods=['POST'])
 @token_required
 def api_ocr_idcard(current_user):
+    """
+    身份证OCR识别
+    ---
+    tags:
+      - OCR
+    security:
+      - Bearer: []
+    consumes:
+      - multipart/form-data
+    parameters:
+      - in: formData
+        name: image
+        type: file
+        required: true
+        description: 身份证图片文件
+      - in: formData
+        name: side
+        type: string
+        default: front
+        description: 身份证正反面 (front/back)
+    responses:
+      200:
+        description: 识别成功
+        schema:
+          type: object
+          properties:
+            engine:
+              type: string
+            text:
+              type: string
+            fields:
+              type: object
+              properties:
+                name:
+                  type: string
+                id_card:
+                  type: string
+                id_card_masked:
+                  type: string
+            image_url:
+              type: string
+      400:
+        description: 请上传图片文件
+      501:
+        description: PaddleOCR未安装
+    """
     if 'image' not in request.files:
         return jsonify({'error': '请上传图片文件（字段名 image）'}), 400
     side = request.form.get('side', 'front')

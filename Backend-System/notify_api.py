@@ -86,7 +86,27 @@ def api_test_email(current_user):
 @notify_bp.route('/test-sms', methods=['POST'])
 @token_required
 def api_test_sms(current_user):
-    """测试短信发送（模拟/校验参数）"""
+    """
+    测试短信发送 (模拟)
+    ---
+    tags:
+      - Notification
+    security:
+      - Bearer: []
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          properties:
+            sms_config:
+              type: object
+    responses:
+      200:
+        description: 校验通过
+      400:
+        description: 参数缺失
+    """
     data = request.json or {}
     sms_config = data.get('sms_config') or {}
 

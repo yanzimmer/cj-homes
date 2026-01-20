@@ -73,6 +73,44 @@ def token_required(f):
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
+    """
+    用户登录
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - username
+            - password
+          properties:
+            username:
+              type: string
+              example: admin
+            password:
+              type: string
+              example: password123
+    responses:
+      200:
+        description: 登录成功
+        schema:
+          type: object
+          properties:
+            token:
+              type: string
+              description: JWT Token
+            username:
+              type: string
+            full_name:
+              type: string
+      400:
+        description: 缺少参数
+      401:
+        description: 认证失败
+    """
     data = request.json
     if not data or not data.get('username') or not data.get('password'):
         return jsonify({'error': '请提供用户名和密码'}), 400
@@ -105,6 +143,37 @@ def login():
 
 @auth_bp.route('/forgot-password', methods=['POST'])
 def forgot_password():
+    """
+    忘记密码（通过安全问题重置）
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - username
+            - answer
+            - new_password
+          properties:
+            username:
+              type: string
+              example: admin
+            answer:
+              type: string
+              description: 安全问题答案
+              example: 123456
+            new_password:
+              type: string
+              example: newpassword123
+    responses:
+      200:
+        description: 密码重置成功
+      400:
+        description: 验证失败或参数缺失
+    """
     data = request.json or {}
     username = data.get('username')
     answer = data.get('answer')
@@ -123,12 +192,60 @@ def forgot_password():
 @auth_bp.route('/verify-token', methods=['GET'])
 @token_required
 def verify_token(current_user):
+    """
+    验证 Token 有效性
+    ---
+    tags:
+      - Authentication
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Token 有效
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+      401:
+        description: Token 无效或已过期
+    """
     return jsonify({'message': '令牌有效'})
 
 
 @auth_bp.route('/change-password', methods=['POST'])
 @token_required
 def change_password(current_user):
+    """
+    修改密码
+    ---
+    tags:
+      - Authentication
+    security:
+      - Bearer: []
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - old_password
+            - new_password
+          properties:
+            old_password:
+              type: string
+              example: oldpassword123
+            new_password:
+              type: string
+              example: newpassword123
+    responses:
+      200:
+        description: 密码修改成功
+      400:
+        description: 参数缺失
+      401:
+        description: 旧密码错误
+    """
     data = request.json
     if not data or not data.get('old_password') or not data.get('new_password'):
         return jsonify({'error': '请提供旧密码和新密码'}), 400

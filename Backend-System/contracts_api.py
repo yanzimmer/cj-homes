@@ -14,6 +14,7 @@ def ensure_contracts_schema():
         """
         CREATE TABLE IF NOT EXISTS contracts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER,
             room_id INTEGER,
             template_id INTEGER,
             tenant_name TEXT,
@@ -24,7 +25,10 @@ def ensure_contracts_schema():
             rent REAL,
             rendered_html TEXT,
             created_at TEXT,
-            updated_at TEXT
+            updated_at TEXT,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+            FOREIGN KEY (room_id) REFERENCES rooms(id),
+            FOREIGN KEY (template_id) REFERENCES contract_templates(id)
         )
         """
     )
@@ -71,6 +75,35 @@ def require_token():
 
 @contracts_bp.route("", methods=["POST"])  # POST /api/contracts
 def create_contract():
+    """
+    创建新合同
+    ---
+    tags:
+      - Contracts
+    security:
+      - Bearer: []
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - template_id
+            - vars
+          properties:
+            template_id:
+              type: integer
+            vars:
+              type: object
+              description: 模板变量 (tenant_name, id_card, room_no, start_date, end_date, rent 等)
+    responses:
+      201:
+        description: 合同创建成功
+      400:
+        description: 参数错误或校验失败
+      404:
+        description: 模板不存在
+    """
     payload = request.get_json(force=True) or {}
     template_id = payload.get("template_id")
     vars_obj = payload.get("vars") or {}
@@ -215,6 +248,39 @@ def create_contract():
 
 @contracts_bp.route("", methods=["GET"])  # GET /api/contracts
 def list_contracts():
+    """
+    获取合同列表
+    ---
+    tags:
+      - Contracts
+    security:
+      - Bearer: []
+    parameters:
+      - in: query
+        name: page
+        type: integer
+        default: 1
+      - in: query
+        name: page_size
+        type: integer
+        default: 10
+    responses:
+      200:
+        description: 成功获取列表
+        schema:
+          type: object
+          properties:
+            items:
+              type: array
+              items:
+                type: object
+            total:
+              type: integer
+            page:
+              type: integer
+            page_size:
+              type: integer
+    """
     page = int(request.args.get("page", 1))
     page_size = int(request.args.get("page_size", 10))
     offset = (page - 1) * page_size
@@ -250,6 +316,24 @@ def list_contracts():
 
 @contracts_bp.route("/<int:contract_id>", methods=["GET"])  # GET /api/contracts/:id
 def get_contract(contract_id: int):
+    """
+    获取单份合同详情
+    ---
+    tags:
+      - Contracts
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: contract_id
+        type: integer
+        required: true
+    responses:
+      200:
+        description: 成功获取详情
+      404:
+        description: 合同不存在
+    """
     conn = connect()
     cur = conn.cursor()
     cur.execute(
@@ -278,6 +362,33 @@ def get_contract(contract_id: int):
 
 @contracts_bp.route("/<int:contract_id>", methods=["PUT"])  # PUT /api/contracts/:id
 def update_contract(contract_id: int):
+    """
+    更新合同
+    ---
+    tags:
+      - Contracts
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: contract_id
+        type: integer
+        required: true
+      - in: body
+        name: body
+        schema:
+          type: object
+          properties:
+            vars:
+              type: object
+    responses:
+      200:
+        description: 更新成功
+      400:
+        description: 参数错误
+      404:
+        description: 合同或模板不存在
+    """
     payload = request.get_json(force=True) or {}
     vars_obj = payload.get("vars") or {}
 

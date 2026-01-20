@@ -13,6 +13,42 @@ rooms_bp = Blueprint('rooms', __name__, url_prefix='/api')
 @rooms_bp.route('/rooms', methods=['GET'])
 @token_required
 def api_list_rooms(current_user):
+    """
+    获取房间列表
+    ---
+    tags:
+      - Rooms
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: 成功获取房间列表
+        schema:
+          type: object
+          properties:
+            rooms:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  room_no:
+                    type: string
+                  building:
+                    type: string
+                  floor:
+                    type: integer
+                  room_type:
+                    type: string
+                  price:
+                    type: number
+                  status:
+                    type: string
+                    description: 房间状态 (已入住/空闲)
+                  tenant_count:
+                    type: integer
+    """
     conn = connect()
     cursor = conn.cursor()
     cursor.execute(
@@ -103,6 +139,37 @@ def api_get_room_tenants(current_user, room_no):
 @rooms_bp.route('/rooms/<room_no>/checkout', methods=['POST'])
 @token_required
 def api_checkout_room(current_user, room_no):
+    """
+    房间一键退租
+    ---
+    tags:
+      - Rooms
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: room_no
+        type: string
+        required: true
+        description: 房间号
+    responses:
+      200:
+        description: 退租成功
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            tenants:
+              type: array
+              items:
+                type: string
+                description: 已退租的租户姓名
+      400:
+        description: 房间没有在住租户
+      404:
+        description: 房间不存在
+    """
     conn = connect()
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM rooms WHERE room_no = ?", (room_no,))
@@ -150,6 +217,42 @@ def api_checkout_room(current_user, room_no):
 @rooms_bp.route('/rooms', methods=['POST'])
 @token_required
 def api_add_room(current_user):
+    """
+    添加新房间
+    ---
+    tags:
+      - Rooms
+    security:
+      - Bearer: []
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          required:
+            - room_no
+            - floor
+            - room_type
+            - price
+          properties:
+            room_no:
+              type: string
+            floor:
+              type: integer
+            room_type:
+              type: string
+            price:
+              type: number
+            building:
+              type: string
+    responses:
+      200:
+        description: 房间添加成功
+      400:
+        description: 缺少必要参数
+      500:
+        description: 数据库错误
+    """
     data = request.json
     if not data or not all(k in data for k in ('room_no', 'floor', 'room_type', 'price')):
         return jsonify({'error': '缺少必要参数'}), 400
@@ -182,6 +285,40 @@ def api_add_room(current_user):
 @rooms_bp.route('/rooms/<room_no>', methods=['PUT'])
 @token_required
 def api_update_room(current_user, room_no):
+    """
+    更新房间信息
+    ---
+    tags:
+      - Rooms
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: room_no
+        type: string
+        required: true
+        description: 房间号
+      - in: body
+        name: body
+        schema:
+          type: object
+          properties:
+            floor:
+              type: integer
+            room_type:
+              type: string
+            price:
+              type: number
+            building:
+              type: string
+    responses:
+      200:
+        description: 更新成功
+      400:
+        description: 参数错误
+      404:
+        description: 房间不存在
+    """
     data = request.json
     if not data:
         return jsonify({'error': '缺少更新数据'}), 400
@@ -216,6 +353,27 @@ def api_update_room(current_user, room_no):
 @rooms_bp.route('/rooms/<int:room_id>', methods=['DELETE'])
 @token_required
 def api_delete_room(current_user, room_id):
+    """
+    删除房间
+    ---
+    tags:
+      - Rooms
+    security:
+      - Bearer: []
+    parameters:
+      - in: path
+        name: room_id
+        type: integer
+        required: true
+        description: 房间ID
+    responses:
+      200:
+        description: 删除成功
+      400:
+        description: 房间有关联数据（如在住租户）无法删除
+      404:
+        description: 房间不存在
+    """
     conn = connect()
     cursor = conn.cursor()
 
