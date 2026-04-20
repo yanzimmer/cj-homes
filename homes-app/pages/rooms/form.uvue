@@ -1,0 +1,753 @@
+﻿﻿﻿﻿<template>
+  <view class="page">
+    <view class="card form-card">
+      <text class="section-title">{{ isEdit ? "编辑房间" : "新增房间" }}</text>
+      <text class="muted">字段与你后端接口保持一致</text>
+
+      <view class="form-grid">
+        <view class="field-group field-half">
+          <text class="label">楼栋 *</text>
+          <picker mode="selector" :range="buildingOptions" :value="buildingIndex" @change="onBuildingChange">
+            <view class="picker-input">{{ building || "请选择楼栋字母" }}</view>
+          </picker>
+        </view>
+
+        <view class="field-group field-half">
+          <text class="label">房号 *</text>
+          <input v-model="roomNo" class="input" placeholder="例如 101" @blur="onRoomNoBlur" @confirm="onRoomNoBlur" />
+          <text v-if="isEdit" class="muted warning-text">若该房间已有维修记录，请不要修改房号</text>
+        </view>
+
+        <view class="field-group field-half">
+          <text class="label">房型 *</text>
+          <picker mode="selector" :range="roomTypeOptions" :value="roomTypeIndex" @change="onRoomTypeChange">
+            <view class="picker-input">{{ roomType || "请选择房型" }}</view>
+          </picker>
+        </view>
+
+        <view class="field-group field-half">
+          <text class="label">价格 *</text>
+          <input v-model="price" class="input" type="number" placeholder="例如 1200" />
+        </view>
+      </view>
+
+      <view class="field-group">
+        <text class="label">水表二维码</text>
+        <view class="row button-row">
+          <button class="small-btn" @click="pickWaterImage">选择图片</button>
+          <button class="small-btn" :disabled="waterPreview == ''" @click="previewImage(waterPreview)">预览</button>
+          <button class="small-btn danger-btn" :disabled="waterPreview == ''" @click="clearWater">清除</button>
+        </view>
+        <text class="muted" v-if="waterPreview != ''">已选择水表二维码</text>
+      </view>
+
+      <view class="field-group">
+        <text class="label">电表二维码</text>
+        <view class="row button-row">
+          <button class="small-btn" @click="pickElectricImage">选择图片</button>
+          <button class="small-btn" :disabled="electricPreview == ''" @click="previewImage(electricPreview)">预览</button>
+          <button class="small-btn danger-btn" :disabled="electricPreview == ''" @click="clearElectric">清除</button>
+        </view>
+        <text class="muted" v-if="electricPreview != ''">已选择电表二维码</text>
+      </view>
+
+      <view class="field-group">
+        <text class="label">备注</text>
+        <textarea v-model="description" class="textarea" placeholder="可选描述" />
+      </view>
+
+      <button class="btn-primary" :disabled="loading" @click="submitForm">
+        {{ loading ? "提交中..." : "保存" }}
+      </button>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+import { computed, ref, watch } from "vue"
+import { onLoad } from "@dcloudio/uni-app"
+import { apiCreateRoom, apiGetRoomDetail, apiGetRooms, apiUpdateRoom, apiUploadRoomMeterImage } from "../../api/services.uts"
+import { getApiHost } from "../../common/request.uts"
+
+const roomId = ref(0)
+const formAction = ref("create")
+const loading = ref(false)
+
+const roomNo = ref("")
+const roomType = ref("")
+const price = ref("")
+const building = ref("")
+const description = ref("")
+const buildingOptions = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i))
+const roomTypeOptions = ["单人间", "套间"]
+const buildingIndex = ref(0)
+const roomTypeIndex = ref(0)
+
+const waterPreview = ref("")
+const electricPreview = ref("")
+const waterData = ref("")
+const electricData = ref("")
+const waterLocalPath = ref("")
+const electricLocalPath = ref("")
+const clearWaterFlag = ref(false)
+const clearElectricFlag = ref(false)
+const roomNoResolving = ref(false)
+
+const isEdit = computed(() => formAction.value == "edit" || roomId.value > 0)
+
+function syncNavigationTitle() {
+  uni.setNavigationBarTitle({
+    title: isEdit.value ? "编辑房间" : "新增房间",
+  })
+}
+
+function getErrorMessage(err : any, fallback : string) : string {
+  const message =
+    err != null && err.message != null
+      ? String(err.message)
+      : (err != null && err.data != null && err.data.error != null ? String(err.data.error) : "")
+  if (message != "") {
+    if (message.includes("FOREIGN KEY constraint failed")) {
+      return "更新失败：该房间已有关联维修记录，请不要修改房号，可修改其他信息"
+    }
+    if (message.includes("UNIQUE constraint failed")) {
+      return "房间号已存在，请更换后重试"
+    }
+    return message
+  }
+  return fallback
+}
+
+function normalizeImage(value : any) : string {
+  if (value == null) return ""
+  const text = String(value)
+  if (text == "") return ""
+  if (text.startsWith("data:") || text.startsWith("http")) return text
+  if (text.startsWith("/")) return `${getApiHost()}${text}`
+  return text
+}
+
+function isDataUrl(value : any) : boolean {
+  if (value == null) return false
+  return String(value).startsWith("data:")
+}
+
+function fillForm(data : any) {
+  roomNo.value = data != null && data.room_no != null ? String(data.room_no) : ""
+  roomType.value = normalizeRoomTypeValue(data != null ? data.room_type : "")
+  price.value = data != null && data.price != null ? String(data.price) : ""
+  building.value = extractBuildingPrefix(data != null ? data.building : "")
+  description.value = data != null && data.description != null ? String(data.description) : ""
+  waterPreview.value = normalizeImage(data != null ? data.water_meter_img : "")
+  electricPreview.value = normalizeImage(data != null ? data.electricity_meter_img : "")
+  waterData.value = ""
+  electricData.value = ""
+  waterLocalPath.value = ""
+  electricLocalPath.value = ""
+  clearWaterFlag.value = false
+  clearElectricFlag.value = false
+  syncPickerIndex()
+}
+
+function extractRoom(data : any) : any {
+  if (data != null && data.room != null) {
+    return data.room
+  }
+  return data
+}
+
+function normalizeRoomNoForMatch(value : any) : string {
+  if (value == null) return ""
+  return String(value).trim().toUpperCase().replace(/[\s-]/g, "")
+}
+
+function extractBuildingPrefix(value : any) : string {
+  if (value == null) return ""
+  const text = String(value).trim().toUpperCase()
+  const matched = text.match(/[A-Z]/)
+  if (matched == null || matched.length == 0) return ""
+  return matched[0]
+}
+
+function normalizeRoomTypeValue(value : any) : string {
+  const text = value == null ? "" : String(value)
+  if (text == "") return ""
+  if (text.includes("套") || text.includes("双")) return "套间"
+  if (text.includes("单")) return "单人间"
+  return "单人间"
+}
+
+function syncPickerIndex() {
+  const b = extractBuildingPrefix(building.value)
+  if (b != "") {
+    building.value = b
+  }
+  const bIndex = buildingOptions.indexOf(building.value)
+  buildingIndex.value = bIndex >= 0 ? bIndex : 0
+  const type = normalizeRoomTypeValue(roomType.value)
+  if (type != "") {
+    roomType.value = type
+  }
+  const tIndex = roomTypeOptions.indexOf(roomType.value)
+  roomTypeIndex.value = tIndex >= 0 ? tIndex : 0
+}
+
+function onBuildingChange(e : any) {
+  const idx = Number(e.detail.value)
+  if (isNaN(idx) || idx < 0 || idx >= buildingOptions.length) return
+  buildingIndex.value = idx
+  building.value = buildingOptions[idx]
+}
+
+function onRoomTypeChange(e : any) {
+  const idx = Number(e.detail.value)
+  if (isNaN(idx) || idx < 0 || idx >= roomTypeOptions.length) return
+  roomTypeIndex.value = idx
+  roomType.value = roomTypeOptions[idx]
+}
+
+function formatRoomNoWithBuilding(roomNoText : string, buildingText : any) : string {
+  const room = roomNoText.trim().toUpperCase()
+  if (room == "") return ""
+  if (/^[A-Z]-\d+$/.test(room)) return room
+  if (/^[A-Z]\d+$/.test(room)) {
+    return `${room.substring(0, 1)}-${room.substring(1)}`
+  }
+  if (/^\d+$/.test(room)) {
+    const prefix = extractBuildingPrefix(buildingText)
+    if (prefix == "") return room
+    return `${prefix}-${room}`
+  }
+  return room
+}
+
+function extractRoomNoInput(value : string) : string {
+  const raw = String(value).trim().toUpperCase()
+  if (raw == "") return ""
+  if (/^\d+$/.test(raw)) return raw
+  const digits = raw.replace(/\D/g, "")
+  if (digits != "") return digits
+  return raw
+}
+
+function normalizeRoomList(data : any) : any[] {
+  if (data == null) return []
+  if (Array.isArray(data.rooms)) return data.rooms
+  if (Array.isArray(data.items)) return data.items
+  if (Array.isArray(data.list)) return data.list
+  return []
+}
+
+async function onRoomNoBlur() {
+  const input = extractRoomNoInput(roomNo.value)
+  if (input == "" || roomNoResolving.value) return
+  if (roomNo.value != input) {
+    roomNo.value = input
+  }
+  roomNoResolving.value = true
+  try {
+    const data = await apiGetRooms()
+    const list = normalizeRoomList(data)
+    const target = normalizeRoomNoForMatch(input)
+    let matched = list.find((item : any) => normalizeRoomNoForMatch(item != null ? item.room_no : "") == target)
+    if (matched == null) {
+      const suffixMatches = list.filter((item : any) => {
+        const room = normalizeRoomNoForMatch(item != null ? item.room_no : "")
+        return room != "" && room.endsWith(target)
+      })
+      if (suffixMatches.length == 1) {
+        matched = suffixMatches[0]
+      }
+    }
+    if (matched == null) return
+    const matchedRoomNo = matched.room_no != null ? String(matched.room_no) : ""
+    const normalizedMatchedRoomNo = extractRoomNoInput(matchedRoomNo)
+    if (normalizedMatchedRoomNo != "" && roomNo.value != normalizedMatchedRoomNo) {
+      roomNo.value = normalizedMatchedRoomNo
+    }
+    if (building.value.trim() == "" && matched.building != null) {
+      building.value = extractBuildingPrefix(matched.building)
+    }
+    if (roomType.value.trim() == "" && matched.room_type != null) {
+      roomType.value = normalizeRoomTypeValue(matched.room_type)
+    }
+    if (price.value.trim() == "" && matched.price != null) {
+      price.value = String(matched.price)
+    }
+    const showText = formatRoomNoWithBuilding(normalizedMatchedRoomNo, matched.building != null ? matched.building : building.value)
+    uni.showToast({ title: `已匹配房号 ${showText}`, icon: "none" })
+    syncPickerIndex()
+  } catch (_) {
+  } finally {
+    roomNoResolving.value = false
+  }
+}
+
+watch([roomNo, building], () => {
+  if (roomNoResolving.value) return
+  const normalized = extractRoomNoInput(roomNo.value)
+  if (normalized != "" && normalized != roomNo.value) {
+    roomNo.value = normalized
+  }
+})
+
+watch(roomType, () => {
+  syncPickerIndex()
+})
+
+function applyRoomFromOptions(options : any) {
+  if (options == null) return
+  const decode = (value : any) : any => {
+    if (value == null) return value
+    try {
+      return decodeURIComponent(String(value))
+    } catch (_) {
+      return String(value)
+    }
+  }
+  const snapshot = {
+    id: decode(options.id),
+    room_no: decode(options.room_no),
+    room_type: decode(options.room_type),
+    price: decode(options.price),
+    building: decode(options.building),
+    description: decode(options.description),
+  }
+  fillForm(snapshot)
+}
+
+async function loadDetail() {
+  if (roomId.value <= 0) {
+    return
+  }
+  try {
+    const data = await apiGetRoomDetail(roomId.value)
+    fillForm(extractRoom(data))
+  } catch (err) {
+    uni.showToast({
+      title: getErrorMessage(err, "加载详情失败"),
+      icon: "none",
+    })
+  }
+}
+
+function buildPayload() : any {
+  const parsedPrice = Number(price.value)
+  const payload : any = {
+    room_no: extractRoomNoInput(roomNo.value),
+    room_type: roomType.value.trim(),
+    price: isNaN(parsedPrice) ? 0 : parsedPrice,
+    building: building.value.trim(),
+    description: description.value.trim(),
+  }
+
+  if (isDataUrl(waterData.value)) {
+    payload.water_meter_img = waterData.value
+  } else if (clearWaterFlag.value) {
+    payload.water_meter_img = ""
+  }
+
+  if (isDataUrl(electricData.value)) {
+    payload.electricity_meter_img = electricData.value
+  } else if (clearElectricFlag.value) {
+    payload.electricity_meter_img = ""
+  }
+
+  return payload
+}
+
+async function uploadPendingMeterImages(targetRoomId : number) {
+  if (targetRoomId <= 0) return
+  if (waterLocalPath.value != "" && !clearWaterFlag.value) {
+    try {
+      const res = await apiUploadRoomMeterImage(targetRoomId, waterLocalPath.value, "water")
+      const image = res != null && res.image != null ? String(res.image) : ""
+      if (image != "") {
+        waterPreview.value = normalizeImage(image)
+      }
+      waterLocalPath.value = ""
+      waterData.value = ""
+    } catch (err) {
+      throw new Error(`水表二维码上传失败：${getErrorMessage(err, "请重试")}`)
+    }
+  }
+  if (electricLocalPath.value != "" && !clearElectricFlag.value) {
+    try {
+      const res = await apiUploadRoomMeterImage(targetRoomId, electricLocalPath.value, "electricity")
+      const image = res != null && res.image != null ? String(res.image) : ""
+      if (image != "") {
+        electricPreview.value = normalizeImage(image)
+      }
+      electricLocalPath.value = ""
+      electricData.value = ""
+    } catch (err) {
+      throw new Error(`电表二维码上传失败：${getErrorMessage(err, "请重试")}`)
+    }
+  }
+}
+
+function validate(payload : any) : boolean {
+  if (payload.room_no == "") {
+    uni.showToast({ title: "请输入房号", icon: "none" })
+    return false
+  }
+  if (payload.room_type == "") {
+    uni.showToast({ title: "请输入房型", icon: "none" })
+    return false
+  }
+  if (payload.building == "") {
+    uni.showToast({ title: "请输入楼栋", icon: "none" })
+    return false
+  }
+  if (payload.price <= 0) {
+    uni.showToast({ title: "请输入正确价格", icon: "none" })
+    return false
+  }
+  return true
+}
+
+async function submitForm() {
+  if (loading.value) {
+    return
+  }
+
+  const payload = buildPayload()
+  if (!validate(payload)) {
+    return
+  }
+
+  loading.value = true
+  try {
+    let targetRoomId = roomId.value
+    if (isEdit.value) {
+      await apiUpdateRoom(roomId.value, payload)
+    } else {
+      const created = await apiCreateRoom(payload)
+      const createdId = Number(created != null ? created.id : 0)
+      if (!isNaN(createdId) && createdId > 0) {
+        targetRoomId = createdId
+      }
+    }
+    await uploadPendingMeterImages(targetRoomId)
+
+    uni.showToast({
+      title: "保存成功",
+      icon: "success",
+    })
+
+    setTimeout(() => {
+      uni.navigateBack()
+    }, 300)
+  } catch (err) {
+    uni.showToast({
+      title: getErrorMessage(err, "保存失败"),
+      icon: "none",
+    })
+  } finally {
+    loading.value = false
+  }
+}
+
+function readImageAsDataUrl(path : string, callback : (data : string) => void) {
+  const extFromPath = () : string => {
+    const cleaned = String(path).split("?")[0]
+    const part = cleaned.split(".").pop() || "png"
+    return String(part).toLowerCase()
+  }
+  const toDataUrl = (base64 : string) : string => {
+    const ext = extFromPath()
+    const mime = ext == "jpg" || ext == "jpeg" ? "image/jpeg" : "image/png"
+    return `data:${mime};base64,${base64}`
+  }
+  const readRawFallback = (fs : any) => {
+    fs.readFile({
+      filePath: path,
+      success: (rawRes : any) => {
+        try {
+          const raw = rawRes != null ? rawRes.data : null
+          if (raw == null) {
+            callback("")
+            return
+          }
+          if (typeof raw === "string") {
+            const text = String(raw)
+            if (text == "") {
+              callback("")
+              return
+            }
+            callback(text.startsWith("data:") ? text : toDataUrl(text))
+            return
+          }
+          const converter = (uni as any).arrayBufferToBase64
+          if (typeof converter === "function") {
+            const base64 = String(converter(raw))
+            callback(base64 == "" ? "" : toDataUrl(base64))
+            return
+          }
+          callback("")
+        } catch (_) {
+          callback("")
+        }
+      },
+      fail: () => {
+        callback("")
+      },
+    })
+  }
+  try {
+    const fs = uni.getFileSystemManager()
+    fs.readFile({
+      filePath: path,
+      encoding: "base64",
+      success: (res : any) => {
+        const base64 = res.data != null ? String(res.data) : ""
+        if (base64 == "") {
+          readRawFallback(fs)
+          return
+        }
+        callback(toDataUrl(base64))
+      },
+      fail: () => {
+        readRawFallback(fs)
+      },
+    })
+  } catch (err) {
+    callback("")
+  }
+}
+
+function readChosenImageAsDataUrl(res : any, fallbackPath : string, callback : (data : string) => void) {
+  const tempFiles = res != null ? res.tempFiles : null
+  if (tempFiles != null && tempFiles.length > 0) {
+    const first = tempFiles[0]
+    const fileObj = first != null && first.file != null ? first.file : first
+    if (fileObj != null && typeof (globalThis as any).FileReader != "undefined") {
+      try {
+        const reader = new (globalThis as any).FileReader()
+        reader.onload = (ev : any) => {
+          const value = ev != null && ev.target != null && ev.target.result != null ? String(ev.target.result) : ""
+          if (value != "") {
+            callback(value)
+            return
+          }
+          if (fallbackPath != "") {
+            readImageAsDataUrl(fallbackPath, callback)
+            return
+          }
+          callback("")
+        }
+        reader.onerror = () => {
+          if (fallbackPath != "") {
+            readImageAsDataUrl(fallbackPath, callback)
+            return
+          }
+          callback("")
+        }
+        reader.readAsDataURL(fileObj)
+        return
+      } catch (_) {
+      }
+    }
+  }
+  if (fallbackPath != "") {
+    readImageAsDataUrl(fallbackPath, callback)
+    return
+  }
+  callback("")
+}
+
+function pickWaterImage() {
+  uni.chooseImage({
+    count: 1,
+    sizeType: ["compressed"],
+    success: (res : any) => {
+      const path = res.tempFilePaths != null && res.tempFilePaths.length > 0 ? String(res.tempFilePaths[0]) : ""
+      if (path == "") return
+      waterPreview.value = path
+      waterLocalPath.value = path
+      waterData.value = ""
+      clearWaterFlag.value = false
+      readChosenImageAsDataUrl(res, path, (data) => {
+        if (data != "") {
+          waterData.value = data
+          waterPreview.value = data
+        } else {
+          waterData.value = ""
+          waterPreview.value = path
+        }
+      })
+    },
+  })
+}
+
+function pickElectricImage() {
+  uni.chooseImage({
+    count: 1,
+    sizeType: ["compressed"],
+    success: (res : any) => {
+      const path = res.tempFilePaths != null && res.tempFilePaths.length > 0 ? String(res.tempFilePaths[0]) : ""
+      if (path == "") return
+      electricPreview.value = path
+      electricLocalPath.value = path
+      electricData.value = ""
+      clearElectricFlag.value = false
+      readChosenImageAsDataUrl(res, path, (data) => {
+        if (data != "") {
+          electricData.value = data
+          electricPreview.value = data
+        } else {
+          electricData.value = ""
+          electricPreview.value = path
+        }
+      })
+    },
+  })
+}
+
+function previewImage(url : string) {
+  if (url == "") return
+  uni.previewImage({ urls: [url] })
+}
+
+function clearWater() {
+  waterPreview.value = ""
+  waterData.value = ""
+  waterLocalPath.value = ""
+  clearWaterFlag.value = true
+}
+
+function clearElectric() {
+  electricPreview.value = ""
+  electricData.value = ""
+  electricLocalPath.value = ""
+  clearElectricFlag.value = true
+}
+
+onLoad((options : any) => {
+  if (options != null && options.action != null) {
+    const action = String(options.action)
+    if (action == "edit" || action == "create") {
+      formAction.value = action
+    }
+  }
+  applyRoomFromOptions(options)
+  const eventChannel = typeof uni.getOpenerEventChannel === "function" ? uni.getOpenerEventChannel() : null
+  if (eventChannel != null) {
+    eventChannel.on("roomSelected", (room : any) => {
+      const target = extractRoom(room)
+      fillForm(target)
+      const id = Number(target != null ? target.id : 0)
+      if (!isNaN(id) && id > 0) {
+        roomId.value = id
+        formAction.value = "edit"
+      }
+    })
+  }
+  if (options != null && options.id != null) {
+    const id = Number(options.id)
+    if (!isNaN(id) && id > 0) {
+      roomId.value = id
+      formAction.value = "edit"
+      loadDetail()
+    }
+  }
+  syncNavigationTitle()
+})
+
+watch(isEdit, () => {
+  syncNavigationTitle()
+})
+</script>
+
+<style>
+.form-card {
+  gap: 10px;
+}
+
+.form-grid {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.field-group {
+  gap: 6px;
+}
+
+.field-half {
+  width: 48.5%;
+  margin-top: 8px;
+}
+
+.field-full {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.label {
+  font-size: 13px;
+  color: #374151;
+}
+
+.warning-text {
+  margin-top: 4px;
+  color: #b45309;
+}
+
+.input {
+  height: 42px;
+  border-width: 1px;
+  border-style: solid;
+  border-color: #d1d5db;
+  border-radius: 10px;
+  padding: 0 12px;
+  font-size: 14px;
+  background-color: #ffffff;
+}
+
+.picker-input {
+  height: 42px;
+  border-width: 1px;
+  border-style: solid;
+  border-color: #d1d5db;
+  border-radius: 10px;
+  padding: 0;
+  font-size: 14px;
+  background-color: #ffffff;
+  color: #111827;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  width: 100%;
+}
+
+.textarea {
+  min-height: 84px;
+  border-width: 1px;
+  border-style: solid;
+  border-color: #d1d5db;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  background-color: #ffffff;
+}
+
+.button-row {
+  gap: 8px;
+}
+
+.small-btn {
+  flex: 1;
+  border-radius: 8px;
+  font-size: 12px;
+  background: #eef2ff;
+  color: #1d4ed8;
+}
+
+.danger-btn {
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
+</style>

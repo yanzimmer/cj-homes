@@ -1,14 +1,14 @@
-import argparse
-import json
+﻿import argparse
 import hashlib
-from datetime import date
+import json
 import os
-import sys
 import shutil
+import sys
+from datetime import date
 
-# 允许从父目录导入 common 模块
+# Allow importing common.py from Backend-System root
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from common import connect, DB_NAME
+from common import DB_NAME, connect
 
 
 def sha256(text: str) -> str:
@@ -16,7 +16,7 @@ def sha256(text: str) -> str:
 
 
 def ensure_tables():
-    """Create all required tables if missing and ensure recovery columns."""
+    """Create all required tables and ensure compatible columns exist."""
     conn = connect()
     cur = conn.cursor()
 
@@ -30,10 +30,21 @@ def ensure_tables():
             room_no TEXT UNIQUE NOT NULL,
             room_type TEXT,
             price REAL,
-            status TEXT DEFAULT '空闲'
+            deposit REAL DEFAULT 0,
+            status TEXT DEFAULT '空闲',
+            water_meter_img TEXT,
+            electricity_meter_img TEXT
         )
         """
     )
+    cur.execute("PRAGMA table_info(rooms)")
+    room_cols = {row[1] for row in cur.fetchall()}
+    if "deposit" not in room_cols:
+        cur.execute("ALTER TABLE rooms ADD COLUMN deposit REAL DEFAULT 0")
+    if "water_meter_img" not in room_cols:
+        cur.execute("ALTER TABLE rooms ADD COLUMN water_meter_img TEXT")
+    if "electricity_meter_img" not in room_cols:
+        cur.execute("ALTER TABLE rooms ADD COLUMN electricity_meter_img TEXT")
 
     # tenants
     cur.execute(
@@ -58,13 +69,13 @@ def ensure_tables():
             check_out_date DATE,
             room_id INTEGER,
             remarks TEXT,
-            status TEXT DEFAULT '在住',
+            status TEXT DEFAULT '在租',
             FOREIGN KEY (room_id) REFERENCES rooms(id)
         )
         """
     )
 
-    # tenant_moves
+    # tenant moves
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS tenant_moves (
@@ -81,7 +92,7 @@ def ensure_tables():
         """
     )
 
-    # admins base table
+    # admins
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS admins (
@@ -93,17 +104,16 @@ def ensure_tables():
         )
         """
     )
-    # ensure recovery columns
     cur.execute("PRAGMA table_info(admins)")
-    cols = {row[1] for row in cur.fetchall()}
-    if "recovery_phrase_hash" not in cols:
+    admin_cols = {row[1] for row in cur.fetchall()}
+    if "recovery_phrase_hash" not in admin_cols:
         cur.execute("ALTER TABLE admins ADD COLUMN recovery_phrase_hash TEXT")
-    if "security_question" not in cols:
+    if "security_question" not in admin_cols:
         cur.execute("ALTER TABLE admins ADD COLUMN security_question TEXT")
-    if "security_answer_hash" not in cols:
+    if "security_answer_hash" not in admin_cols:
         cur.execute("ALTER TABLE admins ADD COLUMN security_answer_hash TEXT")
 
-    # repair_records
+    # repair records
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS repair_records (
@@ -119,12 +129,23 @@ def ensure_tables():
             repair_cost REAL,
             repair_person TEXT,
             remarks TEXT,
+            repair_image_before TEXT,
+            repair_image_after TEXT,
+            repair_image TEXT,
             FOREIGN KEY (room_no) REFERENCES rooms(room_no)
         )
         """
     )
+    cur.execute("PRAGMA table_info(repair_records)")
+    repair_cols = {row[1] for row in cur.fetchall()}
+    if "repair_image" not in repair_cols:
+        cur.execute("ALTER TABLE repair_records ADD COLUMN repair_image TEXT")
+    if "repair_image_before" not in repair_cols:
+        cur.execute("ALTER TABLE repair_records ADD COLUMN repair_image_before TEXT")
+    if "repair_image_after" not in repair_cols:
+        cur.execute("ALTER TABLE repair_records ADD COLUMN repair_image_after TEXT")
 
-    # contract_templates (合同模板)
+    # contract templates
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS contract_templates (
@@ -138,7 +159,7 @@ def ensure_tables():
         """
     )
 
-    # contracts (合同档案)
+    # contracts
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS contracts (
@@ -162,19 +183,53 @@ def ensure_tables():
         """
     )
 
+    # procurements
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS procurements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            procurement_date DATE NOT NULL,
+            item_name TEXT NOT NULL,
+            specification TEXT,
+            quantity INTEGER NOT NULL,
+            unit_price REAL DEFAULT 0,
+            unit TEXT,
+            total_amount REAL NOT NULL,
+            remarks TEXT,
+            procurement_images TEXT,
+            created_at DATETIME DEFAULT (DATETIME('now')),
+            updated_at DATETIME DEFAULT (DATETIME('now'))
+        )
+        """
+    )
+
+    # warehouse
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS warehouse_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_name TEXT NOT NULL,
+            category TEXT,
+            quantity REAL NOT NULL DEFAULT 0,
+            unit TEXT,
+            location TEXT,
+            image TEXT,
+            remarks TEXT,
+            created_at DATETIME DEFAULT (DATETIME('now')),
+            updated_at DATETIME DEFAULT (DATETIME('now'))
+        )
+        """
+    )
+
     conn.commit()
     conn.close()
 
 
 def seed_demo_data():
-    """Insert logical demo data across rooms, tenants, moves, repairs, templates, and contracts.
-
-    Idempotent: skips seeding if rooms or tenants already have data.
-    """
+    """Insert a small demo dataset. Skip if rooms or tenants already exist."""
     conn = connect()
     cur = conn.cursor()
 
-    # If already seeded (rooms exist), skip
     cur.execute("SELECT COUNT(*) FROM rooms")
     room_count = cur.fetchone()[0]
     cur.execute("SELECT COUNT(*) FROM tenants")
@@ -184,29 +239,21 @@ def seed_demo_data():
         print("ℹ️ 跳过演示数据：数据库已有房间或租户记录")
         return False
 
-    # 1) Rooms: 两座楼，若干房型与价格
     rooms = [
-        ("A座", 1, "A101", "单人间", 198.0),
-        ("A座", 1, "A102", "双人间", 258.0),
-        ("A座", 2, "A201", "单人间", 208.0),
-        ("A座", 2, "A202", "套房", 398.0),
-        ("A座", 3, "A301", "单人间", 228.0),
-        ("B座", 1, "B101", "双人间", 268.0),
-        ("B座", 1, "B102", "单人间", 198.0),
-        ("B座", 2, "B201", "套房", 428.0),
-        ("B座", 2, "B202", "单人间", 218.0),
+        ("A栋", 1, "A101", "单人间", 198.0),
+        ("A栋", 1, "A102", "双人间", 258.0),
+        ("B栋", 2, "B201", "套房", 428.0),
+        ("B栋", 2, "B202", "单人间", 218.0),
     ]
     for building, floor, room_no, room_type, price in rooms:
         cur.execute(
-            "INSERT INTO rooms (building, floor, room_no, room_type, price, status) VALUES (?, ?, ?, ?, ?, '空闲')",
-            (building, floor, room_no, room_type, price),
+            "INSERT INTO rooms (building, floor, room_no, room_type, price, deposit, status) VALUES (?, ?, ?, ?, ?, ?, '空闲')",
+            (building, floor, room_no, room_type, price, price),
         )
 
-    # 提前查房间 id 映射
     cur.execute("SELECT id, room_no FROM rooms")
     room_map = {r[1]: r[0] for r in cur.fetchall()}
 
-    # 2) Tenants: 若干在住与已退租，覆盖关键字段
     tenants = [
         {
             "name": "张三",
@@ -214,18 +261,12 @@ def seed_demo_data():
             "nation": "汉族",
             "birth_date": "1992-03-15",
             "id_card": "11010519920315001X",
-            "address": "北京市朝阳区幸福路88号",
-            "issuing_authority": "北京市公安局朝阳分局",
-            "valid_from": "2018-01-01",
-            "valid_to": "2028-01-01",
             "phone": "13800000001",
-            "emergency_contact_name": "王五",
-            "emergency_contact_phone": "13900000001",
-            "check_in_date": "2024-06-01",
-            "check_out_date": "2025-06-01",
+            "check_in_date": "2025-01-01",
+            "check_out_date": "2026-12-31",
             "room_no": "A101",
-            "remarks": "长期客",
-            "status": "在住",
+            "status": "在租",
+            "remarks": "长期租",
         },
         {
             "name": "李四",
@@ -233,80 +274,17 @@ def seed_demo_data():
             "nation": "汉族",
             "birth_date": "1995-08-20",
             "id_card": "110105199508200029",
-            "address": "北京市海淀区中关村大街1号",
-            "issuing_authority": "北京市公安局海淀分局",
-            "valid_from": "2019-05-01",
-            "valid_to": "2029-05-01",
             "phone": "13800000002",
-            "emergency_contact_name": "赵六",
-            "emergency_contact_phone": "13900000002",
-            "check_in_date": "2025-01-15",
-            "check_out_date": "2025-12-31",
-            "room_no": "A102",
-            "remarks": "旅游客",
-            "status": "在住",
-        },
-        {
-            "name": "王强",
-            "gender": "男",
-            "nation": "汉族",
-            "birth_date": "1988-11-02",
-            "id_card": "110105198811020037",
-            "address": "天津市河西区解放南路100号",
-            "issuing_authority": "天津市公安局河西分局",
-            "valid_from": "2017-03-01",
-            "valid_to": "2027-03-01",
-            "phone": "13800000003",
-            "emergency_contact_name": "王芳",
-            "emergency_contact_phone": "13900000003",
-            "check_in_date": "2023-12-01",
-            "check_out_date": "2024-12-01",
-            "room_no": "A201",
-            "remarks": "已退租样本",
-            "status": "已退租",
-        },
-        {
-            "name": "赵敏",
-            "gender": "女",
-            "nation": "汉族",
-            "birth_date": "1999-02-10",
-            "id_card": "110105199902100058",
-            "address": "上海市浦东新区世纪大道200号",
-            "issuing_authority": "上海市公安局浦东分局",
-            "valid_from": "2020-09-01",
-            "valid_to": "2030-09-01",
-            "phone": "13800000004",
-            "emergency_contact_name": "赵勇",
-            "emergency_contact_phone": "13900000004",
-            "check_in_date": "2025-02-01",
-            "check_out_date": "2025-08-01",
+            "check_in_date": "2025-06-01",
+            "check_out_date": "2026-06-01",
             "room_no": "B201",
-            "remarks": "短租",
-            "status": "在住",
-        },
-        {
-            "name": "周杰",
-            "gender": "男",
-            "nation": "汉族",
-            "birth_date": "1985-07-07",
-            "id_card": "110105198507070015",
-            "address": "广州市天河区体育西路12号",
-            "issuing_authority": "广州市公安局天河分局",
-            "valid_from": "2016-06-01",
-            "valid_to": "2026-06-01",
-            "phone": "13800000005",
-            "emergency_contact_name": "周丽",
-            "emergency_contact_phone": "13900000005",
-            "check_in_date": "2025-03-10",
-            "check_out_date": "2025-12-10",
-            "room_no": "B102",
-            "remarks": "公司团体入住",
-            "status": "在住",
+            "status": "在租",
+            "remarks": "公司入住",
         },
     ]
 
     for t in tenants:
-        room_id = room_map.get(t["room_no"])  # may be None if mapping fails
+        room_id = room_map.get(t["room_no"])
         cur.execute(
             """
             INSERT INTO tenants (
@@ -314,108 +292,56 @@ def seed_demo_data():
                 valid_from, valid_to, front_img, back_img,
                 phone, emergency_contact_name, emergency_contact_phone,
                 check_in_date, check_out_date, room_id, remarks, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, '', '', '', '', '', '', ?, '', '', ?, ?, ?, ?, ?)
             """,
             (
-                t["name"], t["gender"], t.get("nation", "汉族"), t.get("birth_date"), t["id_card"], t.get("address", ""),
-                t.get("issuing_authority", ""), t.get("valid_from"), t.get("valid_to"),
-                t["phone"], t["emergency_contact_name"], t["emergency_contact_phone"],
-                t["check_in_date"], t["check_out_date"], room_id, t.get("remarks", ""), t.get("status", "在住"),
+                t["name"],
+                t["gender"],
+                t.get("nation", "汉族"),
+                t.get("birth_date"),
+                t["id_card"],
+                t["phone"],
+                t["check_in_date"],
+                t["check_out_date"],
+                room_id,
+                t.get("remarks", ""),
+                t.get("status", "在租"),
             ),
         )
 
-    # 3) Moves: 示例一次换房记录（李四 从 A102 -> A201）
-    try:
-        cur.execute("SELECT id FROM tenants WHERE name = ?", ("李四",))
-        tenant_row = cur.fetchone()
-        if tenant_row:
-            tenant_id = tenant_row[0]
-            old_room_id = room_map.get("A102")
-            new_room_id = room_map.get("A201")
-            cur.execute(
-                "INSERT INTO tenant_moves (tenant_id, old_room_id, new_room_id, move_date, remarks) VALUES (?, ?, ?, ?, ?)",
-                (tenant_id, old_room_id, new_room_id, "2025-02-20", "房型升级，调房一次"),
-            )
-            # 同步租户当前房号到新房间（示例）
-            if new_room_id:
-                cur.execute("UPDATE tenants SET room_id = ? WHERE id = ?", (new_room_id, tenant_id))
-    except Exception:
-        pass
+    cur.execute(
+        """
+        INSERT INTO repair_records (
+            building, room_no, repair_type, description, report_date, report_by,
+            status, repair_date, repair_cost, repair_person, remarks,
+            repair_image_before, repair_image_after, repair_image
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "A栋",
+            "A102",
+            "空调维修",
+            "空调不制冷，已安排检修",
+            "2025-02-18",
+            "李四",
+            "已完成",
+            "2025-02-19",
+            320.0,
+            "张师傅",
+            "保内处理",
+            "[]",
+            "[]",
+            "[]",
+        ),
+    )
 
-    # 4) Repairs: 示例两条
-    repairs = [
-        ("A座", "A102", "空调维修", "空调不制冷，已更换压缩机", "2025-02-18", "李四", "已完成", "2025-02-19", 320.0, "张师傅", "保内"),
-        ("B座", "B201", "热水器", "热水器漏水，待排查", "2025-03-01", "赵敏", "待处理", None, None, None, "尽快安排"),
-    ]
-    for r in repairs:
-        cur.execute(
-            """
-            INSERT INTO repair_records (
-                building, room_no, repair_type, description, report_date, report_by, status, repair_date, repair_cost, repair_person, remarks
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            r,
-        )
-
-    # 5) Contract templates: 一份通用模板
     cur.execute("SELECT COUNT(*) FROM contract_templates")
-    tpl_count = cur.fetchone()[0]
-    if tpl_count == 0:
-        tpl_html = (
-            "<h1>租赁合同</h1>"
-            "<p>甲方（房东）：{{landlord}}</p>"
-            "<p>乙方（租客）：{{name}}（身份证号：{{id_card}}）</p>"
-            "<p>租赁房屋：{{room_no}}，租期：{{start_date}} 至 {{end_date}}，租金：{{rent}} 元/月。</p>"
-            "<p>双方遵守相关条款。</p>"
-        )
+    if cur.fetchone()[0] == 0:
         cur.execute(
             "INSERT INTO contract_templates (name, description, content_html, updated_at) VALUES (?, ?, ?, DATETIME('now'))",
-            ("标准租赁合同", "适用于普通房间租赁的模板", tpl_html),
+            ("标准租赁合同", "默认模板", "<h1>租赁合同</h1><p>示例模板内容</p>"),
         )
 
-    # 6) Contracts: 为在住租户生成合同副本（渲染后入库）
-    cur.execute("SELECT id FROM contract_templates ORDER BY id LIMIT 1")
-    tpl_row = cur.fetchone()
-    tpl_id = tpl_row[0] if tpl_row else 1
-    landlord = "某某公寓运营方"
-    # 选取在住租户生成合同
-    cur.execute(
-        "SELECT t.id, t.name, t.id_card, r.id, r.room_no, t.check_in_date, t.check_out_date FROM tenants t LEFT JOIN rooms r ON r.id = t.room_id WHERE t.status = '在住'"
-    )
-    for row in cur.fetchall():
-        tenant_id, name, id_card, room_id, room_no, start_date, end_date = row
-        rent = 0.0
-        try:
-            if room_no:
-                cur.execute("SELECT price FROM rooms WHERE room_no = ?", (room_no,))
-                pr = cur.fetchone()
-                if pr:
-                    rent = float(pr[0])
-        except Exception:
-            rent = 0.0
-        rendered_html = (
-            f"<h1>租赁合同</h1>"
-            f"<p>甲方（房东）：{landlord}</p>"
-            f"<p>乙方（租客）：{name}（身份证号：{id_card}）</p>"
-            f"<p>租赁房屋：{room_no}，租期：{start_date} 至 {end_date}，租金：{rent} 元/月。</p>"
-        )
-        
-        # 确保有 room_id，如果 tenants 表里有 room_id 但 r.id 为空（脏数据），则尝试重新查找
-        if not room_id and room_no:
-             cur.execute("SELECT id FROM rooms WHERE room_no = ?", (room_no,))
-             r_row = cur.fetchone()
-             if r_row:
-                 room_id = r_row[0]
-
-        cur.execute(
-            """
-            INSERT INTO contracts (tenant_id, room_id, template_id, tenant_name, id_card, room_no, start_date, end_date, rent, rendered_html)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (tenant_id, room_id, tpl_id, name, id_card, room_no, start_date, end_date, rent, rendered_html),
-        )
-
-    # 7) 根据租户入住情况更新房间状态
     cur.execute(
         """
         UPDATE rooms
@@ -423,7 +349,7 @@ def seed_demo_data():
             WHEN EXISTS (
                 SELECT 1 FROM tenants t
                 WHERE t.room_id = rooms.id
-                  AND t.status = '在住'
+                  AND t.status = '在租'
                   AND DATE('now') BETWEEN t.check_in_date AND t.check_out_date
             ) THEN '已入住'
             ELSE '空闲'
@@ -433,17 +359,19 @@ def seed_demo_data():
 
     conn.commit()
     conn.close()
-    print("✅ 已插入演示数据：房间、租户、调房、维修、合同模板与合同")
+    print("✅ 已插入演示数据：房间、租户、维修和合同模板")
+    return True
 
 
 def create_default_admin(username: str = "admin", password: str = "123456", full_name: str = "管理员"):
-    """Create default admin if not exists."""
+    """Create default admin if missing."""
     conn = connect()
     cur = conn.cursor()
     cur.execute("SELECT id FROM admins WHERE username = ?", (username,))
     if cur.fetchone():
         conn.close()
         return False, f"管理员 {username} 已存在"
+
     cur.execute(
         "INSERT INTO admins (username, password_hash, full_name) VALUES (?, ?, ?)",
         (username, sha256(password), full_name),
@@ -458,35 +386,38 @@ def summarize(compact: bool = False):
     cur = conn.cursor()
     cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
     tables = [r[0] for r in cur.fetchall()]
+
     if compact:
-        lines = [f"{t}:{cur.execute('SELECT COUNT(*) FROM ' + t).fetchone()[0]}" for t in tables]
+        parts = []
+        for t in tables:
+            cur.execute(f"SELECT COUNT(*) FROM {t}")
+            parts.append(f"{t}:{cur.fetchone()[0]}")
         print("DB:" + DB_NAME)
-        print(" | ".join(lines))
+        print(" | ".join(parts))
         conn.close()
         return
+
     summary = {"db_path": DB_NAME, "tables": {}}
     for t in tables:
         try:
-            cur.execute("SELECT COUNT(*) FROM " + t)
+            cur.execute(f"SELECT COUNT(*) FROM {t}")
             count = cur.fetchone()[0]
-            cur.execute("PRAGMA table_info(" + t + ")")
-            cols = [{"name": r[1], "type": r[2]} for r in cur.fetchall()]
+            cur.execute(f"PRAGMA table_info({t})")
+            cols = [{"name": c[1], "type": c[2]} for c in cur.fetchall()]
             summary["tables"][t] = {"count": count, "columns": cols}
         except Exception as e:
             summary["tables"][t] = {"error": str(e)}
+
     conn.close()
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 
 def ensure_sql_dir_and_migrate_db():
-    """Ensure sql directory exists and migrate old DB if found at root.
-
-    Old path: Backend System/hotel.db
-    New path: Backend System/sql/hotel.db
-    """
+    """Move old DB file from Backend-System root to sql folder if needed."""
     base_dir = os.path.dirname(os.path.dirname(__file__))
     old_path = os.path.join(base_dir, "hotel.db")
     new_path = DB_NAME
+
     os.makedirs(os.path.dirname(new_path), exist_ok=True)
     if os.path.exists(old_path) and not os.path.exists(new_path):
         try:
@@ -499,27 +430,26 @@ def ensure_sql_dir_and_migrate_db():
 def main():
     parser = argparse.ArgumentParser(description="初始化/检查酒店管理数据库")
     parser.add_argument("--init", action="store_true", help="创建缺失的表和必要列")
-    parser.add_argument("--create-default-admin", action="store_true", help="若无管理员则创建默认 admin/123456")
-    parser.add_argument("--summarize", action="store_true", help="输出当前数据库的表与行数概览")
-    parser.add_argument("--compact", action="store_true", help="以紧凑格式输出表名与行数")
-    parser.add_argument("--seed-demo-data", action="store_true", help="插入有逻辑的演示数据（若已存在数据则跳过）")
+    parser.add_argument("--create-default-admin", action="store_true", help="若无管理员则创建 admin/123456")
+    parser.add_argument("--summarize", action="store_true", help="输出当前数据库概览")
+    parser.add_argument("--compact", action="store_true", help="紧凑格式输出统计")
+    parser.add_argument("--seed-demo-data", action="store_true", help="插入演示数据（若已有数据则跳过）")
     args = parser.parse_args()
 
-    # Ensure new sql directory and migrate old db if needed
     ensure_sql_dir_and_migrate_db()
 
     if args.init:
         ensure_tables()
-        print("✅ 表结构已确保存在并更新。")
+        print("✅ 表结构已确保存在并更新")
 
     if args.create_default_admin:
         created, msg = create_default_admin()
         print(("✅ " if created else "ℹ️ ") + msg)
 
     if args.seed_demo_data:
-        seeded = seed_demo_data()
+        seed_demo_data()
 
-    if args.summarize or (not args.init and not args.create_default_admin):
+    if args.summarize or (not args.init and not args.create_default_admin and not args.seed_demo_data):
         summarize(compact=args.compact)
 
 

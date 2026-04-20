@@ -1,14 +1,15 @@
 <template>
   <div class="home-container page-container">
-    <div class="page-header">
-      <h2>系统概览</h2>
-      <span class="subtitle">欢迎回到房屋租赁管理系统</span>
+    <div class="home-hero">
+      <div>
+        <h2 class="hero-title">运营总览</h2>
+        <p class="hero-subtitle">实时查看房间、租户、维修和到期预警数据</p>
+      </div>
+      <el-tag effect="dark" class="hero-date">{{ todayLabel }}</el-tag>
     </div>
 
-    <el-row :gutter="24">
-      <!-- 房间统计卡片 -->
-      <el-col :span="8" :xs="24" :sm="12" :md="8">
-        <div class="stat-card-wrapper card-box">
+    <div class="overview-grid">
+      <div class="stat-card-wrapper overview-card">
           <div class="stat-header">
             <div class="icon-box icon-primary">
               <el-icon><House /></el-icon>
@@ -40,12 +41,10 @@
               />
             </div>
           </div>
-        </div>
-      </el-col>
+      </div>
 
       <!-- 租户统计卡片 -->
-      <el-col :span="8" :xs="24" :sm="12" :md="8">
-        <div class="stat-card-wrapper card-box">
+      <div class="stat-card-wrapper overview-card">
           <div class="stat-header">
             <div class="icon-box icon-success">
               <el-icon><User /></el-icon>
@@ -77,12 +76,10 @@
               />
             </div>
           </div>
-        </div>
-      </el-col>
+      </div>
 
       <!-- 维修记录统计卡片 -->
-      <el-col :span="8" :xs="24" :sm="12" :md="8">
-        <div class="stat-card-wrapper card-box">
+      <div class="stat-card-wrapper overview-card">
           <div class="stat-header">
             <div class="icon-box icon-warning">
               <el-icon><Tools /></el-icon>
@@ -114,60 +111,55 @@
               />
             </div>
           </div>
-        </div>
-      </el-col>
-    </el-row>
+      </div>
+    </div>
 
     <!-- 预警列表区域 -->
-    <el-row :gutter="24" class="mt-4">
-      <el-col :span="24">
-        <div class="card-box">
-          <div class="section-header">
-            <div class="header-left">
-              <el-icon class="warning-icon"><Warning /></el-icon>
-              <h3 class="section-title">即将到期预警</h3>
-              <el-tag type="danger" size="small" v-if="stats.expiring.count > 0">{{ stats.expiring.count }} 人即将到期</el-tag>
-            </div>
-            <div class="header-right">
-              <span class="advance-days-info">当前预警天数：{{ advanceDays }} 天</span>
-            </div>
-          </div>
-          
-          <el-table 
-            v-loading="loading.expiring" 
-            :data="stats.expiring.list" 
-            style="width: 100%" 
-            :row-class-name="tableRowClassName"
-            empty-text="暂无即将到期的租户"
-          >
-            <el-table-column prop="name" label="租户姓名" width="120">
-              <template #default="scope">
-                <span class="tenant-name">{{ scope.row.name }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="room_no" label="房间号" width="120">
-              <template #default="scope">
-                <el-tag size="small" effect="plain">{{ scope.row.room_no }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="phone" label="联系电话" width="150" />
-            <el-table-column prop="check_out_date" label="到期日期" width="150" sortable />
-            <el-table-column label="剩余天数" width="150" sortable :sort-method="(a, b) => a.days_remaining - b.days_remaining">
-              <template #default="scope">
-                <el-tag :type="getRemainingDaysTagType(scope.row.days_remaining)">
-                  {{ getRemainingDaysText(scope.row.days_remaining) }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="状态" min-width="120">
-              <template #default>
-                <el-tag type="success" size="small">在住</el-tag>
-              </template>
-            </el-table-column>
-          </el-table>
+    <div class="alert-panel">
+      <div class="section-header">
+        <div class="header-left">
+          <el-icon class="warning-icon"><Warning /></el-icon>
+          <h3 class="section-title">即将到期预警</h3>
+          <el-tag type="danger" size="small" v-if="stats.expiring.count > 0">{{ stats.expiring.count }} 人即将到期</el-tag>
         </div>
-      </el-col>
-    </el-row>
+        <div class="header-right">
+          <span class="advance-days-info">当前预警天数：{{ advanceDays }} 天</span>
+        </div>
+      </div>
+      
+      <el-table 
+        v-loading="loading.expiring" 
+        :data="stats.expiring.list" 
+        style="width: 100%" 
+        :row-class-name="tableRowClassName"
+        empty-text="暂无即将到期的租户"
+      >
+        <el-table-column prop="name" label="租户姓名" width="120">
+          <template #default="scope">
+            <span class="tenant-name">{{ scope.row.name }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="room_no" label="房间号" width="120">
+          <template #default="scope">
+            <el-tag size="small" effect="plain">{{ scope.row.room_no }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="phone" label="联系电话" width="150" />
+        <el-table-column prop="check_out_date" label="到期日期" width="150" sortable />
+        <el-table-column label="剩余天数" width="150" sortable :sort-method="(a, b) => a.days_remaining - b.days_remaining">
+          <template #default="scope">
+            <el-tag :type="getRemainingDaysTagType(scope.row.days_remaining)">
+              {{ getRemainingDaysText(scope.row.days_remaining) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" min-width="120">
+          <template #default>
+            <el-tag type="success" size="small">在住</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
   </div>
 </template>
 
@@ -187,6 +179,10 @@ const loading = reactive({
 
 // 预警天数配置
 const advanceDays = ref(7)
+const todayLabel = computed(() => {
+  const now = new Date()
+  return now.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
+})
 
 // 统计数据
 const stats = reactive({
@@ -406,6 +402,105 @@ onMounted(() => {
   font-size: 14px;
 }
 
+.home-container {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(14px, 2.4vw, 26px);
+}
+
+.home-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #2563eb 0%, #14b8a6 100%);
+  color: #ffffff;
+  box-shadow: 0 16px 36px rgba(37, 99, 235, 0.22);
+}
+
+.hero-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.hero-subtitle {
+  margin: 6px 0 0;
+  font-size: 14px;
+  opacity: 0.92;
+}
+
+.hero-date {
+  border: none;
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(12px, 2vw, 20px);
+}
+
+.overview-card {
+  margin: 0;
+  background: linear-gradient(180deg, var(--card-bg) 0%, var(--surface-muted) 100%);
+  border: 1px solid var(--surface-border);
+  border-radius: 16px;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08);
+  padding: 20px;
+}
+
+.alert-panel {
+  margin: 0;
+  margin-top: clamp(20px, 3vw, 36px);
+  background: var(--card-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: 16px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  padding: 20px;
+  position: relative;
+  z-index: 0;
+}
+
+html.dark .overview-card,
+html.dark .alert-panel {
+  border-color: var(--surface-border);
+}
+
+@media (max-width: 1200px) {
+  .overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .overview-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .home-container {
+    gap: 18px;
+  }
+
+  .home-hero {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .overview-card {
+    padding: 18px;
+  }
+}
+
+.alert-panel :deep(.el-table) {
+  background: var(--card-bg);
+  border-radius: 12px;
+}
+
 .stat-card-wrapper {
   height: 100%;
   display: flex;
@@ -415,17 +510,17 @@ onMounted(() => {
 .stat-header {
   display: flex;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: 18px;
 }
 
 .icon-box {
   width: 48px;
   height: 48px;
-  border-radius: 12px;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
+  font-size: 22px;
   margin-right: 16px;
 }
 
@@ -443,7 +538,7 @@ onMounted(() => {
 }
 
 .stat-title {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 600;
   color: var(--text-main);
 }
@@ -455,11 +550,11 @@ onMounted(() => {
 }
 
 .main-value {
-  font-size: 36px;
+  font-size: 34px;
   font-weight: 700;
   color: var(--text-main);
   line-height: 1.2;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 .unit {
   font-size: 14px;
@@ -471,10 +566,11 @@ onMounted(() => {
 .sub-stats {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 24px;
-  padding: 16px;
-  background-color: var(--bg-color);
-  border-radius: 8px;
+  margin-bottom: 20px;
+  padding: 14px;
+  background-color: var(--surface-muted);
+  border-radius: 12px;
+  border: 1px solid var(--surface-border);
 }
 
 .sub-item {
@@ -501,6 +597,7 @@ onMounted(() => {
 
 .progress-area {
   margin-top: auto;
+  padding-top: 4px;
 }
 
 .progress-label {
@@ -516,8 +613,8 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--el-border-color-light, #ebeef5);
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--surface-border);
 }
 
 .header-left {
@@ -527,8 +624,15 @@ onMounted(() => {
 }
 
 .warning-icon {
-  font-size: 20px;
+  font-size: 18px;
   color: var(--el-color-danger);
+  background: rgba(245, 108, 108, 0.12);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .section-title {
@@ -562,7 +666,4 @@ onMounted(() => {
   color: var(--el-color-danger);
 }
 
-.mt-4 {
-  margin-top: 24px;
-}
 </style>

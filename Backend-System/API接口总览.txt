@@ -1,0 +1,513 @@
+房屋租赁系统 后端API接口总览（用于APP对接）
+更新时间：2026-03-09
+
+==================================================
+一、基础信息
+==================================================
+1) 本地开发基地址
+- http://127.0.0.1:5000
+
+2) API前缀
+- /api
+
+3) 认证方式
+- 绝大多数接口使用 Bearer Token
+- 请求头：
+  Authorization: Bearer <token>
+
+4) Token获取
+- 通过 POST /api/login 获取 token
+
+5) 响应约定
+- 成功通常返回 200/201 + JSON
+- 失败返回 4xx/5xx + JSON:
+  {
+    "error": "错误信息"
+  }
+
+6) 续期响应头（仅 token_required 装饰器接口）
+- X-Refreshed-Token
+- X-Token-Expires
+
+7) 未鉴权接口
+- POST /api/login
+- POST /api/forgot-password
+- 采购模块全部接口：/api/procurements*
+
+==================================================
+二、认证模块 Auth
+==================================================
+[1] 登录
+POST /api/login
+请求体(JSON):
+{
+  "username": "admin",
+  "password": "123456"
+}
+成功响应:
+{
+  "token": "...",
+  "username": "admin",
+  "full_name": "管理员",
+  "expires": "..."
+}
+
+[2] 忘记密码
+POST /api/forgot-password
+请求体(JSON):
+{
+  "username": "admin",
+  "answer": "密保答案",
+  "new_password": "新密码"
+}
+成功响应:
+{
+  "message": "密码重置成功"
+}
+
+[3] 校验令牌
+GET /api/verify-token
+请求头: Authorization: Bearer <token>
+成功响应:
+{
+  "message": "令牌有效"
+}
+
+[4] 修改密码
+POST /api/change-password
+请求头: Authorization: Bearer <token>
+请求体(JSON):
+{
+  "old_password": "旧密码",
+  "new_password": "新密码"
+}
+成功响应:
+{
+  "message": "密码修改成功"
+}
+
+==================================================
+三、OCR模块
+==================================================
+[1] 身份证OCR识别
+POST /api/ocr/idcard
+请求头: Authorization: Bearer <token>
+请求体: multipart/form-data
+- image: 文件(必填)
+- side: front/back(可选)
+成功响应(示例):
+{
+  "engine": "paddleocr|qwen-vl",
+  "text": "...",
+  "fields": { ... },
+  "image_url": "/static/uploads/..."
+}
+
+==================================================
+四、通知配置模块
+==================================================
+[1] 获取通知配置
+GET /api/notification-config
+鉴权: 需要
+
+[2] 更新通知配置
+PUT /api/notification-config
+鉴权: 需要
+请求体(JSON): 配置对象
+
+[3] 测试邮件
+POST /api/test-email
+鉴权: 需要
+请求体(JSON):
+{
+  "smtp_config": { ... },
+  "recipient": "...",
+  "sender": "...",
+  "subject": "...",
+  "content": "...",
+  "use_ssl": true
+}
+
+[4] 测试短信
+POST /api/test-sms
+鉴权: 需要
+请求体(JSON):
+{
+  "sms_config": { ... },
+  "template_id": "...",
+  "template_params": { ... }
+}
+
+==================================================
+五、房间模块 Rooms
+==================================================
+[1] 房间列表
+GET /api/rooms
+鉴权: 需要
+响应:
+{
+  "rooms": [
+    {
+      "id": 1,
+      "room_no": "A101",
+      "building": "A栋",
+      "floor": "1",
+      "room_type": "单人间",
+      "price": 1200,
+      "description": "",
+      "status": "空闲|在住|即将到期|已过期",
+      "tenant_count": 0,
+      "has_water_meter_img": false,
+      "has_electricity_meter_img": false
+    }
+  ]
+}
+
+[2] 房间详情
+GET /api/rooms/{room_id}
+鉴权: 需要
+
+[3] 按需获取水/电表二维码
+GET /api/rooms/{room_id}/meter-image?type=water|electricity
+鉴权: 需要
+响应:
+{
+  "image": "data:image/... 或静态路径"
+}
+
+[4] 查询某房间租户
+GET /api/rooms/{room_no}/tenants
+鉴权: 需要
+
+[5] 房间租户退房
+POST /api/rooms/{room_no}/checkout
+鉴权: 需要
+
+[6] 新增房间
+POST /api/rooms
+鉴权: 需要
+请求体(JSON)常用字段:
+{
+  "room_no": "A101",
+  "floor": "1",
+  "room_type": "单人间",
+  "price": 1200,
+  "building": "A栋",
+  "description": "",
+  "water_meter_img": "",
+  "electricity_meter_img": ""
+}
+
+[7] 更新房间
+PUT /api/rooms/{room_id}
+鉴权: 需要
+请求体(JSON): 可更新字段同新增
+
+[8] 删除房间
+DELETE /api/rooms/{room_id}
+鉴权: 需要
+
+==================================================
+六、租户模块 Tenants
+==================================================
+[1] 租户列表
+GET /api/tenants
+鉴权: 需要
+
+[2] 新增租户
+POST /api/tenants
+鉴权: 需要
+请求体(JSON)必填:
+- name
+- gender
+- id_card
+- phone
+- emergency_contact_name
+- emergency_contact_phone
+- check_in_date
+- check_out_date
+- room_no
+可选:
+- nationality
+- id_address
+- front_img
+- back_img
+
+[3] 编辑租户
+PUT /api/tenants/{id_card}
+鉴权: 需要
+
+[4] 删除租户
+DELETE /api/tenants/{id_card}
+鉴权: 需要
+
+[5] 退房
+POST /api/tenants/{id_card}/checkout
+鉴权: 需要
+
+==================================================
+七、搬迁模块 Moves
+==================================================
+[1] 搬迁记录列表
+GET /api/moves
+鉴权: 需要
+
+[2] 租户搬迁
+POST /api/moves/tenant
+鉴权: 需要
+请求体(JSON):
+{
+  "move_type": "single|all",
+  "tenant_id": "...",      // single时常用
+  "from_room": "A101",     // all时常用
+  "to_room": "A201"
+}
+
+[3] 整房搬迁
+POST /api/moves/room
+鉴权: 需要
+请求体(JSON):
+{
+  "from_room_no": "A101",
+  "to_room_no": "A201"
+}
+
+[4] 删除搬迁记录
+DELETE /api/moves/{move_id}
+鉴权: 需要
+
+==================================================
+八、维修记录模块 Repair Records
+==================================================
+[1] 维修记录列表
+GET /api/repair-records
+鉴权: 需要
+
+[2] 维修记录详情
+GET /api/repair-records/{record_id}
+鉴权: 需要
+
+[3] 新增维修记录
+POST /api/repair-records
+鉴权: 需要
+请求体(JSON)必填:
+{
+  "room_no": "A101",
+  "repair_type": "水电",
+  "description": "漏水",
+  "report_by": "租户/管理员"
+}
+
+[4] 更新维修记录
+PUT /api/repair-records/{record_id}
+鉴权: 需要
+
+[5] 删除维修记录
+DELETE /api/repair-records/{record_id}
+鉴权: 需要
+
+[6] 按房间查询维修记录
+GET /api/repair-records/room/{room_no}
+鉴权: 需要
+
+==================================================
+九、系统模块 System
+==================================================
+[1] 导出系统数据
+GET /api/system/export
+鉴权: 需要
+响应: application/zip 文件流
+说明: 已加限流/互斥，频繁调用会返回429
+
+[2] 导入系统数据
+POST /api/system/import
+鉴权: 需要
+请求体: multipart/form-data
+- file: zip文件
+
+[3] 生成演示数据
+POST /api/system/seed
+鉴权: 需要
+
+[4] 重置系统
+POST /api/system/reset
+鉴权: 需要
+
+==================================================
+十、合同模板模块 Contract Templates
+==================================================
+[1] 模板列表
+GET /api/contract-templates
+鉴权: 需要
+
+[2] 模板详情
+GET /api/contract-templates/{tid}
+鉴权: 需要
+
+[3] 新增模板
+POST /api/contract-templates
+鉴权: 需要
+请求体(JSON):
+{
+  "name": "模板名",
+  "description": "说明",
+  "content_html": "<html>...</html>"
+}
+
+[4] 更新模板
+PUT /api/contract-templates/{tid}
+鉴权: 需要
+
+[5] 删除模板
+DELETE /api/contract-templates/{tid}
+鉴权: 需要
+
+[6] 模板渲染
+POST /api/contract-templates/{tid}/render
+鉴权: 需要
+请求体(JSON):
+{
+  "vars": {
+    "tenant_name": "张三",
+    "room_no": "A101"
+  }
+}
+
+==================================================
+十一、合同档案模块 Contracts
+==================================================
+说明：本模块使用 before_request 鉴权，同样要求 Authorization: Bearer <token>
+
+[1] 创建合同
+POST /api/contracts
+请求体(JSON):
+{
+  "template_id": 1,
+  "vars": { ... }
+}
+
+[2] 合同列表
+GET /api/contracts?page=1&page_size=10
+
+[3] 合同详情
+GET /api/contracts/{contract_id}
+
+[4] 更新合同
+PUT /api/contracts/{contract_id}
+请求体(JSON):
+{
+  "vars": { ... }
+}
+
+==================================================
+十二、采购模块 Procurement（当前无需鉴权）
+==================================================
+[1] 采购列表
+GET /api/procurements?page=1&page_size=10&search=
+
+[2] 新增采购
+POST /api/procurements
+请求体(JSON):
+{
+  "procurement_date": "2026-03-09",
+  "item_name": "项目名",
+  "specification": "规格",
+  "quantity": 10,
+  "unit": "个",
+  "total_amount": 100.00,
+  "remarks": ""
+}
+
+[3] 更新采购
+PUT /api/procurements/{id}
+
+[4] 删除采购
+DELETE /api/procurements/{id}
+
+==================================================
+十三、库房模块 Warehouse
+==================================================
+[1] 物资列表
+GET /api/warehouse-items?q=
+鉴权: 需要
+
+[2] 物资详情
+GET /api/warehouse-items/{item_id}
+鉴权: 需要
+
+[3] 新增物资
+POST /api/warehouse-items
+鉴权: 需要
+请求体(JSON):
+{
+  "item_name": "LED灯泡",
+  "category": "照明",
+  "quantity": 56,
+  "unit": "个",
+  "location": "A库-货架1层",
+  "image": "data:image/png;base64,...",
+  "remarks": "常用耗材"
+}
+
+[4] 更新物资
+PUT /api/warehouse-items/{item_id}
+鉴权: 需要
+
+[5] 删除物资
+DELETE /api/warehouse-items/{item_id}
+鉴权: 需要
+
+==================================================
+十四、对接建议（APP）
+==================================================
+1) 先调用 /api/login，拿到 token 后统一加 Authorization 头
+2) 对 token_required 接口，若响应头含 X-Refreshed-Token，建议更新本地token
+3) 上传图片字段（如库房 image）使用 Base64 DataURL 最方便
+4) 导出接口 /api/system/export 返回ZIP文件流，APP需走下载逻辑
+5) 当前采购模块未鉴权，如需上线建议后端补齐鉴权
+
+==================================================
+十五、房间管理功能说明（业务功能）
+==================================================
+1) 房间列表管理
+- 支持按楼栋、楼层、房间号、房型搜索
+- 支持按房型与状态筛选（空闲/已入住）
+- 支持排序与分页浏览
+
+2) 双视图展示
+- 列表视图：适合批量管理与多字段对比
+- 楼层视图：按楼栋和楼层分组展示，便于快速定位房间
+
+3) 房间资料维护
+- 新增房间：房间号、楼栋、楼层、房型、价格、描述
+- 编辑房间：可更新基础信息与说明
+- 删除房间：仅在无在住租户时允许删除
+- 批量删除：可对可删除房间进行批量处理
+
+4) 租住状态联动
+- 自动统计每个房间租户数量
+- 状态自动体现空闲、已入住、即将到期、已过期等
+- 提供整房退租能力（将该房间在住租户统一退租）
+
+5) 房间详情与关联信息
+- 查看房间详情（基础信息、状态、价格）
+- 查看关联租户列表（含历史退租记录）
+
+6) 二维码管理（水表/电表）
+- 新增或编辑时可上传水表二维码与电表二维码图片
+- 列表与楼层卡片支持二维码可用性标记与预览
+- 支持按需获取二维码图片，减少列表传输开销
+
+7) 数据导出能力
+- 支持导出房间数据为 Excel
+- 支持导出房间数据为 Word
+- 支持导出房间数据为 PDF
+
+8) 安全与鉴权
+- 房间管理接口统一需要 Bearer Token
+- 删除时具有关联校验，避免误删导致数据不一致
+
+==================================================
+接口总数：53
+文档文件：Backend-System/API接口总览.txt
+==================================================

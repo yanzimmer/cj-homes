@@ -1,0 +1,485 @@
+﻿﻿﻿﻿<template>
+  <view class="page">
+    <view class="card form-card">
+      <text class="section-title">{{ isEdit ? "编辑维修记录" : "新增维修记录" }}</text>
+
+      <view class="field-group">
+        <text class="label">楼栋 *</text>
+        <picker mode="selector" :range="buildingOptions" @change="onBuildingChange">
+          <view class="picker-view">{{ selectedBuilding == "" ? "请选择楼栋" : selectedBuilding }}</view>
+        </picker>
+      </view>
+
+      <view class="field-group">
+        <text class="label">房间号 *</text>
+        <picker mode="selector" :range="roomOptions" @change="onRoomChange">
+          <view class="picker-view">{{ roomNo == "" ? "请选择房间号" : roomNo }}</view>
+        </picker>
+      </view>
+
+      <view class="field-group">
+        <text class="label">维修类型 *</text>
+        <picker mode="selector" :range="repairTypeOptions" @change="onRepairTypeChange">
+          <view class="picker-view">{{ repairTypeOptions[repairTypeIndex] }}</view>
+        </picker>
+      </view>
+
+      <view class="field-group">
+        <text class="label">维修人员 *</text>
+        <input v-model="reportBy" class="input" placeholder="租户/管理员" />
+      </view>
+
+      <view class="field-group">
+        <text class="label">维修时间</text>
+        <input v-model="reportDate" class="input" placeholder="例如 2026-03-12" />
+      </view>
+
+      <view class="field-group">
+        <text class="label">状态</text>
+        <picker mode="selector" :range="statusOptions" @change="onStatusChange">
+          <view class="picker-view">{{ statusOptions[statusIndex] }}</view>
+        </picker>
+      </view>
+
+      <view v-if="statusOptions[statusIndex] == '处理中' || statusOptions[statusIndex] == '已完成'" class="field-group">
+        <text class="label">维修日期</text>
+        <input v-model="repairDate" class="input" placeholder="例如 2026-03-12" />
+      </view>
+
+      <view v-if="statusOptions[statusIndex] == '处理中' || statusOptions[statusIndex] == '已完成'" class="field-group">
+        <text class="label">维修费用</text>
+        <input v-model="repairCost" class="input" type="digit" placeholder="例如 128.50" />
+      </view>
+
+      <view v-if="statusOptions[statusIndex] == '处理中' || statusOptions[statusIndex] == '已完成'" class="field-group">
+        <text class="label">维修人员</text>
+        <input v-model="repairPerson" class="input" placeholder="请输入维修人员" />
+      </view>
+
+      <view class="field-group">
+        <text class="label">问题描述 *</text>
+        <textarea v-model="description" class="textarea" placeholder="请描述维修问题" />
+      </view>
+
+      <view class="field-group">
+        <text class="label">备注</text>
+        <textarea v-model="remarks" class="textarea" placeholder="可选" />
+      </view>
+
+      <view class="field-group">
+        <text class="label">维修图片</text>
+        <view class="row image-actions">
+          <button class="small-btn action-btn" @click="pickRepairImage">选择图片</button>
+          <button class="small-btn danger-btn" :disabled="repairImages.length == 0" @click="clearRepairImage">清空</button>
+        </view>
+        <text class="muted">{{ repairImages.length }} / 50</text>
+        <text v-if="uploadingImage" class="muted">上传进度 {{ uploadProgress }}%</text>
+        <view v-if="repairImages.length > 0" class="repair-image-list">
+          <view v-for="(item, index) in repairImages" :key="`${item}-${index}`" class="repair-image-item">
+            <image class="repair-image-preview" :src="normalizeImage(item)" mode="aspectFill" @click="openRepairImage(index)" />
+            <button class="tiny-btn danger-btn" @click="removeRepairImage(index)">删除</button>
+          </view>
+        </view>
+      </view>
+
+      <button class="btn-primary" :disabled="loading" @click="submitForm">
+        {{ loading ? "提交中..." : "保存" }}
+      </button>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+import { computed, ref } from "vue"
+import { onLoad } from "@dcloudio/uni-app"
+import { apiCreateRepairRecord, apiGetRepairRecordDetail, apiGetRooms, apiUpdateRepairRecord, apiUploadRepairRecordImage } from "../../api/services.uts"
+import { getErrorMessage, normalizeArray } from "../../common/page.uts"
+import { getApiHost } from "../../common/request.uts"
+
+const recordId = ref(0)
+const loading = ref(false)
+
+const roomNo = ref("")
+const selectedBuilding = ref("")
+const rooms = ref<any[]>([])
+const repairTypeOptions = ["水电维修", "家具维修", "电器维修", "其他"]
+const repairTypeIndex = ref(0)
+const reportBy = ref("")
+const reportDate = ref("")
+const statusOptions = ["待处理", "处理中", "已完成"]
+const statusIndex = ref(0)
+const repairDate = ref("")
+const repairCost = ref("")
+const repairPerson = ref("")
+const description = ref("")
+const remarks = ref("")
+const repairImages = ref<string[]>([])
+const originalRepairImages = ref<string[]>([])
+const uploadingImage = ref(false)
+const uploadProgress = ref(0)
+
+const isEdit = computed(() => recordId.value > 0)
+
+const buildingOptions = computed(() => {
+  const values = rooms.value.map((item : any) => String(item != null && item.building != null ? item.building : "")).filter((v : string) => v != "")
+  return Array.from(new Set(values))
+})
+
+const roomOptions = computed(() => {
+  return rooms.value
+    .filter((item : any) => selectedBuilding.value == "" || String(item != null && item.building != null ? item.building : "") == selectedBuilding.value)
+    .map((item : any) => String(item != null && item.room_no != null ? item.room_no : ""))
+    .filter((v : string) => v != "")
+})
+
+function extractRecord(data : any) : any {
+  if (data != null && data.repair_record != null) {
+    return data.repair_record
+  }
+  return data
+}
+
+function normalizeImage(value : any) : string {
+  if (value == null) return ""
+  const text = String(value)
+  if (text == "") return ""
+  if (
+    text.startsWith("data:")
+    || text.startsWith("http://")
+    || text.startsWith("https://")
+    || text.startsWith("file://")
+    || text.startsWith("content://")
+    || text.startsWith("wxfile://")
+    || text.startsWith("blob:")
+    || text.startsWith("_doc/")
+    || text.startsWith("_www/")
+    || text.startsWith("\\")
+    || text.includes(":\\")
+  ) {
+    return text
+  }
+  if (text.startsWith("/static/")) {
+    return `${getApiHost()}${text}`
+  }
+  if (text.startsWith("/")) {
+    return text
+  }
+  return `${getApiHost()}/${text}`
+}
+
+function extractRepairImages(target : any) : string[] {
+  if (target != null && Array.isArray(target.repair_images)) {
+    return target.repair_images.map((item : any) => String(item)).filter((item : string) => item.trim() != "").slice(0, 50)
+  }
+  const raw = target != null && target.repair_image != null ? String(target.repair_image) : ""
+  if (raw.trim() == "") return []
+  if (raw.trim().startsWith("[")) {
+    try {
+      const arr = JSON.parse(raw)
+      if (Array.isArray(arr)) {
+        return arr.map((item : any) => String(item)).filter((item : string) => item.trim() != "").slice(0, 50)
+      }
+    } catch (e) {
+    }
+  }
+  return [raw]
+}
+
+function fillForm(data : any) {
+  const target = extractRecord(data)
+  roomNo.value = target != null && target.room_no != null ? String(target.room_no) : ""
+  selectedBuilding.value = target != null && target.building != null ? String(target.building) : ""
+  const repairType = target != null && target.repair_type != null ? String(target.repair_type) : ""
+  const repairTypeValue = repairType == "" ? repairTypeOptions[0] : repairType
+  const repairIdx = repairTypeOptions.indexOf(repairTypeValue)
+  repairTypeIndex.value = repairIdx >= 0 ? repairIdx : 0
+  reportBy.value = target != null && target.report_by != null ? String(target.report_by) : ""
+  reportDate.value = target != null && target.report_date != null ? String(target.report_date) : ""
+  const statusText = target != null && target.status != null ? String(target.status) : "待处理"
+  const idx = statusOptions.indexOf(statusText)
+  statusIndex.value = idx >= 0 ? idx : 0
+  repairDate.value = target != null && target.repair_date != null ? String(target.repair_date) : ""
+  repairCost.value = target != null && target.repair_cost != null ? String(target.repair_cost) : ""
+  repairPerson.value = target != null && target.repair_person != null ? String(target.repair_person) : ""
+  description.value = target != null && target.description != null ? String(target.description) : ""
+  remarks.value = target != null && target.remarks != null ? String(target.remarks) : ""
+  repairImages.value = extractRepairImages(target)
+  originalRepairImages.value = repairImages.value.slice(0)
+  uploadingImage.value = false
+  uploadProgress.value = 0
+  if (selectedBuilding.value == "" && roomNo.value != "") {
+    const room = rooms.value.find((item : any) => String(item != null && item.room_no != null ? item.room_no : "") == roomNo.value)
+    selectedBuilding.value = room != null && room.building != null ? String(room.building) : ""
+  }
+}
+
+function onStatusChange(e : any) {
+  statusIndex.value = Number(e.detail.value)
+}
+
+function onBuildingChange(e : any) {
+  const idx = Number(e.detail.value)
+  selectedBuilding.value = buildingOptions.value[idx] || ""
+  if (roomNo.value != "" && !roomOptions.value.includes(roomNo.value)) {
+    roomNo.value = ""
+  }
+}
+
+function onRoomChange(e : any) {
+  const idx = Number(e.detail.value)
+  roomNo.value = roomOptions.value[idx] || ""
+}
+
+function onRepairTypeChange(e : any) {
+  repairTypeIndex.value = Number(e.detail.value)
+}
+
+async function loadRooms() {
+  try {
+    const data = await apiGetRooms()
+    rooms.value = normalizeArray(data, ["rooms", "items", "list"])
+  } catch (err) {
+    rooms.value = []
+    uni.showToast({ title: getErrorMessage(err, "加载房间失败"), icon: "none" })
+  }
+}
+
+async function loadDetail() {
+  if (recordId.value <= 0) {
+    return
+  }
+
+  try {
+    const data = await apiGetRepairRecordDetail(recordId.value)
+    fillForm(data)
+  } catch (err) {
+    uni.showToast({ title: getErrorMessage(err, "加载详情失败"), icon: "none" })
+  }
+}
+
+function pickRepairImage() {
+  const remain = 50 - repairImages.value.length
+  if (remain <= 0) {
+    uni.showToast({ title: "最多仅支持50张", icon: "none" })
+    return
+  }
+  uni.chooseImage({
+    count: remain > 9 ? 9 : remain,
+    sizeType: ["compressed"],
+    sourceType: ["album", "camera"],
+    success: (res : any) => {
+      const paths = res.tempFilePaths != null ? res.tempFilePaths : []
+      if (paths.length == 0) return
+      for (let i = 0; i < paths.length; i++) {
+        const path = String(paths[i])
+        if (path == "") continue
+        if (repairImages.value.length >= 50) break
+        repairImages.value.push(path)
+      }
+    },
+    fail: () => {
+      uni.showToast({ title: "选择图片失败", icon: "none" })
+    },
+  })
+}
+
+function openRepairImage(index : number) {
+  if (index < 0 || index >= repairImages.value.length) return
+  uni.previewImage({
+    urls: repairImages.value.map((item : string) => normalizeImage(item)),
+    current: normalizeImage(repairImages.value[index]),
+  })
+}
+
+function removeRepairImage(index : number) {
+  if (index < 0 || index >= repairImages.value.length) return
+  repairImages.value.splice(index, 1)
+}
+
+function clearRepairImage() {
+  repairImages.value = []
+}
+
+async function syncRepairImage(targetRecordId : number) {
+  if (targetRecordId <= 0) return
+  const originalSet = new Set(originalRepairImages.value)
+  const keepServerImages = repairImages.value.filter((item : string) => originalSet.has(item))
+  const localImages = repairImages.value.filter((item : string) => !originalSet.has(item))
+  await apiUpdateRepairRecord(targetRecordId, { repair_images: keepServerImages })
+  if (localImages.length == 0) {
+    uploadProgress.value = 100
+    return
+  }
+  uploadingImage.value = true
+  uploadProgress.value = 0
+  for (let i = 0; i < localImages.length; i++) {
+    const localPath = localImages[i]
+    await apiUploadRepairRecordImage(targetRecordId, localPath, (res : any) => {
+      const current = res != null && res.progress != null ? Number(res.progress) : 0
+      const finished = i + (current / 100)
+      const total = localImages.length
+      uploadProgress.value = Math.floor((finished / total) * 100)
+    })
+  }
+  uploadProgress.value = 100
+  const latest = await apiGetRepairRecordDetail(targetRecordId)
+  const target = extractRecord(latest)
+  repairImages.value = extractRepairImages(target)
+  originalRepairImages.value = repairImages.value.slice(0)
+  uploadingImage.value = false
+}
+
+function validate() : boolean {
+  if (roomNo.value.trim() == "") {
+    uni.showToast({ title: "请选择房间号", icon: "none" })
+    return false
+  }
+  if (selectedBuilding.value.trim() == "") {
+    uni.showToast({ title: "请选择楼栋", icon: "none" })
+    return false
+  }
+  if (repairTypeOptions[repairTypeIndex.value].trim() == "") {
+    uni.showToast({ title: "请选择维修类型", icon: "none" })
+    return false
+  }
+  if (reportBy.value.trim() == "") {
+    uni.showToast({ title: "请输入维修人员", icon: "none" })
+    return false
+  }
+  if (description.value.trim() == "") {
+    uni.showToast({ title: "请输入问题描述", icon: "none" })
+    return false
+  }
+  if (repairCost.value.trim() != "" && isNaN(Number(repairCost.value))) {
+    uni.showToast({ title: "维修费用格式不正确", icon: "none" })
+    return false
+  }
+  return true
+}
+
+async function submitForm() {
+  if (loading.value) {
+    return
+  }
+  if (!validate()) {
+    return
+  }
+
+  const payload = {
+    room_no: roomNo.value.trim(),
+    repair_type: repairTypeOptions[repairTypeIndex.value],
+    report_by: reportBy.value.trim(),
+    report_date: reportDate.value.trim(),
+    status: statusOptions[statusIndex.value],
+    repair_date: repairDate.value.trim(),
+    repair_cost: repairCost.value.trim() == "" ? null : Number(repairCost.value),
+    repair_person: repairPerson.value.trim(),
+    description: description.value.trim(),
+    remarks: remarks.value.trim(),
+  }
+
+  loading.value = true
+  try {
+    let targetRecordId = recordId.value
+    if (isEdit.value) {
+      await apiUpdateRepairRecord(recordId.value, payload)
+    } else {
+      const created = await apiCreateRepairRecord(payload)
+      const id = Number(created != null ? created.id : 0)
+      if (!isNaN(id) && id > 0) {
+        targetRecordId = id
+      }
+    }
+    await syncRepairImage(targetRecordId)
+
+    uni.showToast({ title: "保存成功", icon: "success" })
+    setTimeout(() => {
+      uni.navigateBack()
+    }, 300)
+  } catch (err) {
+    uni.showToast({ title: getErrorMessage(err, "保存失败"), icon: "none" })
+  } finally {
+    loading.value = false
+  }
+}
+
+onLoad((options : any) => {
+  loadRooms().then(() => {
+    if (options != null && options.id != null) {
+      recordId.value = Number(options.id)
+      loadDetail()
+    }
+  })
+})
+</script>
+
+<style>
+.form-card {
+  gap: 10px;
+}
+
+.field-group {
+  gap: 6px;
+}
+
+.image-actions {
+  gap: 8px;
+}
+
+.repair-image-list {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.repair-image-item {
+  width: 96px;
+  gap: 4px;
+}
+
+.label {
+  font-size: 13px;
+  color: #374151;
+}
+
+.input {
+  height: 42px;
+  border-width: 1px;
+  border-style: solid;
+  border-color: #d1d5db;
+  border-radius: 10px;
+  padding: 0 12px;
+  background-color: #ffffff;
+}
+
+.textarea {
+  min-height: 90px;
+  border-width: 1px;
+  border-style: solid;
+  border-color: #d1d5db;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background-color: #ffffff;
+}
+
+.picker-view {
+  height: 42px;
+  border-width: 1px;
+  border-style: solid;
+  border-color: #d1d5db;
+  border-radius: 10px;
+  padding: 0 12px;
+  background-color: #ffffff;
+  display: flex;
+  align-items: center;
+  color: #1f2937;
+}
+
+.repair-image-preview {
+  width: 96px;
+  height: 96px;
+  border-radius: 10px;
+  background: #f3f4f6;
+}
+</style>

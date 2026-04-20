@@ -1,0 +1,314 @@
+<template>
+  <view class="page">
+    <view class="card hero-card">
+      <view class="row space-between top-line">
+        <view>
+          <text class="section-title">采购管理</text>
+          <text class="hero-sub">支持采购记录查询、新增、编辑、删除</text>
+        </view>
+        <view class="count-chip">共 {{ totalCount }} 条</view>
+      </view>
+
+      <view class="row search-row">
+        <input v-model="search" class="input search-input" placeholder="搜索维修项目/规格/备注" />
+      </view>
+
+      <view class="row action-row">
+        <button class="btn-strong" @click="openCreate">新增采购</button>
+        <button class="btn-outline" :disabled="loading" @click="fetchList">
+          {{ loading ? "加载中..." : "刷新列表" }}
+        </button>
+      </view>
+
+    </view>
+
+    <view v-if="items.length == 0" class="card empty-card">
+      <text class="muted">暂无采购记录</text>
+    </view>
+
+    <view v-for="item in items" :key="item.id" class="card item-card">
+      <view class="row space-between item-head">
+        <text class="item-title">{{ item.item_name || "-" }}</text>
+        <text class="id-chip">#{{ item.id || "-" }}</text>
+      </view>
+
+      <view class="item-body">
+        <text class="line">序号：{{ item.id || "-" }}</text>
+        <text class="line">时间：{{ item.procurement_date || "-" }}</text>
+        <text class="line">维修项目：{{ item.item_name || "-" }}</text>
+        <text class="line">规格：{{ item.specification || "-" }}</text>
+        <text class="line">数量：{{ item.quantity || 0 }}</text>
+        <text class="line">单价：{{ item.unit_price != null && String(item.unit_price) != "" ? "¥" + item.unit_price : "-" }}</text>
+        <text class="line">单位：{{ item.unit || "-" }}</text>
+        <text class="line">总金额：{{ item.total_amount || 0 }}</text>
+        <text class="line">备注：{{ item.remarks || "-" }}</text>
+        <view v-if="extractProcurementImages(item).length > 0" class="image-row">
+          <text class="line">图片：</text>
+          <image class="image-thumb" :src="normalizeImage(extractProcurementImages(item)[0])" mode="aspectFill" @click="openImages(extractProcurementImages(item), 0)" />
+        </view>
+      </view>
+
+      <view class="row button-row">
+        <button class="small-btn edit-btn" @click="openEdit(item)">编辑</button>
+        <button class="small-btn danger-btn" @click="removeItem(item)">删除</button>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+import { ref } from "vue"
+import { onShow } from "@dcloudio/uni-app"
+import { apiDeleteProcurement, apiGetProcurements } from "../../api/services.uts"
+import { getErrorMessage, normalizeArray } from "../../common/page.uts"
+import { getApiHost } from "../../common/request.uts"
+
+const items = ref<any[]>([])
+const totalCount = ref(0)
+const loading = ref(false)
+const page = ref(1)
+const pageSize = ref(10)
+const search = ref("")
+
+function normalizeImage(value : any) : string {
+  if (value == null) return ""
+  const text = String(value)
+  if (text == "") return ""
+  if (
+    text.startsWith("data:")
+    || text.startsWith("http://")
+    || text.startsWith("https://")
+    || text.startsWith("file://")
+    || text.startsWith("content://")
+    || text.startsWith("wxfile://")
+    || text.startsWith("blob:")
+    || text.startsWith("_doc/")
+    || text.startsWith("_www/")
+    || text.startsWith("\\")
+    || text.includes(":\\")
+  ) {
+    return text
+  }
+  if (text.startsWith("/static/")) {
+    return `${getApiHost()}${text}`
+  }
+  if (text.startsWith("/")) {
+    return text
+  }
+  return `${getApiHost()}/${text}`
+}
+
+function extractProcurementImages(item : any) : string[] {
+  if (item != null && Array.isArray(item.procurement_images)) {
+    return item.procurement_images.map((v : any) => String(v)).filter((v : string) => v.trim() != "")
+  }
+  const raw = item != null && item.procurement_image != null ? String(item.procurement_image) : ""
+  if (raw.trim() == "") return []
+  if (raw.trim().startsWith("[")) {
+    try {
+      const arr = JSON.parse(raw)
+      if (Array.isArray(arr)) {
+        return arr.map((v : any) => String(v)).filter((v : string) => v.trim() != "")
+      }
+    } catch (e) {
+    }
+  }
+  return [raw]
+}
+
+function openImages(values : string[], index : number = 0) {
+  if (values.length == 0) return
+  const urls = values.map((v : string) => normalizeImage(v)).filter((v : string) => v != "")
+  if (urls.length == 0) return
+  const current = index >= 0 && index < urls.length ? urls[index] : urls[0]
+  uni.previewImage({ urls, current })
+}
+
+async function fetchList() {
+  if (loading.value) {
+    return
+  }
+  loading.value = true
+  try {
+    const data = await apiGetProcurements(page.value, pageSize.value, search.value.trim())
+    items.value = normalizeArray(data, ["procurements", "items", "list"])
+    const total = Number(data != null && data.total != null ? data.total : items.value.length)
+    totalCount.value = isNaN(total) ? items.value.length : total
+  } catch (err) {
+    uni.showToast({ title: getErrorMessage(err, "获取采购列表失败"), icon: "none" })
+  } finally {
+    loading.value = false
+  }
+}
+
+function openCreate() {
+  uni.navigateTo({ url: "/pages/procurements/form" })
+}
+
+function openEdit(item : any) {
+  const payload = encodeURIComponent(JSON.stringify(item))
+  uni.navigateTo({ url: `/pages/procurements/form?payload=${payload}` })
+}
+
+function removeItem(item : any) {
+  const id = Number(item.id)
+  if (isNaN(id) || id <= 0) {
+    uni.showToast({ title: "记录ID无效", icon: "none" })
+    return
+  }
+
+  uni.showModal({
+    title: "确认删除",
+    content: `确定删除采购记录 #${id} 吗？`,
+    success: async (res) => {
+      if (!res.confirm) {
+        return
+      }
+      try {
+        await apiDeleteProcurement(id)
+        uni.showToast({ title: "删除成功", icon: "success" })
+        fetchList()
+      } catch (err) {
+        uni.showToast({ title: getErrorMessage(err, "删除失败"), icon: "none" })
+      }
+    },
+  })
+}
+
+onShow(() => {
+  fetchList()
+})
+</script>
+
+<style>
+.hero-card,
+.empty-card,
+.item-card {
+  margin-bottom: 12px;
+}
+
+.hero-card {
+  border: 1px solid rgba(11, 96, 126, 0.2);
+  background:
+    linear-gradient(148deg, rgba(255, 255, 255, 0.95) 0%, rgba(226, 244, 252, 0.86) 56%, rgba(255, 244, 228, 0.86) 100%);
+  box-shadow: 0 16px 28px rgba(16, 44, 68, 0.14);
+}
+
+.top-line {
+  align-items: flex-start;
+}
+
+.hero-sub {
+  display: block;
+  margin-top: 4px;
+  color: #5b6f82;
+  font-size: 12px;
+}
+
+.count-chip {
+  min-width: 92px;
+  height: 30px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #0b6885 0%, #1490b3 100%);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.search-row {
+  margin-top: 12px;
+  gap: 8px;
+}
+
+.search-input {
+  flex: 1;
+  height: 40px;
+  padding: 0 12px;
+}
+
+.action-row {
+  margin-top: 10px;
+  gap: 8px;
+}
+
+.action-row .btn-strong {
+  flex: 1.1;
+}
+
+.action-row .btn-outline {
+  flex: 0.9;
+}
+
+.item-card {
+  border: 1px solid rgba(18, 43, 65, 0.12);
+  background: rgba(255, 255, 255, 0.93);
+  box-shadow: 0 12px 22px rgba(18, 43, 65, 0.1);
+}
+
+.item-head {
+  margin-bottom: 8px;
+}
+
+.item-title {
+  font-size: 17px;
+  color: #11293d;
+  font-weight: 800;
+}
+
+.id-chip {
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: rgba(17, 102, 132, 0.12);
+  color: #0d516a;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+}
+
+.item-body {
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(18, 43, 65, 0.08);
+  background: rgba(247, 252, 255, 0.92);
+}
+
+.line {
+  display: block;
+  margin-top: 4px;
+  color: #2d4458;
+  font-size: 13px;
+}
+
+.line:first-child {
+  margin-top: 0;
+}
+
+.button-row {
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.small-btn {
+  flex: 1;
+}
+
+.image-row {
+  margin-top: 6px;
+  gap: 6px;
+}
+
+.image-thumb {
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+  background: #f3f4f6;
+}
+
+</style>

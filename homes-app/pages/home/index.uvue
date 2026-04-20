@@ -1,0 +1,674 @@
+<template>
+  <view class="page">
+    <view class="card warning-card">
+      <view class="row space-between warning-head">
+        <view>
+          <text class="section-title">到期预警</text>
+          <text class="warning-sub">未来 {{ warningDays }} 天内到期租户</text>
+        </view>
+        <button class="btn-outline warning-btn" @click="go('/pages/tenants/index')">去处理</button>
+      </view>
+      <view v-if="expiringTenants.length == 0" class="warning-empty">
+        <text class="muted">暂无即将到期租户</text>
+      </view>
+      <view v-else>
+        <view v-for="item in expiringTenants" :key="item.id_card || item.name" class="warning-item">
+          <view class="row space-between warning-item-top">
+            <text class="warning-name">{{ item.name || "-" }}</text>
+            <text class="warning-days">剩余 {{ item.left_days }} 天</text>
+          </view>
+          <text class="warning-line">房间: {{ item.room_no || "-" }} | 电话: {{ item.phone || "-" }}</text>
+          <text class="warning-line">到期日期：{{ item.check_out_date || "-" }}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="card overview-card">
+      <view class="row space-between overview-head">
+        <view>
+          <text class="section-title">今日概览</text>
+          <text class="overview-sub">实时统计来自房间与租户接口</text>
+        </view>
+        <button class="btn-outline refresh-btn" :disabled="loadingStats" @click="refreshStats">
+          {{ loadingStats ? "刷新中..." : "刷新" }}
+        </button>
+      </view>
+
+      <view class="overview-grid">
+        <view class="row overview-row">
+          <view class="overview-item">
+            <view class="stat-tile palette-room">
+              <text class="stat-label">房间总数</text>
+              <text class="stat-value">{{ roomCount }}</text>
+              <text class="stat-hint">全量房源</text>
+            </view>
+          </view>
+          <view class="overview-item">
+            <view class="stat-tile palette-tenant">
+              <text class="stat-label">租户总数</text>
+              <text class="stat-value">{{ tenantCount }}</text>
+              <text class="stat-hint">当前在册</text>
+            </view>
+          </view>
+          <view class="overview-item">
+            <view class="stat-tile palette-free">
+              <text class="stat-label">空闲</text>
+              <text class="stat-value">{{ statusFree }}</text>
+              <text class="stat-hint">可出租</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="row overview-row">
+          <view class="overview-item">
+            <view class="stat-tile palette-live">
+              <text class="stat-label">在住</text>
+              <text class="stat-value">{{ statusLive }}</text>
+              <text class="stat-hint">稳定入住</text>
+            </view>
+          </view>
+          <view class="overview-item">
+            <view class="stat-tile palette-soon">
+              <text class="stat-label">即将到期</text>
+              <text class="stat-value">{{ statusSoon }}</text>
+              <text class="stat-hint">需跟进</text>
+            </view>
+          </view>
+          <view class="overview-item">
+            <view class="stat-tile palette-expired">
+              <text class="stat-label">已过期</text>
+              <text class="stat-value">{{ statusExpired }}</text>
+              <text class="stat-hint">待处理</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="row overview-row">
+          <view class="overview-item">
+            <view class="stat-tile palette-repair-pending">
+              <text class="stat-label">维修待处理</text>
+              <text class="stat-value">{{ repairPending }}</text>
+              <text class="stat-hint">需派单</text>
+            </view>
+          </view>
+          <view class="overview-item">
+            <view class="stat-tile palette-repair-working">
+              <text class="stat-label">维修处理中</text>
+              <text class="stat-value">{{ repairWorking }}</text>
+              <text class="stat-hint">进行中</text>
+            </view>
+          </view>
+          <view class="overview-item">
+            <view class="stat-tile palette-repair-done">
+              <text class="stat-label">维修已完成</text>
+              <text class="stat-value">{{ repairDone }}</text>
+              <text class="stat-hint">可回访</text>
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view class="card modules-card">
+      <view class="row space-between">
+        <text class="section-title">业务模块</text>
+        <text class="muted">10 项</text>
+      </view>
+
+      <view class="modules-grid layout-3">
+        <view class="module-item" @click="go('/pages/rooms/index')">
+          <view class="module-tile m1">
+            <view class="module-icon">房</view>
+            <text class="module-name">房间管理</text>
+            <text class="module-desc">房态与价格</text>
+          </view>
+        </view>
+        <view class="module-item" @click="go('/pages/tenants/index')">
+          <view class="module-tile m2">
+            <view class="module-icon">租</view>
+            <text class="module-name">租户管理</text>
+            <text class="module-desc">入住档案</text>
+          </view>
+        </view>
+        <view class="module-item" @click="go('/pages/moves/index')">
+          <view class="module-tile m3">
+            <view class="module-icon">迁</view>
+            <text class="module-name">搬迁管理</text>
+            <text class="module-desc">迁移记录</text>
+          </view>
+        </view>
+        <view class="module-item" @click="go('/pages/repairs/index')">
+          <view class="module-tile m4">
+            <view class="module-icon">修</view>
+            <text class="module-name">维修记录</text>
+            <text class="module-desc">工单处理</text>
+          </view>
+        </view>
+        <view class="module-item" @click="go('/pages/procurements/index')">
+          <view class="module-tile m5">
+            <view class="module-icon">采</view>
+            <text class="module-name">采购管理</text>
+            <text class="module-desc">采购清单</text>
+          </view>
+        </view>
+        <view class="module-item" @click="go('/pages/warehouse/index')">
+          <view class="module-tile m6">
+            <view class="module-icon">库</view>
+            <text class="module-name">库房管理</text>
+            <text class="module-desc">库存物资</text>
+          </view>
+        </view>
+        <view class="module-item" @click="go('/pages/contracts/templates')">
+          <view class="module-tile m7">
+            <view class="module-icon">合</view>
+            <text class="module-name">合同管理</text>
+            <text class="module-desc">模板维护</text>
+          </view>
+        </view>
+        <view class="module-item" @click="go('/pages/notification/index')">
+          <view class="module-tile m9">
+            <view class="module-icon">通</view>
+            <text class="module-name">通知配置</text>
+            <text class="module-desc">短信邮件</text>
+          </view>
+        </view>
+        <view class="module-item" @click="go('/pages/system/index')">
+          <view class="module-tile m11">
+            <view class="module-icon">系</view>
+            <text class="module-name">系统工具</text>
+            <text class="module-desc">导入导出</text>
+          </view>
+        </view>
+        <view class="module-item" @click="go('/pages/account/security')">
+          <view class="module-tile m12">
+            <view class="module-icon">安</view>
+            <text class="module-name">账号安全</text>
+            <text class="module-desc">密码管理</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <button class="btn-danger logout-btn" @click="logout">退出登录</button>
+  </view>
+</template>
+
+<script setup lang="uts">
+import { ref } from "vue"
+import { onShow } from "@dcloudio/uni-app"
+import { apiGetRepairRecords, apiGetRooms, apiGetTenants, apiVerifyToken } from "../../api/services.uts"
+import {
+  clearLoginInfo,
+  isLoggedIn,
+} from "../../common/session.uts"
+
+const roomCount = ref(0)
+const tenantCount = ref(0)
+const statusFree = ref(0)
+const statusLive = ref(0)
+const statusSoon = ref(0)
+const statusExpired = ref(0)
+const repairPending = ref(0)
+const repairWorking = ref(0)
+const repairDone = ref(0)
+const warningDays = ref(30)
+const expiringTenants = ref<any[]>([])
+const loadingStats = ref(false)
+
+function goLogin() {
+  uni.reLaunch({
+    url: "/pages/login/index",
+  })
+}
+
+function go(path : string) {
+  uni.navigateTo({ url: path })
+}
+
+function normalizeList(data : any, key : string) : any[] {
+  if (data != null && Array.isArray(data[key])) {
+    return data[key]
+  }
+  if (Array.isArray(data)) {
+    return data
+  }
+  return []
+}
+
+function updateStatusCounts(rooms : any[]) {
+  let free = 0
+  let live = 0
+  let soon = 0
+  let expired = 0
+
+  rooms.forEach((room) => {
+    const status = room != null && room.status != null ? String(room.status) : ""
+    if (status == "空闲") {
+      free += 1
+      return
+    }
+    if (status == "\u5728\u4f4f" || status == "\u5df2\u5165\u4f4f" || status.toLowerCase() == "live") {
+      live += 1
+      return
+    }
+    if (status == "即将到期") {
+      soon += 1
+      return
+    }
+    if (status == "\u5df2\u8fc7\u671f" || status.toLowerCase() == "expired") {
+      expired += 1
+    }
+  })
+
+  statusFree.value = free
+  statusLive.value = live
+  statusSoon.value = soon
+  statusExpired.value = expired
+}
+
+function normalizeDateText(value : any) : string {
+  if (value == null) return ""
+  return String(value).trim()
+}
+
+function parseDate(value : any) : number {
+  const text = normalizeDateText(value)
+  if (text == "") return 0
+  const ts = Date.parse(text.replace(/-/g, "/"))
+  if (isNaN(ts)) return 0
+  return ts
+}
+
+function calcLeftDays(checkOutDate : any) : number {
+  const end = parseDate(checkOutDate)
+  if (end <= 0) return -1
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const diff = end - today
+  return Math.floor(diff / 86400000)
+}
+
+function updateRepairCounts(list : any[]) {
+  let pending = 0
+  let working = 0
+  let done = 0
+  list.forEach((item) => {
+    const status = item != null && item.status != null ? String(item.status) : ""
+    if (status == "\u5f85\u5904\u7406" || status.toLowerCase() == "pending") {
+      pending += 1
+      return
+    }
+    if (status == "\u5904\u7406\u4e2d" || status.toLowerCase() == "working") {
+      working += 1
+      return
+    }
+    if (status == "\u5df2\u5b8c\u6210" || status.toLowerCase() == "done") {
+      done += 1
+    }
+  })
+  repairPending.value = pending
+  repairWorking.value = working
+  repairDone.value = done
+}
+
+function updateExpiringTenants(list : any[]) {
+  const result : any[] = []
+  list.forEach((item) => {
+    const status = item != null && item.status != null ? String(item.status) : ""
+    if (status == "\u5df2\u9000\u79df" || status.toLowerCase() == "checked_out") return
+    const leftDays = calcLeftDays(item != null ? item.check_out_date : "")
+    if (leftDays < 0 || leftDays > warningDays.value) return
+    result.push({
+      ...item,
+      left_days: leftDays,
+    })
+  })
+  result.sort((a, b) => Number(a.left_days || 0) - Number(b.left_days || 0))
+  expiringTenants.value = result.slice(0, 6)
+}
+
+async function verifyLogin() {
+  if (!isLoggedIn()) {
+    goLogin()
+    return false
+  }
+
+  try {
+    await apiVerifyToken()
+    return true
+  } catch (err) {
+    clearLoginInfo()
+    uni.showToast({
+      title: "登录状态已失效，请重新登录",
+      icon: "none",
+    })
+    goLogin()
+    return false
+  }
+}
+
+async function refreshStats() {
+  if (loadingStats.value) {
+    return
+  }
+
+  loadingStats.value = true
+  try {
+    const roomData = await apiGetRooms()
+    const tenantData = await apiGetTenants()
+    const repairData = await apiGetRepairRecords()
+    const rooms = normalizeList(roomData, "rooms")
+    const tenants = normalizeList(tenantData, "tenants")
+    const repairs = normalizeList(repairData, "repair_records")
+    roomCount.value = rooms.length
+    updateStatusCounts(rooms)
+    tenantCount.value = tenants.length
+    updateRepairCounts(repairs)
+    updateExpiringTenants(tenants)
+  } catch (err : any) {
+    uni.showToast({
+      title: err != null && err.message != null ? String(err.message) : "获取统计失败",
+      icon: "none",
+    })
+  } finally {
+    loadingStats.value = false
+  }
+}
+
+function logout() {
+  uni.showModal({
+    title: "提示",
+    content: "确认退出登录吗？",
+    success: (res) => {
+      if (!res.confirm) {
+        return
+      }
+      clearLoginInfo()
+      goLogin()
+    },
+  })
+}
+
+onShow(async () => {
+  const ok = await verifyLogin()
+  if (ok) {
+    refreshStats()
+  }
+})
+</script>
+
+<style>
+.overview-card,
+.modules-card {
+  margin-bottom: 12px;
+}
+
+.overview-card {
+  border: 1px solid rgba(18, 43, 65, 0.1);
+  background: rgba(255, 255, 255, 0.97);
+}
+
+.overview-head {
+  align-items: flex-start;
+}
+
+.overview-sub {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #5b6f82;
+}
+
+.refresh-btn {
+  min-width: 84px;
+}
+
+.overview-grid {
+  margin-top: 10px;
+}
+
+.overview-row {
+  gap: 8px;
+  align-items: stretch;
+  margin-top: 8px;
+}
+
+.overview-row:first-child {
+  margin-top: 0;
+}
+
+.overview-item {
+  flex: 1;
+}
+
+.stat-tile {
+  min-height: 92px;
+  height: 100%;
+  border-radius: 14px;
+  padding: 12px;
+  border: 1px solid rgba(16, 39, 60, 0.1);
+  box-shadow: 0 8px 16px rgba(16, 39, 60, 0.06);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #1f3448;
+  font-weight: 600;
+}
+
+.stat-value {
+  font-size: 24px;
+  color: #102435;
+  font-weight: 800;
+}
+
+.stat-hint {
+  font-size: 11px;
+  color: #5b6f82;
+}
+
+.palette-room {
+  background: linear-gradient(135deg, rgba(16, 138, 176, 0.16), rgba(83, 193, 228, 0.22));
+}
+
+.palette-tenant {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.16), rgba(251, 191, 36, 0.22));
+}
+
+.palette-free {
+  background: linear-gradient(135deg, rgba(22, 163, 74, 0.16), rgba(74, 222, 128, 0.22));
+}
+
+.palette-live {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.16), rgba(96, 165, 250, 0.22));
+}
+
+.palette-soon {
+  background: linear-gradient(135deg, rgba(249, 115, 22, 0.16), rgba(251, 146, 60, 0.22));
+}
+
+.palette-expired {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.16), rgba(248, 113, 113, 0.22));
+}
+
+.modules-card {
+  border: 1px solid rgba(18, 43, 65, 0.1);
+  background: rgba(255, 255, 255, 0.97);
+}
+
+.modules-grid {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.module-item {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.modules-grid.layout-3 .module-item {
+  width: calc((100% - 16px) / 3);
+}
+
+.module-tile {
+  min-height: 104px;
+  height: 100%;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(16, 39, 60, 0.1);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 8px 15px rgba(16, 39, 60, 0.06);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.module-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.module-name {
+  font-size: 14px;
+  color: #102435;
+  font-weight: 700;
+}
+
+.module-desc {
+  font-size: 11px;
+  color: #5b6f82;
+}
+
+.m1 .module-icon {
+  background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);
+}
+
+.m2 .module-icon {
+  background: linear-gradient(135deg, #0f6fb6 0%, #4fa4e8 100%);
+}
+
+.m3 .module-icon {
+  background: linear-gradient(135deg, #0b8a7d 0%, #3dbfae 100%);
+}
+
+.m4 .module-icon {
+  background: linear-gradient(135deg, #ea580c 0%, #fb923c 100%);
+}
+
+.m5 .module-icon {
+  background: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%);
+}
+
+.m6 .module-icon {
+  background: linear-gradient(135deg, #15803d 0%, #4ade80 100%);
+}
+
+.m7 .module-icon {
+  background: linear-gradient(135deg, #ca8a04 0%, #facc15 100%);
+}
+
+.m8 .module-icon {
+  background: linear-gradient(135deg, #1d4ed8 0%, #60a5fa 100%);
+}
+
+.m9 .module-icon {
+  background: linear-gradient(135deg, #be185d 0%, #fb7185 100%);
+}
+
+.m10 .module-icon {
+  background: linear-gradient(135deg, #c2410c 0%, #fb923c 100%);
+}
+
+.m11 .module-icon {
+  background: linear-gradient(135deg, #0f172a 0%, #334155 100%);
+}
+
+.m12 .module-icon {
+  background: linear-gradient(135deg, #475569 0%, #94a3b8 100%);
+}
+
+.logout-btn {
+  margin-top: 2px;
+}
+
+.warning-card {
+  margin-bottom: 12px;
+  border: 1px solid rgba(249, 115, 22, 0.22);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 244, 230, 0.9) 100%);
+}
+
+.warning-head {
+  align-items: flex-start;
+}
+
+.warning-sub {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #8a5a15;
+}
+
+.warning-btn {
+  min-width: 84px;
+}
+
+.warning-empty {
+  margin-top: 10px;
+}
+
+.warning-item {
+  margin-top: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(249, 115, 22, 0.18);
+  background: rgba(255, 255, 255, 0.95);
+  padding: 10px;
+}
+
+.warning-item-top {
+  align-items: center;
+}
+
+.warning-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #102435;
+}
+
+.warning-days {
+  font-size: 12px;
+  color: #b45309;
+  font-weight: 700;
+}
+
+.warning-line {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #5b6f82;
+}
+
+.palette-repair-pending {
+  background: linear-gradient(135deg, rgba(251, 146, 60, 0.16), rgba(253, 186, 116, 0.22));
+}
+
+.palette-repair-working {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.16), rgba(125, 211, 252, 0.22));
+}
+
+.palette-repair-done {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.16), rgba(110, 231, 183, 0.22));
+}
+</style>

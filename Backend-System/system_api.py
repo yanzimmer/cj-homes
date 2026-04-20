@@ -4,6 +4,8 @@ import sqlite3
 import zipfile
 import io
 import shutil
+import time
+from threading import Lock
 from datetime import datetime
 from flask import Blueprint, request, jsonify, send_file, current_app
 from auth_api import token_required
@@ -15,6 +17,9 @@ system_bp = Blueprint('system', __name__, url_prefix='/api/system')
 CONFIG_DIR = os.path.join(BASE_DIR, 'config')
 UPLOADS_DIR = os.path.join(BASE_DIR, 'static', 'uploads')
 SQL_DIR = os.path.join(BASE_DIR, 'sql')
+EXPORT_INTERVAL_SECONDS = 120
+_export_lock = Lock()
+_last_export_ts = 0.0
 
 # Tables to export in order
 TABLE_ORDER = [
@@ -24,8 +29,43 @@ TABLE_ORDER = [
     "tenants",
     "tenant_moves",
     "repair_records",
-    "contracts"
+    "contracts",
+    "procurements",
+    "warehouse_items",
 ]
+
+def _resolve_upload_url_to_path(file_url):
+    raw = str(file_url or '').strip()
+    if raw == '':
+        raise ValueError('file_url is required')
+
+    normalized = raw.split('?', 1)[0].replace('\\', '/')
+    if normalized.startswith('http://') or normalized.startswith('https://'):
+        raise ValueError('file_url must be a local path under /static/uploads/')
+    if not normalized.startswith('/static/uploads/'):
+        raise ValueError('file_url must start with /static/uploads/')
+
+    local_rel = normalized.lstrip('/').replace('/', os.sep)
+    abs_path = os.path.normpath(os.path.join(BASE_DIR, local_rel))
+    upload_root = os.path.normpath(UPLOADS_DIR)
+
+    if abs_path != upload_root and not abs_path.startswith(upload_root + os.sep):
+        raise ValueError('invalid file_url path')
+    if not os.path.isfile(abs_path):
+        raise FileNotFoundError('uploaded file not found')
+    if not abs_path.lower().endswith('.zip'):
+        raise ValueError('invalid file format. Please upload a ZIP file.')
+    return abs_path
+
+def _ensure_rooms_meter_columns(conn):
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(rooms)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    if "water_meter_img" not in existing_columns:
+        cursor.execute("ALTER TABLE rooms ADD COLUMN water_meter_img TEXT")
+    if "electricity_meter_img" not in existing_columns:
+        cursor.execute("ALTER TABLE rooms ADD COLUMN electricity_meter_img TEXT")
 
 def _dump_db_to_dict():
     """Dump entire database to a dictionary."""
@@ -106,8 +146,7 @@ def _restore_db_from_dict(data, force=True):
 @token_required
 def export_system_data(current_user):
     """
-    导出系统完整数据（数据库 + 配置 + 上传文件）
-    ---
+    闂佽娴烽弫鎼佸储瑜斿畷鐢割敇閻樻彃顕ч梺鐓庮潟閸婃宕洪悩缁樺€甸柣鐔哄濠€浼存煛閸☆厾绉€殿噮鍋婇幃褔宕煎┑鍫涘亰闂備焦瀵х粙鎴︽偋婵犲洤姹查柣鏃傚帶缁犲弶銇勯弮鍥т汗婵?+ 闂傚倷鐒﹀妯肩矓閸洘鍋?+ 濠电偞鍨堕幐鎼佹晝閿濆洦顫曢柛顐ｆ礀濡﹢鏌涢妷顖炴妞ゆ劒绮欓弻?    ---
     tags:
       - System
     security:
@@ -116,6 +155,14 @@ def export_system_data(current_user):
       200:
         description: Returns a ZIP file containing the system backup
     """
+    global _last_export_ts
+    now = time.time()
+    if now - _last_export_ts < EXPORT_INTERVAL_SECONDS:
+        wait_seconds = int(EXPORT_INTERVAL_SECONDS - (now - _last_export_ts))
+        return jsonify({"error": f"????????? {wait_seconds} ????"}), 429
+    if not _export_lock.acquire(blocking=False):
+        return jsonify({"error": "????????????????"}), 429
+    _last_export_ts = now
     try:
         # 1. Prepare DB Dump
         db_data = _dump_db_to_dict()
@@ -154,13 +201,15 @@ def export_system_data(current_user):
         
     except Exception as e:
         current_app.logger.error(f"Export failed: {e}")
-        return jsonify({"error": f"导出失败: {str(e)}"}), 500
+        return jsonify({"error": f"闂佽娴烽弫鎼佸储瑜斿畷鐢割敇閻旈绐為柡澶婄墱閸嬪顤? {str(e)}"}), 500
+    finally:
+        _export_lock.release()
 
 @system_bp.route('/import', methods=['POST'])
 @token_required
 def import_system_data(current_user):
     """
-    导入系统完整数据
+    闁诲海鏁搁崢褔宕ｉ崱娆忓闁煎鍊楅崺鐘绘倵閻熺増婀伴柡鍡秮瀵偊鎮ч崼婵堛偊
     ---
     tags:
       - System
@@ -172,24 +221,36 @@ def import_system_data(current_user):
       - in: formData
         name: file
         type: file
-        required: true
+        required: false
         description: Backup ZIP file
+      - in: body
+        name: body
+        schema:
+          type: object
+          properties:
+            file_url:
+              type: string
+              description: Path returned by chunk upload complete API
     responses:
       200:
         description: Import successful
     """
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file uploaded'}), 400
-        
-    file = request.files['file']
-    if not file.filename.endswith('.zip'):
-        return jsonify({'error': 'Invalid file format. Please upload a ZIP file.'}), 400
+    temp_zip_path = os.path.join(BASE_DIR, f"temp_import_{int(time.time() * 1000)}.zip")
 
     try:
-        # Save uploaded zip to temp
-        temp_zip_path = os.path.join(BASE_DIR, 'temp_import.zip')
-        file.save(temp_zip_path)
-        
+        if 'file' in request.files:
+            file = request.files['file']
+            if not file.filename.lower().endswith('.zip'):
+                return jsonify({'error': 'Invalid file format. Please upload a ZIP file.'}), 400
+            file.save(temp_zip_path)
+        else:
+            data = request.get_json(silent=True) or {}
+            file_url = data.get('file_url')
+            if not file_url:
+                return jsonify({'error': 'No file uploaded'}), 400
+            source_zip_path = _resolve_upload_url_to_path(file_url)
+            shutil.copyfile(source_zip_path, temp_zip_path)
+
         with zipfile.ZipFile(temp_zip_path, 'r') as zf:
             # 1. Restore Database
             if 'database.json' in zf.namelist():
@@ -198,63 +259,64 @@ def import_system_data(current_user):
                     success, msg = _restore_db_from_dict(db_data)
                     if not success:
                         raise Exception(f"Database restore failed: {msg}")
-            
+
             # 2. Restore Configs
             for member in zf.namelist():
                 if member.startswith('config/'):
                     # Skip directory entries
-                    if member.endswith('/'): continue
-                    
+                    if member.endswith('/'):
+                        continue
+
                     target_path = os.path.join(CONFIG_DIR, os.path.relpath(member, 'config'))
                     os.makedirs(os.path.dirname(target_path), exist_ok=True)
                     with zf.open(member) as source, open(target_path, 'wb') as target:
                         shutil.copyfileobj(source, target)
-                        
+
             # 3. Restore Uploads
             for member in zf.namelist():
                 if member.startswith('uploads/'):
                     # Skip directory entries
-                    if member.endswith('/'): continue
-                    
+                    if member.endswith('/'):
+                        continue
+
                     target_path = os.path.join(UPLOADS_DIR, os.path.relpath(member, 'uploads'))
                     os.makedirs(os.path.dirname(target_path), exist_ok=True)
                     with zf.open(member) as source, open(target_path, 'wb') as target:
                         shutil.copyfileobj(source, target)
-                        
-        os.remove(temp_zip_path)
-        return jsonify({"message": "系统数据导入成功！"}), 200
-        
+
+        return jsonify({"message": "????????"}), 200
+
+
+    except FileNotFoundError as e:
+        return jsonify({'error': str(e)}), 404
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
+        current_app.logger.error(f"Import failed: {e}")
+        return jsonify({"error": f"闁诲海鏁搁崢褔宕ｉ崱妯虹窞閺夊牜鍋夎: {str(e)}"}), 500
+    finally:
         if os.path.exists(temp_zip_path):
             os.remove(temp_zip_path)
-        current_app.logger.error(f"Import failed: {e}")
-        return jsonify({"error": f"导入失败: {str(e)}"}), 500
-
 try:
     from init_scripts.init_hotel_db import seed_demo_data
 except ImportError:
-    # 兼容在不同目录下运行时的导入路径
     import sys
-    # 将 Backend-System 目录添加到 path
     backend_dir = os.path.dirname(os.path.abspath(__file__))
     if backend_dir not in sys.path:
         sys.path.append(backend_dir)
-    # 确保 init_scripts 能够被找到
     try:
         from init_scripts.init_hotel_db import seed_demo_data
     except ImportError:
-         # 如果还是失败，尝试将 init-scripts (目录名带连字符) 目录直接加入 path
-         # 注意：目录名实际上是 'init-scripts' 而不是 'init_scripts'
-         init_scripts_dir = os.path.join(backend_dir, 'init-scripts')
-         if init_scripts_dir not in sys.path:
-             sys.path.append(init_scripts_dir)
-         from init_hotel_db import seed_demo_data
+        init_scripts_dir = os.path.join(backend_dir, 'init-scripts')
+        if init_scripts_dir not in sys.path:
+            sys.path.append(init_scripts_dir)
+        from init_hotel_db import seed_demo_data
 
 @system_bp.route('/seed', methods=['POST'])
 @token_required
 def seed_system_data(current_user):
     """
-    生成模拟演示数据
+    闂備焦鐪归崹濠氬窗閹版澘鍨傛慨姗嗗劦閻旂厧鐒洪柛鎰╁妿瑜版彃鈹戦悩铏婵﹤顭锋俊闈涱潩鐠虹儤鐎梺缁橆殔閻楀棛绮?
     ---
     tags:
       - System
@@ -265,28 +327,28 @@ def seed_system_data(current_user):
         description: Mock data seeded successfully
     """
     try:
-        # Check if DB is empty to avoid conflicts or duplicate seeding logic inside seed_demo_data
         conn = connect()
         cursor = conn.cursor()
+        _ensure_rooms_meter_columns(conn)
+        # Check if DB is empty to avoid conflicts or duplicate seeding logic inside seed_demo_data
         cursor.execute("SELECT COUNT(*) FROM rooms")
         count = cursor.fetchone()[0]
         conn.close()
         
         if count > 0:
-             return jsonify({"message": "数据库已有数据，跳过模拟数据生成"}), 400
+             return jsonify({"message": "????????????????"}), 400
 
         seed_demo_data()
-        return jsonify({"message": "模拟数据生成成功"}), 200
+        return jsonify({"message": "????????"}), 200
     except Exception as e:
         current_app.logger.error(f"Seeding failed: {e}")
-        return jsonify({"error": f"生成模拟数据失败: {str(e)}"}), 500
+        return jsonify({"error": f"????????: {str(e)}"}), 500
 
 @system_bp.route('/reset', methods=['POST'])
 @token_required
 def reset_system(current_user):
     """
-    重置系统数据（仅保留管理员账号）
-    ---
+    闂傚倷鐒﹁ぐ鍐矓閸洘鍋柛鈩冪懃鐎垫煡鏌ゆ慨鎰偓妤呭春閻樼粯鐓涘ù锝呮惈椤ｈ偐鈧鎸风欢姘跺极瀹ュ閱囨繝濠傛噽閻撳倹绻涢敐鍛缂佽瀚板鎶藉焵椤掑倻纾奸柣娆忔噽绾惧潡鏌熼纭疯含鐎规洏鍔岃灒闁割煈鍣Σ閬嶆⒑閸涘﹦鎳冮柛銈嗙墱濡?    ---
     tags:
       - System
     security:
@@ -302,6 +364,7 @@ def reset_system(current_user):
     cursor.execute("BEGIN TRANSACTION")
     
     try:
+        _ensure_rooms_meter_columns(conn)
         # Tables to clear (excluding admins)
         tables_to_clear = [
             "rooms",
@@ -309,7 +372,9 @@ def reset_system(current_user):
             "tenants",
             "tenant_moves",
             "repair_records",
-            "contracts"
+            "contracts",
+            "procurements",
+            "warehouse_items",
         ]
         
         for table in tables_to_clear:
@@ -339,12 +404,14 @@ def reset_system(current_user):
                 except Exception as e:
                     current_app.logger.warning(f"Failed to delete {file_path}. Reason: {e}")
                     
-        return jsonify({"message": "系统已重置（管理员账号已保留）"}), 200
+        return jsonify({"message": "???????????????"}), 200
         
     except Exception as e:
         conn.rollback()
         current_app.logger.error(f"Reset failed: {e}")
-        return jsonify({"error": f"重置失败: {str(e)}"}), 500
+        return jsonify({"error": f"闂傚倷鐒﹁ぐ鍐矓閸洘鍋柛鈩兠欢鐐哄级閸偄浜悮? {str(e)}"}), 500
     finally:
         cursor.execute("PRAGMA foreign_keys = ON")
         conn.close()
+
+

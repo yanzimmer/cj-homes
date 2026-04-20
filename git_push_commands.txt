@@ -1,0 +1,9 @@
+本次推送使用的命令：
+
+1. git rev-parse --show-toplevel
+2. git status --short
+3. git remote -v
+4. git branch --show-current
+5. git add -A
+6. git commit -m "chore: push current project updates"
+7. git push origin main

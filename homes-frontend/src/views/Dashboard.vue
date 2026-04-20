@@ -1,7 +1,7 @@
 <template>
   <div class="dashboard-container">
     <el-container class="main-layout">
-      <el-aside :width="isCollapse ? '64px' : '240px'" class="sidebar-container">
+      <el-aside :width="isCollapse ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)'" class="sidebar-container">
         <div class="logo-container">
           <div class="logo">
             <span v-if="!isCollapse">房屋登记系统</span>
@@ -14,7 +14,8 @@
         
         <el-scrollbar class="menu-scrollbar">
           <el-menu
-            router
+            :key="activeMenu"
+            @select="handleMenuSelect"
             :default-active="activeMenu"
             :collapse="isCollapse"
             class="sidebar-menu"
@@ -58,6 +59,18 @@
                 <span>维修记录</span>
               </template>
             </el-menu-item>
+            <el-menu-item index="/dashboard/procurement" class="menu-item">
+              <el-icon><ShoppingCart /></el-icon>
+              <template #title>
+                <span>采购管理</span>
+              </template>
+            </el-menu-item>
+            <el-menu-item index="/dashboard/warehouse" class="menu-item">
+              <el-icon><ShoppingCart /></el-icon>
+              <template #title>
+                <span>库存管理</span>
+              </template>
+            </el-menu-item>
             <el-menu-item index="/dashboard/notify" class="menu-item">
               <el-icon><Bell /></el-icon>
               <template #title>
@@ -74,12 +87,10 @@
           
         </el-scrollbar>
         
-        <div class="collapse-indicator" @click="toggleSidebar">
-          <div class="arrow-container">
-            <el-icon :class="{'rotate-arrow': !isCollapse}">
-              <ArrowLeft />
-            </el-icon>
-          </div>
+        <div class="collapse-bottom" @click="toggleSidebar">
+          <el-icon :size="20" :class="{'is-collapsed': isCollapse}">
+            <ArrowLeft />
+          </el-icon>
         </div>
       </el-aside>
       
@@ -133,10 +144,8 @@
         </el-header>
         
         <el-main class="content-area">
-          <router-view v-slot="{ Component }">
-            <transition name="fade-transform" mode="out-in">
-              <component :is="Component" />
-            </transition>
+          <router-view v-slot="{ Component, route: currentRoute }">
+            <component v-if="Component" :is="Component" :key="currentRoute.fullPath" />
           </router-view>
         </el-main>
       </el-container>
@@ -195,7 +204,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { authApi } from '../api/index.js'
-import { 
+import {
   House, 
   User, 
   Van, 
@@ -213,7 +222,8 @@ import {
   Sunny,
   Moon,
   Setting,
-  UserFilled
+  UserFilled,
+  ShoppingCart
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -224,8 +234,10 @@ const authStore = useAuthStore()
 const isDark = ref(false)
 
 const toggleTheme = () => {
-  isDark.value = !isDark.value
   const htmlEl = document.documentElement
+  htmlEl.classList.add('theme-transitioning')
+  
+  isDark.value = !isDark.value
   if (isDark.value) {
     htmlEl.classList.add('dark')
     localStorage.setItem('theme', 'dark')
@@ -233,6 +245,10 @@ const toggleTheme = () => {
     htmlEl.classList.remove('dark')
     localStorage.setItem('theme', 'light')
   }
+
+  requestAnimationFrame(() => {
+    htmlEl.classList.remove('theme-transitioning')
+  })
 }
 
 const initTheme = () => {
@@ -358,6 +374,12 @@ const toggleSidebar = () => {
   isCollapse.value = !isCollapse.value
 }
 
+const handleMenuSelect = (index) => {
+  if (typeof index !== 'string' || !index) return
+  if (index === route.path) return
+  router.push(index).catch(() => {})
+}
+
 const handleLogout = () => {
   authStore.logout()
   router.push('/login')
@@ -373,6 +395,8 @@ const getMenuTitle = (path) => {
     '/dashboard/rooms': '房间管理',
     '/dashboard/tenants': '租户管理',
     '/dashboard/moves': '搬迁管理',
+    '/dashboard/procurement': '采购管理',
+    '/dashboard/warehouse': '库存管理',
     '/dashboard/notify': '通知配置',
     '/dashboard/repair-records': '维修记录',
     '/dashboard/contract-templates': '合同模板',
@@ -416,6 +440,7 @@ onBeforeUnmount(() => {
 .dashboard-container {
   height: 100vh;
   overflow: hidden;
+  background: var(--bg-color);
 }
 
 .main-layout {
@@ -423,9 +448,12 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-container {
-  background-color: var(--card-bg);
-  box-shadow: 0 1px 4px rgba(0, 21, 41, 0.08);
-  transition: width 0.3s, background-color 0.3s;
+  background: var(--sidebar-bg);
+  box-shadow: var(--sidebar-shadow);
+  transition:
+    width 0.3s ease,
+    background var(--theme-transition-duration) ease-in-out,
+    box-shadow var(--theme-transition-duration) ease-in-out;
   z-index: 10;
   overflow: hidden;
   height: 100%;
@@ -451,58 +479,62 @@ onBeforeUnmount(() => {
   z-index: 100;
 }
 
-.collapse-indicator {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 16px;
-  height: 50px;
-  background-color: #1890ff;
-  border-radius: 0 4px 4px 0;
+.collapse-bottom {
+  height: 54px;
   display: flex;
   justify-content: center;
   align-items: center;
   cursor: pointer;
-  z-index: 100;
-  transition: all 0.3s;
+  border-top: 1px solid var(--sidebar-divider);
+  color: var(--sidebar-text-muted);
+  transition:
+    background-color var(--theme-transition-duration) ease-in-out,
+    color var(--theme-transition-duration) ease-in-out,
+    border-color var(--theme-transition-duration) ease-in-out;
+  background-color: transparent;
 }
 
-.arrow-container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  color: white;
+.collapse-bottom:hover {
+  background-color: var(--sidebar-hover);
+  color: var(--sidebar-hover-text);
 }
 
-.rotate-arrow {
+.collapse-bottom .el-icon {
+  transition: transform 0.3s;
+}
+
+.collapse-bottom .el-icon.is-collapsed {
   transform: rotate(180deg);
 }
 
-.collapse-indicator:hover {
-  background-color: #40a9ff;
-  width: 20px;
+html.dark .collapse-bottom {
+  border-top: 1px solid #363637;
+}
+
+html.dark .collapse-bottom:hover {
+  background-color: rgba(255, 255, 255, 0.05);
 }
 
 .menu-scrollbar {
   flex: 1;
-  height: calc(100% - 60px);
+  overflow: hidden;
 }
 
 .logo-container {
-  height: 60px;
+  height: 66px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
+  padding: 0 18px;
   overflow: hidden;
-  border-bottom: 1px solid var(--el-border-color-light, #f0f0f0);
+  border-bottom: 1px solid var(--sidebar-divider);
 }
 
 .logo {
-  font-size: 30px;
+  font-size: 20px;
   font-weight: 600;
-  color: #1890ff;
+  color: var(--sidebar-text);
+  letter-spacing: 1px;
   white-space: nowrap;
   overflow: hidden;
 }
@@ -510,61 +542,101 @@ onBeforeUnmount(() => {
 .collapse-icon {
   font-size: 18px;
   cursor: pointer;
-  color: #909399;
+  color: var(--sidebar-text-muted);
+}
+
+.collapse-icon:hover {
+  color: var(--sidebar-hover-text);
 }
 
 .sidebar-menu {
   border-right: none !important;
+  padding: 12px;
+  background: transparent;
 }
 
 .menu-item {
-  margin: 4px 0;
-  font-size: 16px;
-  text-transform: uppercase;
+  margin: 8px 0;
+  font-size: 15px;
+  height: 44px;
+  border-radius: 10px;
+  color: var(--sidebar-text);
+}
+
+:deep(.sidebar-menu .el-menu-item.is-active) {
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.9), rgba(56, 189, 248, 0.75));
+  color: #ffffff;
+  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.28);
+}
+
+:deep(.sidebar-menu .el-menu-item:hover) {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-hover-text);
 }
 
 /* 确保菜单项内容居中 */
-.sidebar-menu .el-menu-item span {
-  display: block;
-  text-align: center;
-  width: 100%;
+:deep(.sidebar-menu:not(.el-menu--collapse) .el-menu-item) {
+  justify-content: flex-start;
+  padding: 0 14px;
 }
 
-/* 确保图标也居中 */
-.sidebar-menu:not(.el-menu--collapse) .el-menu-item .el-icon {
-  margin-right: 0;
-  width: 100%;
-  text-align: center;
-  margin-bottom: 0;
-  display: inline-block;
+:deep(.sidebar-menu:not(.el-menu--collapse) .el-menu-item .el-icon) {
+  margin-right: 10px;
 }
 
-/* 修改为水平布局 */
-.sidebar-menu:not(.el-menu--collapse) .el-menu-item {
+:deep(.sidebar-menu:not(.el-menu--collapse) .el-menu-item span) {
+  text-align: left;
+  width: auto;
+}
+
+:deep(.sidebar-menu.el-menu--collapse .el-menu-item) {
+  justify-content: center;
+  width: 48px;
+  margin: 8px auto;
+  border-radius: 12px;
+  padding: 0 !important;
+  height: 44px;
+}
+
+:deep(.sidebar-menu.el-menu--collapse .el-menu-item .el-tooltip__trigger) {
+  width: 100%;
+  height: 100%;
   display: flex;
-  flex-direction: row;
   align-items: center;
   justify-content: center;
 }
 
-.sidebar-menu:not(.el-menu--collapse) .el-menu-item .el-icon {
-  margin-right: 8px;
-  width: auto;
+:deep(.sidebar-menu.el-menu--collapse .el-menu-item .el-icon) {
+  margin-right: 0 !important;
+  font-size: 18px;
+}
+
+:deep(.sidebar-menu.el-menu--collapse .el-menu-item > span) {
+  display: none;
 }
 
 .main-container {
-  background-color: var(--bg-color);
+  background: var(--bg-color);
 }
 
 .main-header {
-  background-color: var(--card-bg);
-  box-shadow: 0 1px 4px rgba(0, 21, 41, 0.08);
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 20px;
-  height: 60px;
-  transition: background-color 0.3s;
+  padding: 0 24px;
+  height: 64px;
+  transition:
+    background var(--theme-transition-duration) ease-in-out,
+    border-color var(--theme-transition-duration) ease-in-out,
+    box-shadow var(--theme-transition-duration) ease-in-out;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+html.dark .main-header {
+  background: rgba(15, 23, 42, 0.85);
 }
 
 .breadcrumb {
@@ -574,34 +646,40 @@ onBeforeUnmount(() => {
 .header-right {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 14px;
 }
 
 .time-display {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 5px 10px;
-  border-radius: 4px;
-  font-size: 14px;
-  color: #409EFF;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--el-color-primary);
+  background: var(--surface-muted);
+  border: 1px solid var(--surface-border);
 }
 
 .time-display .el-icon {
-  color: #409EFF;
+  color: var(--el-color-primary);
 }
 
 .user-info {
   display: flex;
   align-items: center;
   cursor: pointer;
-  padding: 0 8px;
-  border-radius: 4px;
-  transition: background-color 0.3s;
+  padding: 6px 10px;
+  border-radius: 999px;
+  transition:
+    background-color var(--theme-transition-duration) ease-in-out,
+    border-color var(--theme-transition-duration) ease-in-out;
+  border: 1px solid transparent;
 }
 
 .user-info:hover {
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: var(--surface-muted);
+  border-color: var(--surface-border);
 }
 
 html.dark .user-info:hover {
@@ -609,7 +687,7 @@ html.dark .user-info:hover {
 }
 
 .user-avatar {
-  background-color: #1890ff;
+  background: linear-gradient(135deg, #2563eb, #14b8a6);
   margin-right: 8px;
 }
 
@@ -619,7 +697,8 @@ html.dark .user-info:hover {
 }
 
 .content-area {
-  padding: 20px;
+  padding: 24px;
   overflow-y: auto;
+  background: var(--bg-color);
 }
 </style>

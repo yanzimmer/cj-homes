@@ -1,0 +1,78 @@
+﻿const TOKEN_KEY = "housing_token"
+const EXPIRES_KEY = "housing_token_expires"
+const USERNAME_KEY = "housing_username"
+const FULLNAME_KEY = "housing_full_name"
+
+export function setToken(token : string) {
+  uni.setStorageSync(TOKEN_KEY, token)
+}
+
+export function getToken() : string {
+  const token = uni.getStorageSync(TOKEN_KEY)
+  if (token == null) {
+    return ""
+  }
+  return String(token)
+}
+
+export function setTokenExpires(expires : string) {
+  uni.setStorageSync(EXPIRES_KEY, expires)
+}
+
+export function getTokenExpires() : string {
+  const expires = uni.getStorageSync(EXPIRES_KEY)
+  if (expires == null) {
+    return ""
+  }
+  return String(expires)
+}
+
+export function setUsername(username : string) {
+  uni.setStorageSync(USERNAME_KEY, username)
+}
+
+export function getUsername() : string {
+  const username = uni.getStorageSync(USERNAME_KEY)
+  if (username == null) {
+    return ""
+  }
+  return String(username)
+}
+
+export function setFullName(fullName : string) {
+  uni.setStorageSync(FULLNAME_KEY, fullName)
+}
+
+export function getFullName() : string {
+  const fullName = uni.getStorageSync(FULLNAME_KEY)
+  if (fullName == null) {
+    return ""
+  }
+  return String(fullName)
+}
+
+export function saveLoginInfo(data : any) {
+  if (data == null) {
+    return
+  }
+  const token = data.token != null ? String(data.token) : ""
+  const username = data.username != null ? String(data.username) : ""
+  const fullName = data.full_name != null ? String(data.full_name) : ""
+  const expires = data.expires != null ? String(data.expires) : ""
+
+  setToken(token)
+  setUsername(username)
+  setFullName(fullName)
+  setTokenExpires(expires)
+}
+
+export function clearLoginInfo() {
+  uni.removeStorageSync(TOKEN_KEY)
+  uni.removeStorageSync(EXPIRES_KEY)
+  uni.removeStorageSync(USERNAME_KEY)
+  uni.removeStorageSync(FULLNAME_KEY)
+}
+
+export function isLoggedIn() : boolean {
+  return getToken() != ""
+}

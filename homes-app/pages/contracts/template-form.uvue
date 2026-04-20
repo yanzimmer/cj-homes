@@ -1,0 +1,156 @@
+﻿<template>
+  <view class="page">
+    <view class="card form-card">
+      <text class="section-title">{{ isEdit ? "编辑模板" : "新增模板" }}</text>
+      <text class="muted">content_html 支持完整 HTML</text>
+
+      <view class="field-group">
+        <text class="label">模板名称 *</text>
+        <input v-model="name" class="input" placeholder="例如 标准租赁合同" />
+      </view>
+
+      <view class="field-group">
+        <text class="label">说明</text>
+        <input v-model="description" class="input" placeholder="可选说明" />
+      </view>
+
+      <view class="field-group">
+        <text class="label">HTML内容 *</text>
+        <textarea v-model="contentHtml" class="textarea" placeholder="<html>...</html>" />
+      </view>
+
+      <button class="btn-primary" :disabled="loading" @click="submitForm">
+        {{ loading ? "提交中..." : "保存" }}
+      </button>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+import { computed, ref } from "vue"
+import { onLoad } from "@dcloudio/uni-app"
+import {
+  apiCreateContractTemplate,
+  apiGetContractTemplateDetail,
+  apiUpdateContractTemplate,
+} from "../../api/services.uts"
+import { getErrorMessage } from "../../common/page.uts"
+
+const templateId = ref(0)
+const loading = ref(false)
+const name = ref("")
+const description = ref("")
+const contentHtml = ref("")
+
+const isEdit = computed(() => templateId.value > 0)
+
+function fillForm(data : any) {
+  name.value = data != null && data.name != null ? String(data.name) : ""
+  description.value = data != null && data.description != null ? String(data.description) : ""
+  contentHtml.value = data != null && data.content_html != null ? String(data.content_html) : ""
+}
+
+async function loadDetail() {
+  if (templateId.value <= 0) {
+    return
+  }
+  try {
+    const data = await apiGetContractTemplateDetail(templateId.value)
+    fillForm(data)
+  } catch (err) {
+    uni.showToast({ title: getErrorMessage(err, "加载模板失败"), icon: "none" })
+  }
+}
+
+function buildPayload() : any {
+  return {
+    name: name.value.trim(),
+    description: description.value.trim(),
+    content_html: contentHtml.value.trim(),
+  }
+}
+
+function validate(payload : any) : boolean {
+  if (payload.name == "") {
+    uni.showToast({ title: "请输入模板名称", icon: "none" })
+    return false
+  }
+  if (payload.content_html == "") {
+    uni.showToast({ title: "请输入模板内容", icon: "none" })
+    return false
+  }
+  return true
+}
+
+async function submitForm() {
+  if (loading.value) {
+    return
+  }
+
+  const payload = buildPayload()
+  if (!validate(payload)) {
+    return
+  }
+
+  loading.value = true
+  try {
+    if (isEdit.value) {
+      await apiUpdateContractTemplate(templateId.value, payload)
+    } else {
+      await apiCreateContractTemplate(payload)
+    }
+    uni.showToast({ title: "保存成功", icon: "success" })
+    setTimeout(() => {
+      uni.navigateBack()
+    }, 300)
+  } catch (err) {
+    uni.showToast({ title: getErrorMessage(err, "保存失败"), icon: "none" })
+  } finally {
+    loading.value = false
+  }
+}
+
+onLoad((options : any) => {
+  if (options != null && options.id != null) {
+    templateId.value = Number(options.id)
+    loadDetail()
+  }
+})
+</script>
+
+<style>
+.form-card {
+  gap: 10px;
+}
+
+.field-group {
+  gap: 6px;
+}
+
+.label {
+  font-size: 13px;
+  color: #374151;
+}
+
+.input {
+  height: 42px;
+  border-width: 1px;
+  border-style: solid;
+  border-color: #d1d5db;
+  border-radius: 10px;
+  padding: 0 12px;
+  font-size: 14px;
+  background-color: #ffffff;
+}
+
+.textarea {
+  min-height: 140px;
+  border-width: 1px;
+  border-style: solid;
+  border-color: #d1d5db;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  background-color: #ffffff;
+}
+</style>

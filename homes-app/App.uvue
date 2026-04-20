@@ -1,0 +1,288 @@
+﻿<script lang="uts">
+// #ifdef APP-ANDROID || APP-HARMONY
+let firstBackTime = 0
+// #endif
+
+export default {
+  onLaunch() {
+    console.log("Housing App Launch")
+  },
+  // #ifdef APP-ANDROID || APP-HARMONY
+  onLastPageBackPress() {
+    if (firstBackTime == 0) {
+      uni.showToast({
+        title: "再按一次退出应用",
+        position: "bottom",
+      })
+      firstBackTime = Date.now()
+      setTimeout(() => {
+        firstBackTime = 0
+      }, 2000)
+      return
+    }
+    if (Date.now() - firstBackTime < 2000) {
+      firstBackTime = Date.now()
+      uni.exit()
+    }
+  },
+  // #endif
+}
+</script>
+
+<style>
+:root {
+  --bg-base: #f5f0e8;
+  --bg-fade: #eaf2f4;
+  --surface: rgba(255, 255, 255, 0.9);
+  --ink: #162432;
+  --muted: #5f7082;
+  --primary: #0a6f74;
+  --primary-2: #11a3b2;
+  --secondary: #b97611;
+  --secondary-2: #e6a11e;
+  --info: #1768d5;
+  --success: #178a58;
+  --danger: #cf3f3f;
+  --border: rgba(20, 38, 56, 0.14);
+  --radius: 16px;
+  --shadow-soft: 0 8px 20px rgba(18, 38, 58, 0.08);
+  --shadow-strong: 0 18px 42px rgba(18, 38, 58, 0.14);
+}
+
+.page {
+  min-height: 100vh;
+  padding: 18px 16px 28px;
+  box-sizing: border-box;
+  color: var(--ink);
+  background-color: var(--bg-base);
+  background-image:
+    radial-gradient(980px 560px at -12% -8%, rgba(255, 228, 178, 0.7), transparent 58%),
+    radial-gradient(920px 620px at 115% -5%, rgba(181, 227, 248, 0.62), transparent 56%),
+    linear-gradient(180deg, #f7f2e9 0%, #eef4f7 100%);
+  font-family: "HarmonyOS Sans", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  animation: pageFade 0.45s ease;
+}
+
+.card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 16px;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(10px);
+  animation: cardRise 0.35s ease both;
+}
+
+.row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.space-between {
+  justify-content: space-between;
+}
+
+.section-title {
+  font-size: 19px;
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
+
+.sub-title {
+  font-size: 15px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.label {
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.input,
+.textarea {
+  border-width: 1px !important;
+  border-style: solid !important;
+  border-color: var(--border) !important;
+  border-radius: 12px !important;
+  background-color: rgba(255, 255, 255, 0.92) !important;
+  box-shadow: inset 0 1px 3px rgba(15, 24, 39, 0.06) !important;
+}
+
+.picker-view {
+  display: flex;
+  align-items: center;
+  justify-content: center !important;
+  text-align: center !important;
+}
+
+button {
+  height: 42px;
+  border-radius: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+button:active {
+  transform: translateY(1px);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.1);
+}
+
+.btn-primary,
+.btn-strong,
+.btn-main {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-2) 100%) !important;
+  color: #ffffff !important;
+  border: none !important;
+}
+
+.btn-soft,
+.create-btn {
+  background: linear-gradient(135deg, var(--secondary) 0%, var(--secondary-2) 100%) !important;
+  color: #ffffff !important;
+  border: none !important;
+}
+
+.action-btn {
+  background: linear-gradient(135deg, #e5f4ff 0%, #d7efff 100%) !important;
+  color: #0f4d90 !important;
+  border: 1px solid rgba(23, 104, 213, 0.18) !important;
+}
+
+.search-btn,
+.query-btn,
+.pager-btn,
+.history-btn,
+.host-btn {
+  background: linear-gradient(135deg, #1f7adf 0%, #3da2f6 100%) !important;
+  color: #ffffff !important;
+  border: none !important;
+}
+
+.btn-outline,
+.btn-ghost,
+.gray-btn,
+.host-reset-btn {
+  background: #f2f5f8 !important;
+  color: #334155 !important;
+  border: 1px solid rgba(51, 65, 85, 0.16) !important;
+}
+
+.save-btn,
+.seed-btn {
+  background: linear-gradient(135deg, #11814f 0%, #1fae6a 100%) !important;
+  color: #ffffff !important;
+  border: none !important;
+}
+
+.render-btn,
+.checkout-btn {
+  background: linear-gradient(135deg, #f3d28f 0%, #f4bf5c 100%) !important;
+  color: #7a4a00 !important;
+  border: 1px solid rgba(151, 98, 15, 0.18) !important;
+}
+
+.btn-danger,
+.danger-btn {
+  background: linear-gradient(135deg, #d24a4a 0%, #e36a39 100%) !important;
+  color: #ffffff !important;
+  border: none !important;
+}
+
+.edit-btn {
+  background: #e0f2f1 !important;
+  color: #0f766e !important;
+  border: 1px solid rgba(15, 118, 110, 0.22) !important;
+}
+
+.tiny-btn,
+.small-btn {
+  height: 34px;
+  font-size: 12px;
+  border-radius: 10px;
+}
+
+.status-tag,
+.status-pill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.status-free {
+  background-color: #ddf7e6 !important;
+  color: #17633a !important;
+  border-color: rgba(23, 99, 58, 0.18) !important;
+}
+
+.status-live {
+  background-color: #e0eeff !important;
+  color: #1e4d9f !important;
+  border-color: rgba(30, 77, 159, 0.2) !important;
+}
+
+.status-soon {
+  background-color: #fff1d7 !important;
+  color: #8c5304 !important;
+  border-color: rgba(140, 83, 4, 0.2) !important;
+}
+
+.status-expired {
+  background-color: #ffe5e5 !important;
+  color: #9f2a2a !important;
+  border-color: rgba(159, 42, 42, 0.2) !important;
+}
+
+.status-unknown {
+  background-color: #edf1f5 !important;
+  color: #4b5563 !important;
+  border-color: rgba(75, 85, 99, 0.18) !important;
+}
+
+.title {
+  font-size: 26px !important;
+  color: var(--ink) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.5px;
+}
+
+.subtitle {
+  color: var(--muted) !important;
+}
+
+@keyframes pageFade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes cardRise {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+</style>

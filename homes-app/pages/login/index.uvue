@@ -1,0 +1,285 @@
+﻿﻿﻿﻿<template>
+  <view class="page login-page">
+    <view class="hero-panel">
+      <text class="hero-title">住房租赁移动端</text>
+      <text class="hero-sub">统一管理房间、租户、维修、搬迁与合同业务</text>
+    </view>
+    <view class="card login-card">
+      <text class="title">账号登录</text>
+      <text class="subtitle">请输入账号信息进入工作台</text>
+
+      <view class="field-group">
+        <text class="label">用户名</text>
+        <input v-model="username" class="input" placeholder="请输入用户名" />
+      </view>
+
+      <view class="field-group">
+        <text class="label">密码</text>
+        <input
+          v-model="password"
+          class="input"
+          placeholder="请输入密码"
+          password
+          type="text"
+        />
+      </view>
+
+      <view class="row action-row">
+        <button class="btn btn-primary login-btn" :disabled="loading" @click="handleLogin">
+          {{ loading ? "登录中..." : "登录" }}
+        </button>
+        <button class="btn btn-fill demo-btn" :disabled="loading" @click="fillDemoAccount">
+          填充测试账号
+        </button>
+      </view>
+
+      <button class="btn btn-outline host-toggle-btn" @click="showHostConfig = !showHostConfig">
+        {{ showHostConfig ? "收起接口配置" : "展开接口配置" }}
+      </button>
+
+      <view v-if="showHostConfig" class="host-panel">
+        <view class="field-group">
+          <text class="label">接口主机</text>
+          <input v-model="apiHostInput" class="input" placeholder="http://127.0.0.1:5000" />
+          <view class="row host-row">
+            <button class="btn host-btn" @click="saveApiHostConfig">保存地址</button>
+            <button class="btn host-reset-btn" @click="resetApiHostConfig">恢复默认</button>
+          </view>
+        </view>
+      </view>
+
+      <text class="endpoint">当前接口基地址：{{ apiBase }}</text>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+import { ref } from "vue"
+import { onShow } from "@dcloudio/uni-app"
+import { apiLogin } from "../../api/services.uts"
+import { getApiBaseUrl, getApiHost, resetApiHost, setApiHost } from "../../common/request.uts"
+import { isLoggedIn, saveLoginInfo } from "../../common/session.uts"
+
+const username = ref("")
+const password = ref("")
+const loading = ref(false)
+const apiHostInput = ref(getApiHost())
+const apiBase = ref(getApiBaseUrl())
+const showHostConfig = ref(false)
+
+function refreshApiBase() {
+  apiHostInput.value = getApiHost()
+  apiBase.value = getApiBaseUrl()
+}
+
+function toErrorMessage(err : any) : string {
+  if (err != null && err.message != null) {
+    return String(err.message)
+  }
+  return "登录失败"
+}
+
+function goHome() {
+  uni.reLaunch({
+    url: "/pages/home/index",
+  })
+}
+
+function saveApiHostConfig() {
+  const value = apiHostInput.value.trim()
+  if (value == "") {
+    uni.showToast({ title: "请输入接口主机", icon: "none" })
+    return
+  }
+  if (!value.startsWith("http://") && !value.startsWith("https://")) {
+    uni.showToast({ title: "接口主机需以 http:// 或 https:// 开头", icon: "none" })
+    return
+  }
+
+  setApiHost(value)
+  refreshApiBase()
+  uni.showToast({ title: "接口地址已更新", icon: "success" })
+}
+
+function resetApiHostConfig() {
+  resetApiHost()
+  refreshApiBase()
+  uni.showToast({ title: "已恢复默认地址", icon: "success" })
+}
+
+onShow(() => {
+  refreshApiBase()
+  if (isLoggedIn()) {
+    goHome()
+  }
+})
+
+async function handleLogin() {
+  if (loading.value) {
+    return
+  }
+
+  if (username.value.trim() == "" || password.value.trim() == "") {
+    uni.showToast({
+      title: "请输入用户名和密码",
+      icon: "none",
+    })
+    return
+  }
+
+  loading.value = true
+  try {
+    const data = await apiLogin(username.value.trim(), password.value)
+    saveLoginInfo(data)
+    uni.showToast({
+      title: "登录成功",
+      icon: "success",
+    })
+    goHome()
+  } catch (err) {
+    uni.showToast({
+      title: toErrorMessage(err),
+      icon: "none",
+    })
+  } finally {
+    loading.value = false
+  }
+}
+
+function fillDemoAccount() {
+  username.value = "admin"
+  password.value = "123456"
+}
+</script>
+
+<style>
+.login-page {
+  justify-content: center;
+  align-items: stretch;
+}
+
+.hero-panel {
+  margin-bottom: 14px;
+  padding: 18px 16px;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #0f766e 0%, #0ea5a4 56%, #38bdf8 100%);
+  box-shadow: 0 18px 30px rgba(15, 23, 42, 0.18);
+}
+
+.hero-title {
+  display: block;
+  font-size: 24px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.hero-sub {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 100%;
+  gap: 12px;
+  border: 1px solid rgba(12, 74, 110, 0.1);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.1);
+}
+
+.title {
+  font-size: 24px;
+  color: #111827;
+  font-weight: 700;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+
+.field-group {
+  gap: 6px;
+}
+
+.label {
+  font-size: 13px;
+  color: #374151;
+}
+
+.input {
+  height: 42px;
+  border-width: 1px;
+  border-color: #d1d5db;
+  border-style: solid;
+  border-radius: 10px;
+  padding: 0 12px;
+  font-size: 14px;
+  background-color: #ffffff;
+}
+
+.host-row {
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.host-btn,
+.host-reset-btn {
+  flex: 1;
+  margin-top: 0;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.host-btn {
+  background-color: #eef2ff;
+  color: #1d4ed8;
+}
+
+.host-reset-btn {
+  background-color: #f1f5f9;
+  color: #334155;
+}
+
+.btn {
+  margin-top: 4px;
+  border-radius: 10px;
+  font-size: 14px;
+}
+
+.action-row {
+  margin-top: 2px;
+  gap: 8px;
+}
+
+.login-btn,
+.demo-btn {
+  flex: 1;
+  margin-top: 0;
+}
+
+.host-toggle-btn {
+  margin-top: 2px;
+}
+
+.host-panel {
+  margin-top: 4px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(248, 250, 252, 0.9);
+}
+
+.btn-fill {
+  background-color: #eef2ff;
+  color: #1d4ed8;
+}
+
+.endpoint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #6b7280;
+}
+</style>

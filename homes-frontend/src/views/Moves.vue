@@ -1,20 +1,19 @@
 <template>
   <div>
   <div class="moves-container">
-  <div class="page-header">
-    <h2>搬迁管理</h2>
-      <div>
+    <div class="page-header">
+      <div class="header-operations">
         <el-input
+          class="search-input"
           v-model="searchQuery"
           placeholder="搜索租户/房间/日期/原因"
           clearable
-          style="width: 240px; margin-right: 10px;"
           @clear="handleSearchClear"
         />
-        <el-button type="primary" @click="openMoveDialog">新增搬迁</el-button>
-        <el-button type="danger" style="margin-left: 10px;" :disabled="multipleSelection.length === 0" @click="confirmBatchDelete">批量删除</el-button>
+        <el-button class="toolbar-btn" type="primary" @click="openMoveDialog">新增搬迁</el-button>
+        <el-button class="toolbar-btn" type="danger" :disabled="multipleSelection.length === 0" @click="confirmBatchDelete">批量删除</el-button>
         <el-dropdown trigger="click" @command="handleExportCommand">
-          <el-button style="margin-left: 10px;" type="success">
+          <el-button class="toolbar-btn" type="success">
             导出 <el-icon style="margin-left:4px"><Filter /></el-icon>
           </el-button>
           <template #dropdown>
@@ -31,6 +30,7 @@
     <el-tabs v-model="activeTab">
       <el-tab-pane label="搬迁详情" name="records">
         <el-table
+          class="moves-table"
           :data="paginatedMoves"
           v-loading="loading"
           border
@@ -635,20 +635,61 @@ const exportToPDF = async () => {
 
 .page-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
-.page-header h2 {
-  margin: 0;
-  color: #409EFF;
+.header-operations {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.search-input {
+  width: 240px;
+}
+
+.toolbar-btn {
+  margin-left: 0 !important;
 }
 
 .pagination-container {
-  margin-top: 20px;
+  margin-top: 16px;
   display: flex;
   justify-content: center;
+  padding-top: 12px;
+  border-top: 1px solid var(--surface-border);
+}
+
+:deep(.moves-table) {
+  --el-table-header-bg-color: var(--surface-muted);
+  --el-table-tr-bg-color: var(--card-bg);
+  --el-table-row-hover-bg-color: rgba(37, 99, 235, 0.06);
+  --el-table-border-color: var(--surface-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+:deep(.moves-table .el-table__header-wrapper th.el-table__cell) {
+  font-weight: 700;
+  color: var(--text-main);
+  height: 48px;
+}
+
+:deep(.moves-table .el-table__body-wrapper td.el-table__cell) {
+  padding: 12px 0;
+}
+
+:deep(.moves-table .el-table__fixed-right::before),
+:deep(.moves-table .el-table__fixed::before) {
+  background-color: transparent;
+}
+
+@media (max-width: 768px) {
+  .search-input {
+    width: 100%;
+  }
 }
 
 .dialog-footer {

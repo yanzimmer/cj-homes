@@ -1,0 +1,462 @@
+<template>
+  <view class="page">
+    <view class="card form-card">
+      <text class="section-title">{{ isEdit ? "编辑合同" : "新增合同" }}</text>
+      <text class="muted">与网页端一致的结构化合同录入</text>
+
+      <view class="field-group">
+        <text class="label">合同模板 *</text>
+        <picker mode="selector" :range="templateNames" :value="selectedTemplateIndex" @change="onTemplateChange" :disabled="isEdit">
+          <view class="picker-view">{{ currentTemplateName }}</view>
+        </picker>
+      </view>
+
+      <view v-if="templates.length == 0" class="template-hint-row">
+        <button class="btn-outline template-create-btn" @click="openCreateTemplate">去创建模板</button>
+      </view>
+
+      <view v-if="!isEdit" class="field-group">
+        <text class="label">租户 *</text>
+        <picker mode="selector" :range="tenantPickerOptions" @change="onTenantChange">
+          <view class="picker-view">{{ selectedTenantLabel }}</view>
+        </picker>
+      </view>
+
+      <view class="field-group">
+        <text class="label">甲方(出租方)</text>
+        <input v-model="landlord" class="input" placeholder="例如 李房东" />
+      </view>
+
+      <view class="field-group">
+        <text class="label">姓名 *</text>
+        <input v-model="name" class="input" placeholder="例如 张三" :disabled="!isEdit" />
+      </view>
+
+      <view class="field-group">
+        <text class="label">性别</text>
+        <input v-model="gender" class="input" placeholder="例如 男" :disabled="!isEdit" />
+      </view>
+
+      <view class="field-group">
+        <text class="label">民族</text>
+        <input v-model="nation" class="input" placeholder="例如 汉" :disabled="!isEdit" />
+      </view>
+
+      <view class="field-group">
+        <text class="label">身份证 *</text>
+        <input v-model="idCard" class="input" placeholder="例如 4401********1234" :disabled="!isEdit" />
+      </view>
+
+      <view class="field-group">
+        <text class="label">住址</text>
+        <input v-model="address" class="input" placeholder="例如 广东省广州市..." :disabled="!isEdit" />
+      </view>
+
+      <view class="field-group">
+        <text class="label">房间号 *</text>
+        <input v-model="roomNo" class="input" placeholder="例如 A-101" :disabled="!isEdit" />
+      </view>
+
+      <view class="field-group">
+        <text class="label">开始日期 *</text>
+        <picker mode="date" :value="startDate" @change="onStartDateChange">
+          <view class="picker-view">{{ startDate == "" ? "请选择开始日期" : startDate }}</view>
+        </picker>
+      </view>
+
+      <view class="field-group">
+        <text class="label">结束日期 *</text>
+        <picker mode="date" :value="endDate" @change="onEndDateChange">
+          <view class="picker-view">{{ endDate == "" ? "请选择结束日期" : endDate }}</view>
+        </picker>
+      </view>
+
+      <view class="field-group">
+        <text class="label">租金 *</text>
+        <input v-model="rent" class="input" type="number" placeholder="例如 1800" />
+      </view>
+
+      <view class="field-group">
+        <text class="label">押金</text>
+        <input v-model="deposit" class="input" type="number" placeholder="例如 1800" />
+      </view>
+
+      <view class="row action-row">
+        <button class="btn-outline" :disabled="previewing" @click="previewContract">
+          {{ previewing ? "预览中..." : "预览" }}
+        </button>
+        <button class="btn-primary" :disabled="loading" @click="submitForm">
+          {{ loading ? "提交中..." : "保存" }}
+        </button>
+      </view>
+    </view>
+
+    <view v-if="previewVisible" class="detail-mask" @click="closePreview">
+      <scroll-view class="detail-sheet" scroll-y="true">
+        <view class="card detail-card" @click.stop>
+          <view class="row space-between">
+            <text class="section-title">合同预览</text>
+            <button class="btn-outline" @click="closePreview">关闭</button>
+          </view>
+          <view class="preview-body">
+            <rich-text :nodes="previewHtml" />
+          </view>
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+import { computed, ref } from "vue"
+import { onLoad } from "@dcloudio/uni-app"
+import {
+  apiCreateContract,
+  apiGetContractDetail,
+  apiGetContractTemplates,
+  apiGetTenants,
+  apiRenderContractTemplate,
+  apiUpdateContract,
+} from "../../api/services.uts"
+import { getErrorMessage, normalizeArray } from "../../common/page.uts"
+
+const contractId = ref(0)
+const loading = ref(false)
+const previewing = ref(false)
+const previewVisible = ref(false)
+const previewHtml = ref("")
+const templateId = ref(0)
+const templates = ref<any[]>([])
+const selectedTemplateIndex = ref(0)
+const tenants = ref<any[]>([])
+const selectedTenantIndex = ref(-1)
+
+const landlord = ref("李房东")
+const name = ref("")
+const gender = ref("")
+const nation = ref("")
+const idCard = ref("")
+const address = ref("")
+const roomNo = ref("")
+const startDate = ref("")
+const endDate = ref("")
+const rent = ref("")
+const deposit = ref("")
+
+const isEdit = computed(() => contractId.value > 0)
+const templateNames = computed(() => templates.value.map((item : any) => item != null && item.name != null ? String(item.name) : "未命名模板"))
+const currentTemplateName = computed(() => {
+  if (templates.value.length == 0) return "暂无模板，请先创建模板"
+  const idx = selectedTemplateIndex.value
+  if (idx < 0 || idx >= templates.value.length) return "请选择模板"
+  return templateNames.value[idx]
+})
+
+const tenantPickerOptions = computed(() => tenants.value.map((item : any) => {
+  const tenantName = item != null && item.name != null ? String(item.name) : "未命名租户"
+  const tenantRoomNo = item != null && item.room_no != null ? String(item.room_no) : "-"
+  const tenantPhone = item != null && item.phone != null ? String(item.phone) : "-"
+  return `${tenantName} - ${tenantRoomNo} - ${tenantPhone}`
+}))
+
+const selectedTenantLabel = computed(() => {
+  if (tenants.value.length == 0) return "暂无可选租户"
+  if (selectedTenantIndex.value < 0 || selectedTenantIndex.value >= tenantPickerOptions.value.length) return "请选择租户"
+  return tenantPickerOptions.value[selectedTenantIndex.value]
+})
+
+function fillFromTenant(tenant : any) {
+  name.value = tenant != null && tenant.name != null ? String(tenant.name) : ""
+  gender.value = tenant != null && tenant.gender != null ? String(tenant.gender) : ""
+  nation.value = tenant != null && tenant.nation != null ? String(tenant.nation) : ""
+  idCard.value = tenant != null && tenant.id_card != null ? String(tenant.id_card) : ""
+  address.value = tenant != null && tenant.address != null ? String(tenant.address) : ""
+  roomNo.value = tenant != null && tenant.room_no != null ? String(tenant.room_no) : ""
+}
+
+function buildVars() : any {
+  return {
+    landlord: landlord.value.trim(),
+    name: name.value.trim(),
+    tenant_name: name.value.trim(),
+    gender: gender.value.trim(),
+    nation: nation.value.trim(),
+    id_card: idCard.value.trim(),
+    address: address.value.trim(),
+    room_no: roomNo.value.trim(),
+    start_date: startDate.value.trim(),
+    end_date: endDate.value.trim(),
+    rent: rent.value.trim(),
+    deposit: deposit.value.trim(),
+  }
+}
+
+function fillForm(data : any) {
+  templateId.value = data != null && data.template_id != null ? Number(data.template_id) : 0
+  name.value = data != null && data.tenant_name != null ? String(data.tenant_name) : ""
+  idCard.value = data != null && data.id_card != null ? String(data.id_card) : ""
+  roomNo.value = data != null && data.room_no != null ? String(data.room_no) : ""
+  startDate.value = data != null && data.start_date != null ? String(data.start_date) : ""
+  endDate.value = data != null && data.end_date != null ? String(data.end_date) : ""
+  rent.value = data != null && data.rent != null ? String(data.rent) : ""
+  const idx = templates.value.findIndex((item : any) => Number(item.id) == templateId.value)
+  if (idx >= 0) selectedTemplateIndex.value = idx
+}
+
+async function loadTemplates() {
+  try {
+    const data = await apiGetContractTemplates()
+    templates.value = normalizeArray(data, ["templates", "contract_templates", "items"])
+    if (templates.value.length > 0 && templateId.value <= 0) {
+      selectedTemplateIndex.value = 0
+      templateId.value = Number(templates.value[0].id)
+    }
+    if (templateId.value > 0) {
+      const idx = templates.value.findIndex((item : any) => Number(item.id) == templateId.value)
+      if (idx >= 0) selectedTemplateIndex.value = idx
+    }
+  } catch (err) {
+    uni.showToast({ title: getErrorMessage(err, "获取模板失败"), icon: "none" })
+  }
+}
+
+async function loadTenants() {
+  try {
+    const data = await apiGetTenants()
+    tenants.value = normalizeArray(data, ["tenants", "items", "list", "rows"])
+    if (selectedTenantIndex.value >= tenants.value.length) {
+      selectedTenantIndex.value = -1
+    }
+  } catch (err) {
+    tenants.value = []
+    uni.showToast({ title: getErrorMessage(err, "获取租户失败"), icon: "none" })
+  }
+}
+
+async function loadDetail() {
+  if (contractId.value <= 0) {
+    return
+  }
+  try {
+    const data = await apiGetContractDetail(contractId.value)
+    fillForm(data)
+  } catch (err) {
+    uni.showToast({ title: getErrorMessage(err, "加载合同失败"), icon: "none" })
+  }
+}
+
+function validate(templateIdValue : number, vars : any) : boolean {
+  if (isNaN(templateIdValue) || templateIdValue <= 0) {
+    uni.showToast({ title: "请选择合同模板", icon: "none" })
+    return false
+  }
+  if (!isEdit.value && (selectedTenantIndex.value < 0 || selectedTenantIndex.value >= tenants.value.length)) {
+    uni.showToast({ title: "请选择租户", icon: "none" })
+    return false
+  }
+  if (vars.name == "") {
+    uni.showToast({ title: "请输入姓名", icon: "none" })
+    return false
+  }
+  if (vars.id_card == "") {
+    uni.showToast({ title: "请输入身份证", icon: "none" })
+    return false
+  }
+  if (vars.room_no == "") {
+    uni.showToast({ title: "请输入房间号", icon: "none" })
+    return false
+  }
+  if (vars.start_date == "" || vars.end_date == "") {
+    uni.showToast({ title: "请选择起止日期", icon: "none" })
+    return false
+  }
+  if (vars.rent == "") {
+    uni.showToast({ title: "请输入租金", icon: "none" })
+    return false
+  }
+  return true
+}
+
+function onTenantChange(e : any) {
+  const index = e != null && e.detail != null && e.detail.value != null ? Number(e.detail.value) : -1
+  if (isNaN(index) || index < 0 || index >= tenants.value.length) return
+  selectedTenantIndex.value = index
+  fillFromTenant(tenants.value[index])
+}
+
+function openCreateTemplate() {
+  uni.navigateTo({ url: "/pages/contracts/template-form" })
+}
+
+function onTemplateChange(e : any) {
+  const index = e != null && e.detail != null && e.detail.value != null ? Number(e.detail.value) : 0
+  if (isNaN(index) || index < 0 || index >= templates.value.length) return
+  selectedTemplateIndex.value = index
+  templateId.value = Number(templates.value[index].id)
+}
+
+function onStartDateChange(e : any) {
+  startDate.value = e != null && e.detail != null && e.detail.value != null ? String(e.detail.value) : ""
+}
+
+function onEndDateChange(e : any) {
+  endDate.value = e != null && e.detail != null && e.detail.value != null ? String(e.detail.value) : ""
+}
+
+async function previewContract() {
+  if (previewing.value) return
+  const vars = buildVars()
+  const templateIdValue = Number(templateId.value)
+  if (!validate(templateIdValue, vars)) return
+  previewing.value = true
+  try {
+    const data = await apiRenderContractTemplate(templateIdValue, vars)
+    const html = data != null && data.rendered_html != null ? String(data.rendered_html) : (data != null && data.html != null ? String(data.html) : "")
+    previewHtml.value = html.trim() == "" ? "<div style='color:#64748b;padding:8px 0;'>暂无预览内容</div>" : html
+    previewVisible.value = true
+  } catch (err) {
+    uni.showToast({ title: getErrorMessage(err, "预览失败"), icon: "none" })
+  } finally {
+    previewing.value = false
+  }
+}
+
+function closePreview() {
+  previewVisible.value = false
+}
+
+async function submitForm() {
+  if (loading.value) {
+    return
+  }
+
+  const vars = buildVars()
+  const templateIdValue = Number(templateId.value)
+  if (!validate(templateIdValue, vars)) {
+    return
+  }
+
+  loading.value = true
+  try {
+    if (isEdit.value) {
+      await apiUpdateContract(contractId.value, vars)
+    } else {
+      await apiCreateContract(templateIdValue, vars)
+    }
+    uni.showToast({ title: "保存成功", icon: "success" })
+    setTimeout(() => {
+      uni.navigateBack()
+    }, 300)
+  } catch (err) {
+    uni.showToast({ title: getErrorMessage(err, "保存失败"), icon: "none" })
+  } finally {
+    loading.value = false
+  }
+}
+
+onLoad((options : any) => {
+  if (options != null && options.template_id != null) {
+    templateId.value = Number(options.template_id)
+  }
+  loadTemplates()
+  if (options != null && options.id != null) {
+    contractId.value = Number(options.id)
+    loadDetail()
+  } else {
+    loadTenants()
+  }
+})
+</script>
+
+<style>
+.form-card {
+  gap: 10px;
+}
+
+.field-group {
+  gap: 6px;
+}
+
+.action-row {
+  margin-top: 6px;
+  gap: 8px;
+}
+
+.label {
+  font-size: 13px;
+  color: #374151;
+}
+
+.input {
+  height: 42px;
+  border-width: 1px;
+  border-style: solid;
+  border-color: #d1d5db;
+  border-radius: 10px;
+  padding: 0 12px;
+  font-size: 14px;
+  background-color: #ffffff;
+}
+
+.textarea {
+  min-height: 140px;
+  border-width: 1px;
+  border-style: solid;
+  border-color: #d1d5db;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  background-color: #ffffff;
+}
+
+.picker-view {
+  height: 42px;
+  border-width: 1px;
+  border-style: solid;
+  border-color: #d1d5db;
+  border-radius: 10px;
+  padding: 0 12px;
+  font-size: 14px;
+  background-color: #ffffff;
+  display: flex;
+  align-items: center;
+}
+
+.template-hint-row {
+  margin-top: 4px;
+}
+
+.template-create-btn {
+  width: 100%;
+}
+
+.detail-mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(13, 28, 43, 0.4);
+  z-index: 1000;
+  padding: 20px 16px;
+  box-sizing: border-box;
+}
+
+.detail-sheet {
+  height: 90vh;
+  max-height: 90vh;
+}
+
+.detail-card {
+  margin-top: 0;
+  border: 1px solid rgba(18, 43, 65, 0.12);
+}
+
+.preview-body {
+  margin-top: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(18, 43, 65, 0.08);
+  background: rgba(255, 255, 255, 0.96);
+}
+</style>

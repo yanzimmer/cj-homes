@@ -7,7 +7,7 @@
         <el-input
           v-model="searchQuery"
           placeholder="搜索姓名/身份证/电话"
-          style="width: 220px; margin-right: 10px"
+          class="search-input"
           clearable
           @clear="handleSearchClear"
         >
@@ -29,16 +29,16 @@
           </el-radio-button>
         </el-radio-group>
 
-        <el-button type="primary" @click="openAddDialog">添加租户</el-button>
+        <el-button class="toolbar-btn" type="primary" @click="openAddDialog">添加租户</el-button>
         <el-button
-          style="margin-left: 10px;"
+          class="toolbar-btn"
           type="danger"
           :disabled="selectedTenants.length === 0"
           :loading="batchDeleting"
           @click="handleBatchDelete"
         >批量删除</el-button>
         <el-dropdown trigger="click" @command="handleExportCommand">
-          <el-button style="margin-left: 10px;" type="success">
+          <el-button class="toolbar-btn" type="success">
             导出 <el-icon style="margin-left:4px"><Filter /></el-icon>
           </el-button>
           <template #dropdown>
@@ -52,8 +52,9 @@
       </div>
     </div>
 
+    <div v-if="currentView === 'table'" class="table-panel">
     <el-table 
-      v-if="currentView === 'table'"
+      class="tenants-table"
       ref="tenantsTableRef"
       row-key="id_card"
       :data="paginatedTenants" 
@@ -108,7 +109,7 @@
       <el-table-column prop="check_out_date" label="退房日期" width="120" sortable="custom"></el-table-column>
       <el-table-column label="身份证正面" width="120">
         <template #default="scope">
-          <el-image 
+          <el-image lazy loading="lazy" 
             v-if="scope.row.front_img" 
             :src="scope.row.front_img" 
             :preview-src-list="[scope.row.front_img]"
@@ -119,7 +120,7 @@
       </el-table-column>
       <el-table-column label="身份证反面" width="120">
         <template #default="scope">
-          <el-image 
+          <el-image lazy loading="lazy" 
             v-if="scope.row.back_img" 
             :src="scope.row.back_img" 
             :preview-src-list="[scope.row.back_img]"
@@ -129,33 +130,36 @@
         </template>
       </el-table-column>
       <el-table-column prop="remarks" label="备注" width="150"></el-table-column>
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column label="操作" width="300" fixed="right">
         <template #default="scope">
-          <el-button 
-            size="small" 
-            type="primary" 
-            @click="showTenantDetails(scope.row)"
-          >详情</el-button>
-          <el-button size="small" @click="openEditDialog(scope.row)">编辑</el-button>
-          <el-button 
-            size="small" 
-            type="warning" 
-            @click="handleCheckout(scope.row)"
-            :disabled="scope.row.status === '已退租'"
-          >退租</el-button>
-          <el-button 
-            size="small" 
-            type="danger" 
-            :disabled="scope.row.status === '在住'"
-            @click="handleDelete(scope.row)"
-            :title="scope.row.status === '在住' ? '在租状态不可删除，请先办理退租' : ''"
-          >删除</el-button>
+          <div class="table-actions-row">
+            <el-button 
+              size="small" 
+              type="primary" 
+              @click="showTenantDetails(scope.row)"
+            >详情</el-button>
+            <el-button size="small" @click="openEditDialog(scope.row)">编辑</el-button>
+            <el-button 
+              size="small" 
+              type="warning" 
+              @click="handleCheckout(scope.row)"
+              :disabled="scope.row.status === '已退租'"
+            >退租</el-button>
+            <el-button 
+              size="small" 
+              type="danger" 
+              :disabled="scope.row.status === '在住'"
+              @click="handleDelete(scope.row)"
+              :title="scope.row.status === '在住' ? '在租状态不可删除，请先办理退租' : ''"
+            >删除</el-button>
+          </div>
         </template>
       </el-table-column>
     </el-table>
+    </div>
     
     <!-- 分页控件 -->
-    <div v-if="currentView === 'table' || currentView === 'card'" class="pagination-container" style="margin-top: 20px; display: flex; justify-content: center;">
+    <div v-if="currentView === 'table' || currentView === 'card'" class="pagination-container">
       <el-pagination
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
@@ -329,6 +333,10 @@
         <el-button size="large" type="success" :loading="ocrLoadingBack" @click="triggerBackUpload">识别身份证(反面)</el-button>
         <input ref="frontFileInput" type="file" accept="image/*" style="display:none" @change="onFrontFileChange" />
         <input ref="backFileInput" type="file" accept="image/*" style="display:none" @change="onBackFileChange" />
+        <div class="ocr-progress" v-if="ocrLoadingFront || ocrLoadingBack">
+          <el-progress v-if="ocrLoadingFront" :percentage="ocrProgressFront" :stroke-width="6" />
+          <el-progress v-if="ocrLoadingBack" :percentage="ocrProgressBack" :stroke-width="6" status="success" />
+        </div>
       </div>
       <div class="narrow-fields">
         <el-form :model="tenantForm" :rules="rules" ref="tenantFormRef" label-width="120px">
@@ -468,6 +476,7 @@ import { jsPDF } from 'jspdf'
 import { Document, Packer, Paragraph, Table as DocxTable, TableRow, TableCell, TextRun } from 'docx'
 import { saveAs } from 'file-saver'
 import html2canvas from 'html2canvas'
+import { uploadFileByChunks } from '../utils/chunkUploader'
 
 // 视图切换
 const currentView = ref('table') // 'table', 'card', 'group'
@@ -737,7 +746,7 @@ const handleSearchClear = () => {
 const fetchTenants = async () => {
   loading.value = true
   try {
-    const response = await tenantsApi.listTenants()
+    const response = await tenantsApi.listTenants({ fields: 'id,name,gender,nation,birth_date,id_card,address,issuing_authority,valid_from,valid_to,phone,emergency_contact_name,emergency_contact_phone,check_in_date,check_out_date,room_no,building,remarks,status,front_img,back_img' })
     // 确保tenants.value是一个数组
     tenants.value = response.data.tenants || []
     console.log('租户数据:', tenants.value)
@@ -751,7 +760,7 @@ const fetchTenants = async () => {
 
 const fetchAvailableRooms = async () => {
   try {
-    const response = await roomsApi.listRooms()
+    const response = await roomsApi.listRooms({ fields: 'id,room_no,building,status,room_type,price,tenant_count' })
     // 确保response.data.rooms是一个数组
     const roomsData = response.data.rooms || []
     console.log('房间数据:', roomsData)
@@ -788,6 +797,10 @@ const resetForm = () => {
   tenantForm.check_in_date = new Date()
   tenantForm.check_out_date = ''
   tenantForm.notes = ''
+  ocrLoadingFront.value = false
+  ocrLoadingBack.value = false
+  ocrProgressFront.value = 0
+  ocrProgressBack.value = 0
 }
 
 const openAddDialog = () => {
@@ -810,6 +823,8 @@ const openEditDialog = (tenant) => {
 // OCR 相关
 const ocrLoadingFront = ref(false)
 const ocrLoadingBack = ref(false)
+const ocrProgressFront = ref(0)
+const ocrProgressBack = ref(0)
 const frontFileInput = ref(null)
 const backFileInput = ref(null)
 
@@ -934,24 +949,48 @@ const applyOcrResponse = (payload) => {
   return applied
 }
 
+const runOcrWithChunkUpload = async (file, side, onProgress) => {
+  const uploadResult = await uploadFileByChunks(file, {
+    category: 'idcards',
+    subDir: 'ocr',
+    chunkSize: 1024 * 1024,
+    maxRetries: 3,
+    retryDelay: 800,
+    onProgress
+  })
+  const imageUrl = String(uploadResult?.file_url || '')
+  if (!imageUrl) {
+    throw new Error('Upload succeeded but no image URL was returned')
+  }
+  return ocrApi.ocrIdCardByUrl(imageUrl, side)
+}
+
 const onFrontFileChange = async (e) => {
   const file = e.target.files && e.target.files[0]
   if (!file) return
+  if (!String(file.type || '').startsWith('image/')) {
+    ElMessage.warning('Please upload an image file')
+    e.target.value = ''
+    return
+  }
+
   ocrLoadingFront.value = true
+  ocrProgressFront.value = 0
   try {
-    const resp = await ocrApi.ocrIdCard(file, 'front')
+    const resp = await runOcrWithChunkUpload(file, 'front', (percent) => {
+      ocrProgressFront.value = percent
+    })
     const applied = applyOcrResponse(resp.data)
-    ElMessage.success(applied > 0 ? '正面识别完成，已填充表单' : '正面识别完成（图片已保存）')
+    ElMessage.success(applied > 0 ? 'Front side OCR completed and fields were filled' : 'Front side OCR completed')
   } catch (err) {
     if (err.response?.data) {
       const applied = applyOcrResponse(err.response.data)
       if (applied > 0) {
-        ElMessage.success('正面识别部分成功，已填充部分表单')
+        ElMessage.success('Front side OCR partially succeeded')
       }
     }
-    const baseMsg = err.response?.data?.error || '正面识别失败'
-    const extra = err.response?.data?.data ? '（图片已保存）' : ''
-    ElMessage.error(baseMsg + extra)
+    const baseMsg = err.response?.data?.error || err?.message || 'Front side OCR failed'
+    ElMessage.error(baseMsg)
   } finally {
     ocrLoadingFront.value = false
     e.target.value = ''
@@ -961,21 +1000,29 @@ const onFrontFileChange = async (e) => {
 const onBackFileChange = async (e) => {
   const file = e.target.files && e.target.files[0]
   if (!file) return
+  if (!String(file.type || '').startsWith('image/')) {
+    ElMessage.warning('Please upload an image file')
+    e.target.value = ''
+    return
+  }
+
   ocrLoadingBack.value = true
+  ocrProgressBack.value = 0
   try {
-    const resp = await ocrApi.ocrIdCard(file, 'back')
+    const resp = await runOcrWithChunkUpload(file, 'back', (percent) => {
+      ocrProgressBack.value = percent
+    })
     const applied = applyOcrResponse(resp.data)
-    ElMessage.success(applied > 0 ? '反面识别完成，已填充表单' : '反面识别完成（图片已保存）')
+    ElMessage.success(applied > 0 ? 'Back side OCR completed and fields were filled' : 'Back side OCR completed')
   } catch (err) {
     if (err.response?.data) {
       const applied = applyOcrResponse(err.response.data)
       if (applied > 0) {
-        ElMessage.success('反面识别部分成功，已填充部分表单')
+        ElMessage.success('Back side OCR partially succeeded')
       }
     }
-    const baseMsg = err.response?.data?.error || '反面识别失败'
-    const extra = err.response?.data?.data ? '（图片已保存）' : ''
-    ElMessage.error(baseMsg + extra)
+    const baseMsg = err.response?.data?.error || err?.message || 'Back side OCR failed'
+    ElMessage.error(baseMsg)
   } finally {
     ocrLoadingBack.value = false
     e.target.value = ''
@@ -1244,6 +1291,14 @@ const exportToPDF = async () => {
   font-size: 14px;
   padding: 10px 16px;
 }
+
+.ocr-progress {
+  width: 100%;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 .narrow-fields {
   max-width: 640px;
   margin: 0 auto;
@@ -1277,6 +1332,61 @@ const exportToPDF = async () => {
 .page-header h2 {
   margin: 0;
   color: #409EFF;
+}
+
+.header-operations {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.search-input {
+  width: 220px;
+}
+
+.toolbar-btn {
+  margin-left: 0 !important;
+}
+
+.table-panel {
+  background: var(--card-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: 16px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  padding: 10px 10px 16px;
+}
+
+.pagination-container {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+  padding-top: 12px;
+  border-top: 1px solid var(--surface-border);
+}
+
+:deep(.tenants-table) {
+  --el-table-header-bg-color: var(--surface-muted);
+  --el-table-tr-bg-color: var(--card-bg);
+  --el-table-row-hover-bg-color: rgba(37, 99, 235, 0.06);
+  --el-table-border-color: var(--surface-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+:deep(.tenants-table .el-table__header-wrapper th.el-table__cell) {
+  font-weight: 700;
+  color: var(--text-main);
+  height: 48px;
+}
+
+:deep(.tenants-table .el-table__body-wrapper td.el-table__cell) {
+  padding: 12px 0;
+}
+
+:deep(.tenants-table .el-table__fixed-right::before),
+:deep(.tenants-table .el-table__fixed::before) {
+  background-color: transparent;
 }
 
 .dialog-footer {
@@ -1461,6 +1571,17 @@ const exportToPDF = async () => {
   align-items: center;
   gap: 8px;
 }
+.table-actions-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  gap: 8px;
+}
+.table-actions-row :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+
 .card-actions {
   border-top: 1px solid var(--el-border-color-light, #ebeef5);
   padding-top: 12px;

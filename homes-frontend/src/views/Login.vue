@@ -1,13 +1,29 @@
 <template>
-  <div class="login-container">
+  <div class="login-container" id="login-page">
+    <div class="theme-switch">
+      <el-button 
+        circle 
+        text
+        @click="toggleTheme" 
+        class="theme-btn"
+        :title="isDark ? '切换到亮色模式' : '切换到暗色模式'"
+      >
+        <el-icon :size="20">
+          <Sunny v-if="isDark" />
+          <Moon v-else />
+        </el-icon>
+      </el-button>
+    </div>
     <div class="background-shapes">
       <div class="shape shape-1"></div>
       <div class="shape shape-2"></div>
       <div class="shape shape-3"></div>
     </div>
+    <div class="dark-overlay"></div>
     
     <div class="login-card glass-effect">
       <div class="card-left">
+        <div class="card-left-overlay"></div>
         <div class="brand-content">
           <div class="logo-circle">
             <span class="logo-icon">🏠</span>
@@ -77,15 +93,55 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { ElMessage } from 'element-plus'
-import { User, Lock, Key } from '@element-plus/icons-vue'
+import { User, Lock, Key, Sunny, Moon } from '@element-plus/icons-vue'
 import axios from 'axios'
 
 const router = useRouter()
 const authStore = useAuthStore()
+
+// 主题切换逻辑
+const isDark = ref(false)
+
+const toggleTheme = () => {
+  const htmlEl = document.documentElement
+  // 添加过渡类，确保所有元素平滑切换
+  htmlEl.classList.add('theme-transitioning')
+  
+  isDark.value = !isDark.value
+  if (isDark.value) {
+    htmlEl.classList.add('dark')
+    localStorage.setItem('theme', 'dark')
+  } else {
+    htmlEl.classList.remove('dark')
+    localStorage.setItem('theme', 'light')
+  }
+  
+  // 移除过渡类，恢复原有性能
+  setTimeout(() => {
+    htmlEl.classList.remove('theme-transitioning')
+  }, 300)
+}
+
+const initTheme = () => {
+  const savedTheme = localStorage.getItem('theme')
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+  
+  if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+    isDark.value = true
+    document.documentElement.classList.add('dark')
+  } else {
+    isDark.value = false
+    document.documentElement.classList.remove('dark')
+  }
+}
+
+onMounted(() => {
+  initTheme()
+})
 
 const loginFormRef = ref(null)
 const loading = computed(() => authStore.loading)
@@ -190,6 +246,17 @@ const submitForgot = async () => {
   background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
   position: relative;
   overflow: hidden;
+  z-index: 0;
+}
+
+.login-container::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(135deg, #1a1a1a 0%, #000000 100%);
+  opacity: 0;
+  z-index: -1;
+  transition: opacity 0.5s ease-in-out;
 }
 
 /* 动态背景形状 */
@@ -262,6 +329,17 @@ const submitForgot = async () => {
   padding: 40px;
   position: relative;
   overflow: hidden;
+  z-index: 0;
+}
+
+.card-left::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+  opacity: 0;
+  z-index: -1;
+  transition: opacity 0.5s ease-in-out;
 }
 
 .brand-content {
@@ -379,6 +457,29 @@ const submitForgot = async () => {
 }
 
 /* 响应式适配 */
+.theme-switch {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 10;
+}
+
+.theme-btn {
+  font-size: 20px;
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(5px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  width: 40px;
+  height: 40px;
+  transition: all 0.3s;
+}
+
+.theme-btn:hover {
+  background: rgba(255, 255, 255, 0.4);
+  transform: rotate(15deg);
+}
+
 @media (max-width: 900px) {
   .login-card {
     width: 90%;
@@ -410,7 +511,94 @@ const submitForgot = async () => {
   transform: translateX(20px);
 }
 .fade-slide-leave-to {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+</style>
+
+<!-- 非 scoped 样式，确保优先级和覆盖范围 -->
+<style>
+/* 
+  Dark Mode Overlays 
+  使用绝对定位的 div 层来实现平滑的背景切换
+  解决 linear-gradient 不支持 transition 的问题
+*/
+.dark-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(135deg, #1a1a1a 0%, #000000 100%);
   opacity: 0;
-  transform: translateX(-20px);
+  z-index: 0; /* 在 shapes 之上 (DOM 顺序)，但在 card 之下 */
+  pointer-events: none;
+  transition: opacity 0.3s ease-in-out;
+}
+
+html.dark .dark-overlay {
+  opacity: 1;
+}
+
+.card-left-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+  opacity: 0;
+  z-index: 1; /* 在 card-left 背景之上，但在 brand-content (z-index: 2) 之下 */
+  pointer-events: none;
+  transition: opacity 0.3s ease-in-out;
+}
+
+html.dark .card-left-overlay {
+  opacity: 1;
+}
+
+/* Dark Mode Styles for other elements */
+/* 添加通用 transition 确保平滑过渡 */
+#login-page .login-card,
+#login-page .card-right,
+#login-page .form-header h2,
+#login-page .sub-text,
+#login-page .logo-circle,
+#login-page .theme-btn {
+  transition: all 0.3s ease-in-out !important;
+}
+
+html.dark #login-page .login-card {
+  background: rgba(30, 30, 30, 0.7) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5) !important;
+}
+
+html.dark #login-page .card-right {
+  background: rgba(0, 0, 0, 0.2) !important;
+}
+
+html.dark #login-page .form-header h2 {
+  color: #e5eaf3 !important;
+}
+
+html.dark #login-page .sub-text {
+  color: #a3a6ad !important;
+}
+
+html.dark #login-page .custom-form .el-input__wrapper {
+  background: rgba(0, 0, 0, 0.3) !important;
+  box-shadow: 0 0 0 1px #4c4d4f inset !important;
+}
+
+html.dark #login-page .custom-form .el-input__inner {
+  color: #e5eaf3 !important;
+}
+
+html.dark #login-page .logo-circle {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+html.dark #login-page .theme-btn {
+  background: rgba(0, 0, 0, 0.3) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+html.dark #login-page .theme-btn:hover {
+  background: rgba(0, 0, 0, 0.5) !important;
 }
 </style>

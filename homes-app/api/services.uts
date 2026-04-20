@@ -1,0 +1,403 @@
+import { request, uploadFile, API_PREFIX, getApiHost, handleUnauthorized } from "../common/request.uts"
+import { getToken } from "../common/session.uts"
+
+// Auth
+export function apiLogin(username : string, password : string) {
+  return request({
+    path: "/login",
+    method: "POST",
+    auth: false,
+    data: {
+      username,
+      password,
+    },
+  })
+}
+
+export function apiForgotPassword(username : string, answer : string, newPassword : string) {
+  return request({
+    path: "/forgot-password",
+    method: "POST",
+    auth: false,
+    data: {
+      username,
+      answer,
+      new_password: newPassword,
+    },
+  })
+}
+
+export function apiVerifyToken() {
+  return request({
+    path: "/verify-token",
+    method: "GET",
+  })
+}
+
+export function apiChangePassword(oldPassword : string, newPassword : string) {
+  return request({
+    path: "/change-password",
+    method: "POST",
+    data: {
+      old_password: oldPassword,
+      new_password: newPassword,
+    },
+  })
+}
+
+// OCR
+export function apiOcrIdCard(filePath : string, side : string = "front") {
+  return uploadFile({
+    path: "/ocr/idcard",
+    filePath,
+    name: "image",
+    formData: {
+      side,
+    },
+  })
+}
+
+// Notification
+export function apiGetNotificationConfig() {
+  return request({ path: "/notification-config", method: "GET" })
+}
+
+export function apiUpdateNotificationConfig(config : any) {
+  return request({ path: "/notification-config", method: "PUT", data: config })
+}
+
+export function apiTestEmail(payload : any) {
+  return request({ path: "/test-email", method: "POST", data: payload })
+}
+
+export function apiTestSms(payload : any) {
+  return request({ path: "/test-sms", method: "POST", data: payload })
+}
+
+export function apiNotifySend(payload : any) {
+  return request({ path: "/notify/send", method: "POST", data: payload })
+}
+
+export function apiGetNotifyHistory(days : number = 7) {
+  return request({
+    path: "/notify/history",
+    method: "GET",
+    query: {
+      days,
+    },
+  })
+}
+
+// Rooms
+export function apiGetRooms() {
+  return request({ path: "/rooms", method: "GET" })
+}
+
+export function apiGetRoomDetail(roomId : number) {
+  return request({ path: `/rooms/${roomId}`, method: "GET" })
+}
+
+export function apiGetRoomMeterImage(roomId : number, meterType : string) {
+  return request({
+    path: `/rooms/${roomId}/meter-image`,
+    method: "GET",
+    query: {
+      type: meterType,
+    },
+  })
+}
+
+export function apiUploadRoomMeterImage(roomId : number, filePath : string, meterType : string) {
+  return uploadFile({
+    path: `/rooms/${roomId}/meter-image`,
+    filePath,
+    name: "file",
+    formData: {
+      type: meterType,
+    },
+  })
+}
+
+export function apiGetRoomTenants(roomNo : string) {
+  return request({ path: `/rooms/${roomNo}/tenants`, method: "GET" })
+}
+
+export function apiCheckoutRoom(roomNo : string) {
+  return request({ path: `/rooms/${roomNo}/checkout`, method: "POST" })
+}
+
+export function apiCreateRoom(payload : any) {
+  return request({ path: "/rooms", method: "POST", data: payload })
+}
+
+export function apiUpdateRoom(roomId : number, payload : any) {
+  return request({ path: `/rooms/${roomId}`, method: "PUT", data: payload })
+}
+
+export function apiDeleteRoom(roomId : number) {
+  return request({ path: `/rooms/${roomId}`, method: "DELETE" })
+}
+
+// Tenants
+export function apiGetTenants() {
+  return request({ path: "/tenants", method: "GET" })
+}
+
+export function apiCreateTenant(payload : any) {
+  return request({ path: "/tenants", method: "POST", data: payload })
+}
+
+export function apiUpdateTenant(idCard : string, payload : any) {
+  return request({ path: `/tenants/${idCard}`, method: "PUT", data: payload })
+}
+
+export function apiDeleteTenant(idCard : string) {
+  return request({ path: `/tenants/${idCard}`, method: "DELETE" })
+}
+
+export function apiCheckoutTenant(idCard : string) {
+  return request({ path: `/tenants/${idCard}/checkout`, method: "POST" })
+}
+
+// Moves
+export function apiGetMoves() {
+  return request({ path: "/moves", method: "GET" })
+}
+
+export function apiMoveTenant(payload : any) {
+  return request({ path: "/moves/tenant", method: "POST", data: payload })
+}
+
+export function apiMoveRoom(payload : any) {
+  return request({ path: "/moves/room", method: "POST", data: payload })
+}
+
+export function apiDeleteMove(moveId : number) {
+  return request({ path: `/moves/${moveId}`, method: "DELETE" })
+}
+
+// Repair records
+export function apiGetRepairRecords() {
+  return request({ path: "/repair-records", method: "GET" })
+}
+
+export function apiGetRepairRecordDetail(recordId : number) {
+  return request({ path: `/repair-records/${recordId}`, method: "GET" })
+}
+
+export function apiCreateRepairRecord(payload : any) {
+  return request({ path: "/repair-records", method: "POST", data: payload })
+}
+
+export function apiUpdateRepairRecord(recordId : number, payload : any) {
+  return request({ path: `/repair-records/${recordId}`, method: "PUT", data: payload })
+}
+
+export function apiUploadRepairRecordImage(recordId : number, filePath : string, onProgress : ((res : any) => void) | null = null) {
+  return uploadFile({
+    path: `/repair-records/${recordId}/image`,
+    filePath,
+    name: "file",
+    onProgress,
+  })
+}
+
+export function apiDeleteRepairRecord(recordId : number) {
+  return request({ path: `/repair-records/${recordId}`, method: "DELETE" })
+}
+
+export function apiGetRepairRecordsByRoom(roomNo : string) {
+  return request({ path: `/repair-records/room/${roomNo}`, method: "GET" })
+}
+
+// System
+export function apiSeedSystemData() {
+  return request({ path: "/system/seed", method: "POST" })
+}
+
+export function apiResetSystemData() {
+  return request({ path: "/system/reset", method: "POST" })
+}
+
+export function apiImportSystemData(filePath : string) {
+  return uploadFile({
+    path: "/system/import",
+    filePath,
+    name: "file",
+  })
+}
+
+export function apiExportSystemData() : Promise<any> {
+  const token = getToken()
+  const header : any = {}
+  if (token != "") {
+    header["Authorization"] = `Bearer ${token}`
+  }
+
+  return new Promise((resolve, reject) => {
+    uni.downloadFile({
+      url: `${getApiHost()}${API_PREFIX}/system/export`,
+      header,
+      success: (res : any) => {
+        const statusCode = Number(res.statusCode)
+        if (statusCode >= 200 && statusCode < 300) {
+          resolve({
+            tempFilePath: res.tempFilePath,
+            statusCode,
+          })
+          return
+        }
+        if (statusCode == 401) {
+          handleUnauthorized()
+        }
+        reject({
+          statusCode,
+          message: statusCode == 401 ? "登录已失效，请重新登录" : "导出失败",
+          data: res,
+        })
+      },
+      fail: (err : any) => {
+        reject({
+          statusCode: 0,
+          message: err != null && err.errMsg != null ? String(err.errMsg) : "导出失败",
+          data: err,
+        })
+      },
+    })
+  })
+}
+
+// Contract templates
+export function apiGetContractTemplates() {
+  return request({ path: "/contract-templates", method: "GET" })
+}
+
+export function apiGetContractTemplateDetail(templateId : number) {
+  return request({ path: `/contract-templates/${templateId}`, method: "GET" })
+}
+
+export function apiCreateContractTemplate(payload : any) {
+  return request({ path: "/contract-templates", method: "POST", data: payload })
+}
+
+export function apiUpdateContractTemplate(templateId : number, payload : any) {
+  return request({ path: `/contract-templates/${templateId}`, method: "PUT", data: payload })
+}
+
+export function apiDeleteContractTemplate(templateId : number, cascade : boolean = false) {
+  return request({
+    path: `/contract-templates/${templateId}`,
+    method: "DELETE",
+    query: cascade ? { cascade: true } : {},
+  })
+}
+
+export function apiRenderContractTemplate(templateId : number, vars : any) {
+  return request({
+    path: `/contract-templates/${templateId}/render`,
+    method: "POST",
+    data: {
+      vars,
+    },
+  })
+}
+
+// Contracts
+export function apiCreateContract(templateId : number, vars : any) {
+  return request({
+    path: "/contracts",
+    method: "POST",
+    data: {
+      template_id: templateId,
+      vars,
+    },
+  })
+}
+
+export function apiGetContracts(page : number = 1, pageSize : number = 10) {
+  return request({
+    path: "/contracts",
+    method: "GET",
+    query: {
+      page,
+      page_size: pageSize,
+    },
+  })
+}
+
+export function apiGetContractDetail(contractId : number) {
+  return request({ path: `/contracts/${contractId}`, method: "GET" })
+}
+
+export function apiUpdateContract(contractId : number, vars : any) {
+  return request({
+    path: `/contracts/${contractId}`,
+    method: "PUT",
+    data: {
+      vars,
+    },
+  })
+}
+
+// Procurements (no auth currently)
+export function apiGetProcurements(page : number = 1, pageSize : number = 10, search : string = "") {
+  return request({
+    path: "/procurements",
+    method: "GET",
+    auth: false,
+    query: {
+      page,
+      page_size: pageSize,
+      search,
+    },
+  })
+}
+
+export function apiCreateProcurement(payload : any) {
+  return request({ path: "/procurements", method: "POST", auth: false, data: payload })
+}
+
+export function apiUpdateProcurement(id : number, payload : any) {
+  return request({ path: `/procurements/${id}`, method: "PUT", auth: false, data: payload })
+}
+
+export function apiUploadProcurementImage(id : number, filePath : string, onProgress : ((res : any) => void) | null = null) {
+  return uploadFile({
+    path: `/procurements/${id}/image`,
+    filePath,
+    name: "file",
+    auth: false,
+    onProgress,
+  })
+}
+
+export function apiDeleteProcurement(id : number) {
+  return request({ path: `/procurements/${id}`, method: "DELETE", auth: false })
+}
+
+// Warehouse
+export function apiGetWarehouseItems(q : string = "") {
+  return request({
+    path: "/warehouse-items",
+    method: "GET",
+    query: {
+      q,
+    },
+  })
+}
+
+export function apiGetWarehouseItemDetail(itemId : number) {
+  return request({ path: `/warehouse-items/${itemId}`, method: "GET" })
+}
+
+export function apiCreateWarehouseItem(payload : any) {
+  return request({ path: "/warehouse-items", method: "POST", data: payload })
+}
+
+export function apiUpdateWarehouseItem(itemId : number, payload : any) {
+  return request({ path: `/warehouse-items/${itemId}`, method: "PUT", data: payload })
+}
+
+export function apiDeleteWarehouseItem(itemId : number) {
+  return request({ path: `/warehouse-items/${itemId}`, method: "DELETE" })
+}

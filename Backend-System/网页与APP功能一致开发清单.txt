@@ -1,0 +1,181 @@
+房屋租赁系统 网页与APP功能一致开发清单
+更新时间：2026-03-11
+
+==================================================
+一、目标说明
+==================================================
+目标：APP端功能与当前网页端功能保持一致（同业务、同数据、同权限、同结果）。
+范围：以前端页面（homes-frontend/src/views）与现有后端API为基准进行对齐开发。
+
+一致性定义（验收口径）：
+1) 同账号在网页和APP看到的核心数据一致
+2) 同一业务操作（新增/编辑/删除/导出/退租等）结果一致
+3) 同一权限策略（Bearer Token鉴权、401处理、续期策略）一致
+4) 同一业务约束（如“有在住租户不可删房”）一致
+
+==================================================
+二、全局能力对齐（APP必须先完成）
+==================================================
+1) 登录鉴权
+- 登录接口：POST /api/login
+- 鉴权头：Authorization: Bearer <token>
+- 令牌续期：读取响应头 X-Refreshed-Token 并更新本地token
+- 401处理：清理本地登录状态并回到登录页
+
+2) 接口地址与环境
+- API基础地址对齐网页端：VITE_API_BASE_URL 或默认 http://127.0.0.1:5000/api
+- APP发布时应改为可访问的服务端地址（非127.0.0.1）
+
+3) 上传能力
+- 图片上传主要用 Base64 DataURL（库房图片、水表/电表二维码、证件OCR）
+- 证件OCR接口使用 multipart/form-data
+
+4) 通用交互
+- 列表页：搜索、筛选、分页、刷新
+- 表单页：必填校验、错误提示、提交防重
+- 删除类操作：二次确认与失败原因提示
+
+==================================================
+三、页面功能对齐清单（网页 -> APP）
+==================================================
+1) 登录页（Login）
+- 功能：账号密码登录、登录态持久化、登录后进入主页面
+- 接口：POST /api/login
+
+2) 首页（Home）
+- 功能：系统概览、关键数据展示（与网页当前展示项保持一致）
+- 接口：按首页实际数据来源调用对应模块接口
+
+3) 房间管理（Rooms）
+- 功能：
+  a. 房间列表（搜索楼栋/楼层/房号/房型，筛选状态，排序，分页）
+  b. 双视图（列表视图、楼层分组视图）
+  c. 房间新增/编辑/删除/批量删除
+  d. 房间详情（含关联租户历史）
+  e. 房间退租（整房在住租户统一退租）
+  f. 水表/电表二维码上传与预览
+  g. 数据导出（Excel/Word/PDF）
+- 接口：
+  GET /api/rooms
+  GET /api/rooms/{room_id}
+  GET /api/rooms/{room_id}/meter-image?type=water|electricity
+  GET /api/rooms/{room_no}/tenants
+  POST /api/rooms/{room_no}/checkout
+  POST /api/rooms
+  PUT /api/rooms/{room_id}
+  DELETE /api/rooms/{room_id}
+
+4) 租户管理（Tenants）
+- 功能：租户列表、新增、编辑、删除、退房
+- 接口：
+  GET /api/tenants
+  POST /api/tenants
+  PUT /api/tenants/{id_card}
+  DELETE /api/tenants/{id_card}
+  POST /api/tenants/{id_card}/checkout
+
+5) 合同模板与合同档案（ContractTemplates）
+- 功能：模板增删改查、模板渲染、创建合同、合同列表与详情、合同更新
+- 接口：
+  GET /api/contract-templates
+  GET /api/contract-templates/{id}
+  POST /api/contract-templates
+  PUT /api/contract-templates/{id}
+  DELETE /api/contract-templates/{id}
+  DELETE /api/contract-templates/{id}?cascade=true
+  POST /api/contract-templates/{id}/render
+  POST /api/contracts
+  GET /api/contracts?page=&page_size=
+  GET /api/contracts/{id}
+  PUT /api/contracts/{id}
+
+6) 搬迁管理（Moves）
+- 功能：搬迁记录列表、租户搬迁、记录删除
+- 接口：
+  GET /api/moves
+  POST /api/moves/tenant
+  POST /api/moves/room
+  DELETE /api/moves/{move_id}
+
+7) 采购管理（Procurement）
+- 功能：采购记录列表、新增、编辑、删除、按网页字段展示
+- 接口：
+  GET /api/procurements
+  POST /api/procurements
+  PUT /api/procurements/{id}
+  DELETE /api/procurements/{id}
+
+8) 库房数据（Warehouse）
+- 功能：物资列表（搜索）、详情、新增、编辑、删除、图片上传预览
+- 接口：
+  GET /api/warehouse-items?q=
+  GET /api/warehouse-items/{item_id}
+  POST /api/warehouse-items
+  PUT /api/warehouse-items/{item_id}
+  DELETE /api/warehouse-items/{item_id}
+
+9) 维修记录（RepairRecords）
+- 功能：记录列表、详情、新增、编辑、删除、按房间查询
+- 接口：
+  GET /api/repair-records
+  GET /api/repair-records/{record_id}
+  POST /api/repair-records
+  PUT /api/repair-records/{record_id}
+  DELETE /api/repair-records/{record_id}
+  GET /api/repair-records/room/{room_no}
+
+10) 通知配置（NotificationConfig）
+- 功能：通知配置读取/保存、测试邮件、测试短信、通知发送、发送历史
+- 接口：
+  GET /api/notification-config
+  PUT /api/notification-config
+  POST /api/test-email
+  POST /api/test-sms
+  POST /api/notify/send
+  GET /api/notify/history?days=
+
+11) 系统维护（SystemMaintenance）
+- 功能：数据导出、数据导入、系统重置、演示数据生成
+- 接口：
+  GET /api/system/export
+  POST /api/system/import
+  POST /api/system/reset
+  POST /api/system/seed
+
+==================================================
+四、APP实现建议（保证“网页=APP”）
+==================================================
+1) 路由与菜单对齐
+- APP模块命名与网页菜单一致，减少培训成本
+- 每个网页页面在APP至少对应一个同名业务入口
+
+2) 字段与状态字典对齐
+- 例如房间状态、租户状态、维修类型、采购字段顺序等，统一使用后端返回值
+- 避免APP自行定义不同文案导致统计口径不一致
+
+3) 操作约束对齐
+- 删除、退租、搬迁前后校验与网页一致
+- 后端返回错误文案在APP友好展示，不吞错
+
+4) 导出与文件处理
+- 导出类接口返回文件流，APP走下载/分享流程
+- 图片类字段统一支持 DataURL 与静态路径两种展示
+
+5) 测试对齐
+- 用同一账号分别在网页和APP执行相同操作，逐项比对结果
+
+==================================================
+五、联调验收清单（简版）
+==================================================
+1) 登录与鉴权：登录成功、token续期、401跳转均正常
+2) 房间模块：列表/详情/新增/编辑/删除/退租/二维码预览全部通过
+3) 租户模块：新增编辑删除退房与网页一致
+4) 搬迁模块：租户搬迁与整房搬迁结果一致
+5) 维修/采购/库房：增删改查与图片流程一致
+6) 通知与系统维护：配置、测试、导入导出可用
+7) 数据一致性：网页与APP同数据同结果
+
+==================================================
+文件说明
+==================================================
+本文件用于APP开发阶段的“功能对齐基线”，以当前网页端和后端接口为准。

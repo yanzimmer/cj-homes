@@ -4,10 +4,44 @@ from datetime import date
 from flask import Blueprint, request, jsonify
 
 from auth_api import token_required
-from common import connect
+from common import connect, parse_fields_arg, parse_pagination_args, paginate_list, project_fields
 
 
 tenants_bp = Blueprint('tenants', __name__, url_prefix='/api')
+
+
+def _refresh_tenant_statuses(conn):
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE tenants
+        SET status = CASE
+            WHEN check_out_date IS NOT NULL
+              AND TRIM(check_out_date) <> ''
+              AND DATE('now') >= DATE(check_out_date)
+            THEN '已退租'
+            ELSE '在住'
+        END
+        """
+    )
+
+
+def _refresh_room_statuses(conn):
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE rooms
+        SET status = CASE
+            WHEN EXISTS (
+                SELECT 1 FROM tenants t
+                WHERE t.room_id = rooms.id
+                  AND t.status = '在住'
+                  AND DATE('now') BETWEEN t.check_in_date AND t.check_out_date
+            ) THEN '已入住'
+            ELSE '空闲'
+        END
+        """
+    )
 
 
 @tenants_bp.route('/tenants', methods=['GET'])
@@ -62,16 +96,9 @@ def api_list_tenants(current_user):
 
     # 尝试进行自动状态更新；若数据库繁忙（锁定），则跳过更新以保证查询可用
     try:
-        cursor.execute(
-            """
-            UPDATE tenants 
-            SET status = '已退租' 
-            WHERE status = '在住' AND DATE('now') > check_out_date
-            """
-        )
+        _refresh_tenant_statuses(conn)
         conn.commit()
     except sqlite3.OperationalError as e:
-        # 数据库锁定时不阻塞列表请求
         if 'locked' in str(e).lower():
             pass
         else:
@@ -79,20 +106,7 @@ def api_list_tenants(current_user):
             return jsonify({'error': str(e)}), 500
 
     try:
-        cursor.execute(
-            """
-            UPDATE rooms
-            SET status = CASE
-                WHEN EXISTS (
-                    SELECT 1 FROM tenants t
-                    WHERE t.room_id = rooms.id
-                      AND t.status = '在住'
-                      AND DATE('now') BETWEEN t.check_in_date AND t.check_out_date
-                ) THEN '已入住'
-                ELSE '空闲'
-            END
-            """
-        )
+        _refresh_room_statuses(conn)
         conn.commit()
     except sqlite3.OperationalError as e:
         if 'locked' in str(e).lower():
@@ -142,7 +156,65 @@ def api_list_tenants(current_user):
             'back_img': row[20],
         })
 
-    return jsonify({'tenants': tenants})
+    q = (request.args.get('q') or request.args.get('search') or '').strip().lower()
+    status_filter = (request.args.get('status') or '').strip()
+    building_filter = (request.args.get('building') or '').strip()
+    room_no_filter = (request.args.get('room_no') or '').strip()
+    sort_by = (request.args.get('sort_by') or '').strip()
+    sort_order = (request.args.get('sort_order') or 'asc').strip().lower()
+
+    if q:
+        tenants = [
+            item
+            for item in tenants
+            if q in str(item.get('name', '')).lower()
+            or q in str(item.get('id_card', '')).lower()
+            or q in str(item.get('phone', '')).lower()
+            or q in str(item.get('room_no', '')).lower()
+        ]
+
+    if status_filter:
+        tenants = [item for item in tenants if str(item.get('status') or '') == status_filter]
+
+    if building_filter:
+        tenants = [item for item in tenants if str(item.get('building') or '') == building_filter]
+
+    if room_no_filter:
+        tenants = [item for item in tenants if str(item.get('room_no') or '') == room_no_filter]
+
+    if sort_by in ('id', 'name', 'gender', 'nation', 'birth_date', 'id_card', 'phone', 'building', 'room_no', 'status', 'check_in_date', 'check_out_date'):
+        reverse = sort_order == 'desc'
+        tenants.sort(key=lambda x: x.get(sort_by), reverse=reverse)
+
+    total = len(tenants)
+
+    page, page_size, paging_enabled = parse_pagination_args(
+        request.args,
+        default_page=1,
+        default_page_size=20,
+        max_page_size=200,
+    )
+    if paging_enabled:
+        tenants, pagination = paginate_list(tenants, page, page_size)
+    else:
+        pagination = {
+            'page': 1,
+            'page_size': total if total > 0 else 0,
+            'total': total,
+            'total_pages': 1,
+        }
+
+    allowed_fields = [
+        'id', 'name', 'gender', 'nation', 'birth_date', 'id_card', 'address',
+        'issuing_authority', 'valid_from', 'valid_to', 'phone',
+        'emergency_contact_name', 'emergency_contact_phone',
+        'check_in_date', 'check_out_date', 'room_no', 'building',
+        'remarks', 'status', 'front_img', 'back_img'
+    ]
+    selected_fields = parse_fields_arg(request.args, allowed_fields)
+    tenants = project_fields(tenants, selected_fields, always_include=['id'])
+
+    return jsonify({'tenants': tenants, 'total': total, 'pagination': pagination})
 
 
 @tenants_bp.route('/tenants/<id_card>/checkout', methods=['POST'])
@@ -174,32 +246,19 @@ def api_checkout_tenant(current_user, id_card):
     cursor.execute(
         """
     UPDATE tenants
-    SET status = '已退租'
+    SET check_out_date = ?,
+        status = '已退租'
     WHERE id_card = ? AND status = '在住'
     """,
-        (id_card,),
+        (today, id_card),
     )
 
     if cursor.rowcount == 0:
         conn.close()
         return jsonify({'error': '未找到该租户或租户已退租'}), 404
 
-    conn.commit()
-
-    cursor.execute(
-        """
-        UPDATE rooms
-        SET status = CASE
-            WHEN EXISTS (
-                SELECT 1 FROM tenants t
-                WHERE t.room_id = rooms.id
-                  AND t.status = '在住'
-                  AND DATE('now') BETWEEN t.check_in_date AND t.check_out_date
-            ) THEN '已入住'
-            ELSE '空闲'
-        END
-        """
-    )
+    _refresh_tenant_statuses(conn)
+    _refresh_room_statuses(conn)
     conn.commit()
     conn.close()
 
@@ -263,24 +322,11 @@ def api_add_tenant(current_user):
                 remarks,
             ),
         )
-        conn.commit()
-
-        cursor.execute(
-            """
-            UPDATE rooms
-            SET status = CASE
-                WHEN EXISTS (
-                    SELECT 1 FROM tenants t
-                    WHERE t.room_id = rooms.id
-                      AND t.status = '在住'
-                      AND DATE('now') BETWEEN t.check_in_date AND t.check_out_date
-                ) THEN '已入住'
-                ELSE '空闲'
-            END
-            """
-        )
+        _refresh_tenant_statuses(conn)
+        _refresh_room_statuses(conn)
         conn.commit()
         conn.close()
+
         return jsonify({'message': f"租户 {data['name']} 已添加", 'id_card': data['id_card']})
     except sqlite3.Error as e:
         conn.close()
@@ -296,7 +342,7 @@ def api_update_tenant(current_user, id_card):
 
     allowed_fields = [
         'name', 'phone', 'emergency_contact_name', 'emergency_contact_phone',
-        'check_in_date', 'check_out_date', 'remarks', 'status',
+        'check_in_date', 'check_out_date', 'remarks',
     ]
     update_data = {k: v for k, v in data.items() if k in allowed_fields}
 
@@ -325,24 +371,11 @@ def api_update_tenant(current_user, id_card):
             conn.close()
             return jsonify({'error': f'租户 {id_card} 不存在'}), 404
 
-        conn.commit()
-
-        cursor.execute(
-            """
-            UPDATE rooms
-            SET status = CASE
-                WHEN EXISTS (
-                    SELECT 1 FROM tenants t
-                    WHERE t.room_id = rooms.id
-                      AND t.status = '在住'
-                      AND DATE('now') BETWEEN t.check_in_date AND t.check_out_date
-                ) THEN '已入住'
-                ELSE '空闲'
-            END
-            """
-        )
+        _refresh_tenant_statuses(conn)
+        _refresh_room_statuses(conn)
         conn.commit()
         conn.close()
+
         return jsonify({'message': f'租户 {id_card} 信息已更新'})
     except sqlite3.Error as e:
         conn.close()

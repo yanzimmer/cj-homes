@@ -1,13 +1,116 @@
 import sqlite3
+import os
+import uuid
 from datetime import datetime
 
 from flask import Blueprint, request, jsonify
 
 from auth_api import token_required
-from common import connect
+from common import connect, parse_fields_arg, parse_pagination_args, paginate_list, project_fields
 
 
 rooms_bp = Blueprint('rooms', __name__, url_prefix='/api')
+
+
+def _get_rooms_table_columns(conn):
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(rooms)")
+    return {row[1] for row in cursor.fetchall()}
+
+
+def ensure_rooms_schema():
+    conn = connect()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS rooms (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            building TEXT,
+            floor INTEGER,
+            room_no TEXT UNIQUE NOT NULL,
+            room_type TEXT,
+            price REAL,
+            deposit REAL DEFAULT 0,
+            status TEXT DEFAULT '空闲',
+            description TEXT,
+            water_meter_img TEXT,
+            electricity_meter_img TEXT
+        )
+        """
+    )
+    room_columns = _get_rooms_table_columns(conn)
+    if 'deposit' not in room_columns:
+        cursor.execute("ALTER TABLE rooms ADD COLUMN deposit REAL DEFAULT 0")
+    conn.commit()
+    conn.close()
+
+
+def _ensure_room_meter_upload_dir():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    upload_dir = os.path.join(base_dir, 'static', 'uploads', 'room_meters')
+    os.makedirs(upload_dir, exist_ok=True)
+    return upload_dir
+
+
+def _normalize_building_code(value):
+    if value is None:
+        return ''
+    text = str(value).strip().upper().replace(' ', '')
+    if text.endswith('栋') or text.endswith('座'):
+        text = text[:-1]
+    return text
+
+
+def _extract_room_number(room_no, building):
+    text = '' if room_no is None else str(room_no).strip().upper().replace(' ', '')
+    if text == '':
+        return ''
+    if '-' in text:
+        parts = [p for p in text.split('-') if p != '']
+        if len(parts) >= 2:
+            return parts[-1]
+    building_code = _normalize_building_code(building)
+    if building_code != '' and text.startswith(building_code):
+        suffix = text[len(building_code):].lstrip('-_')
+        if suffix != '':
+            return suffix
+    return text
+
+
+def _compose_room_no(building, room_no):
+    building_code = _normalize_building_code(building)
+    number = _extract_room_number(room_no, building_code)
+    if building_code != '' and number != '':
+        return f'{building_code}-{number}'
+    if number != '':
+        return number
+    return building_code
+
+
+def _derive_floor(room_no):
+    number = ''.join(ch for ch in str(room_no or '') if ch.isdigit())
+    if len(number) >= 3:
+        try:
+            return int(number[:-2])
+        except ValueError:
+            return 0
+    return 0
+
+
+def _find_room_by_no(conn, room_no_input):
+    cursor = conn.cursor()
+    text = '' if room_no_input is None else str(room_no_input).strip().upper()
+    if text == '':
+        return None
+    cursor.execute("SELECT id, room_no FROM rooms WHERE UPPER(room_no) = ?", (text,))
+    exact = cursor.fetchone()
+    if exact:
+        return exact
+    cursor.execute("SELECT id, room_no FROM rooms WHERE UPPER(room_no) LIKE ?", (f'%-{text}',))
+    rows = cursor.fetchall()
+    if len(rows) == 1:
+        return rows[0]
+    return None
 
 
 @rooms_bp.route('/rooms', methods=['GET'])
@@ -35,10 +138,12 @@ def api_list_rooms(current_user):
                     type: integer
                   room_no:
                     type: string
+                    description: 纯房号数字部分，如 101
+                  room_display:
+                    type: string
+                    description: 楼栋-房号格式，如 A-101
                   building:
                     type: string
-                  floor:
-                    type: integer
                   room_type:
                     type: string
                   price:
@@ -50,16 +155,22 @@ def api_list_rooms(current_user):
                     type: integer
     """
     conn = connect()
+    room_columns = _get_rooms_table_columns(conn)
+    has_description = 'description' in room_columns
+    has_deposit = 'deposit' in room_columns
+    has_water_meter_img = 'water_meter_img' in room_columns
+    has_electricity_meter_img = 'electricity_meter_img' in room_columns
     cursor = conn.cursor()
     cursor.execute(
-        """
+        f"""
     SELECT
         r.id,
         r.room_no,
         r.building,
-        r.floor,
         r.room_type,
         r.price,
+        {"COALESCE(r.deposit, 0)" if has_deposit else "0"} AS deposit,
+        {"r.description" if has_description else "''"} AS description,
         CASE
             WHEN EXISTS (
                 SELECT 1 FROM tenants t
@@ -72,7 +183,9 @@ def api_list_rooms(current_user):
         (SELECT COUNT(*) FROM tenants t
          WHERE t.room_id = r.id
            AND t.status = '在住'
-           AND DATE('now') BETWEEN t.check_in_date AND t.check_out_date) AS tenant_count
+           AND DATE('now') BETWEEN t.check_in_date AND t.check_out_date) AS tenant_count,
+        {"CASE WHEN COALESCE(r.water_meter_img, '') <> '' THEN 1 ELSE 0 END" if has_water_meter_img else "0"} AS has_water_meter_img,
+        {"CASE WHEN COALESCE(r.electricity_meter_img, '') <> '' THEN 1 ELSE 0 END" if has_electricity_meter_img else "0"} AS has_electricity_meter_img
     FROM rooms r
     ORDER BY r.room_no
     """
@@ -84,36 +197,216 @@ def api_list_rooms(current_user):
     for row in rows:
         rooms.append({
             'id': row[0],
-            'room_no': row[1],
-            'building': row[2],
-            'floor': row[3],
-            'room_type': row[4],
-            'price': row[5],
-            'status': row[6],
-            'tenant_count': row[7],
+            'room_no': _extract_room_number(row[1], row[2]),
+            'room_display': _compose_room_no(row[2], row[1]),
+            'building': _normalize_building_code(row[2]),
+            'room_type': row[3],
+            'price': row[4],
+            'deposit': row[5],
+            'description': row[6],
+            'status': row[7],
+            'tenant_count': row[8],
+            'has_water_meter_img': bool(row[9]),
+            'has_electricity_meter_img': bool(row[10]),
         })
 
-    return jsonify({'rooms': rooms})
+    q = (request.args.get('q') or request.args.get('search') or '').strip().lower()
+    status_filter = (request.args.get('status') or '').strip()
+    room_type_filter = (request.args.get('room_type') or '').strip()
+    sort_by = (request.args.get('sort_by') or '').strip()
+    sort_order = (request.args.get('sort_order') or 'asc').strip().lower()
+
+    if q:
+        rooms = [
+            item
+            for item in rooms
+            if q in str(item.get('room_no', '')).lower()
+            or q in str(item.get('room_display', '')).lower()
+            or q in str(item.get('building', '')).lower()
+            or q in str(item.get('room_type', '')).lower()
+            or q in str(item.get('description', '')).lower()
+        ]
+
+    if status_filter:
+        rooms = [item for item in rooms if str(item.get('status') or '') == status_filter]
+
+    if room_type_filter:
+        rooms = [item for item in rooms if str(item.get('room_type') or '') == room_type_filter]
+
+    if sort_by in ('room_no', 'room_display', 'building', 'room_type', 'price', 'status', 'tenant_count'):
+        reverse = sort_order == 'desc'
+        rooms.sort(key=lambda x: x.get(sort_by), reverse=reverse)
+
+    total = len(rooms)
+
+    page, page_size, paging_enabled = parse_pagination_args(
+        request.args,
+        default_page=1,
+        default_page_size=20,
+        max_page_size=200,
+    )
+    if paging_enabled:
+        rooms, pagination = paginate_list(rooms, page, page_size)
+    else:
+        pagination = {
+            'page': 1,
+            'page_size': total if total > 0 else 0,
+            'total': total,
+            'total_pages': 1,
+        }
+
+    allowed_fields = [
+        'id',
+        'room_no',
+        'room_display',
+        'building',
+        'room_type',
+        'price',
+        'deposit',
+        'description',
+        'status',
+        'tenant_count',
+        'has_water_meter_img',
+        'has_electricity_meter_img',
+    ]
+    selected_fields = parse_fields_arg(request.args, allowed_fields)
+    rooms = project_fields(rooms, selected_fields, always_include=['id'])
+
+    return jsonify({'rooms': rooms, 'total': total, 'pagination': pagination})
+
+
+@rooms_bp.route('/rooms/<int:room_id>', methods=['GET'])
+@token_required
+def api_get_room(current_user, room_id):
+    conn = connect()
+    room_columns = _get_rooms_table_columns(conn)
+    has_description = 'description' in room_columns
+    has_deposit = 'deposit' in room_columns
+    has_water_meter_img = 'water_meter_img' in room_columns
+    has_electricity_meter_img = 'electricity_meter_img' in room_columns
+    cursor = conn.cursor()
+    cursor.execute(
+        f"""
+        SELECT id, room_no, building, room_type, price,
+               {"COALESCE(deposit, 0)" if has_deposit else "0"} AS deposit,
+               {"description" if has_description else "''"} AS description,
+               {"water_meter_img" if has_water_meter_img else "''"} AS water_meter_img,
+               {"electricity_meter_img" if has_electricity_meter_img else "''"} AS electricity_meter_img
+        FROM rooms
+        WHERE id = ?
+        """,
+        (room_id,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': f'房间ID {room_id} 不存在'}), 404
+    return jsonify({
+        'room': {
+            'id': row[0],
+            'room_no': _extract_room_number(row[1], row[2]),
+            'room_display': _compose_room_no(row[2], row[1]),
+            'building': _normalize_building_code(row[2]),
+            'room_type': row[3],
+            'price': row[4],
+            'deposit': row[5],
+            'description': row[6],
+            'water_meter_img': row[7] or '',
+            'electricity_meter_img': row[8] or '',
+            'has_water_meter_img': bool(row[7]),
+            'has_electricity_meter_img': bool(row[8]),
+        }
+    })
+
+
+@rooms_bp.route('/rooms/<int:room_id>/meter-image', methods=['GET'])
+@token_required
+def api_get_room_meter_image(current_user, room_id):
+    meter_type = (request.args.get('type') or '').strip().lower()
+    if meter_type not in ('water', 'electricity'):
+        return jsonify({'error': 'type 参数必须为 water 或 electricity'}), 400
+    field = 'water_meter_img' if meter_type == 'water' else 'electricity_meter_img'
+    conn = connect()
+    room_columns = _get_rooms_table_columns(conn)
+    if field not in room_columns:
+        conn.close()
+        return jsonify({'error': '当前数据库未启用二维码字段'}), 400
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT {field} FROM rooms WHERE id = ?", (room_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': f'房间ID {room_id} 不存在'}), 404
+    image = row[0] or ''
+    if not image:
+        return jsonify({'error': '该房间未上传二维码'}), 404
+    return jsonify({'image': image})
+
+
+@rooms_bp.route('/rooms/<int:room_id>/meter-image', methods=['POST'])
+@token_required
+def api_upload_room_meter_image(current_user, room_id):
+    meter_type = (request.form.get('type') or '').strip().lower()
+    if meter_type not in ('water', 'electricity'):
+        return jsonify({'error': 'type 参数必须为 water 或 electricity'}), 400
+    if 'file' not in request.files:
+        return jsonify({'error': '请上传图片文件（字段名 file）'}), 400
+    file = request.files['file']
+    if file.filename is None or str(file.filename).strip() == '':
+        return jsonify({'error': '文件名无效'}), 400
+    filename = str(file.filename)
+    ext = os.path.splitext(filename)[1].lower()
+    if ext == '':
+        ext = '.png'
+    if ext not in ('.png', '.jpg', '.jpeg', '.webp', '.avif'):
+        return jsonify({'error': '仅支持 png/jpg/jpeg/webp/avif 图片'}), 400
+    field = 'water_meter_img' if meter_type == 'water' else 'electricity_meter_img'
+
+    conn = connect()
+    room_columns = _get_rooms_table_columns(conn)
+    if field not in room_columns:
+        conn.close()
+        return jsonify({'error': '当前数据库未启用二维码字段'}), 400
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM rooms WHERE id = ?", (room_id,))
+    room = cursor.fetchone()
+    if not room:
+        conn.close()
+        return jsonify({'error': f'房间ID {room_id} 不存在'}), 404
+
+    upload_dir = _ensure_room_meter_upload_dir()
+    unique_name = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{meter_type}_{uuid.uuid4().hex[:8]}{ext}"
+    save_path = os.path.join(upload_dir, unique_name)
+    file.save(save_path)
+    relative_url = f"/static/uploads/room_meters/{unique_name}"
+    try:
+        cursor.execute(f"UPDATE rooms SET {field} = ? WHERE id = ?", (relative_url, room_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'message': '上传成功', 'image': relative_url})
+    except sqlite3.Error as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
 
 
 @rooms_bp.route('/rooms/<room_no>/tenants', methods=['GET'])
 @token_required
 def api_get_room_tenants(current_user, room_no):
     conn = connect()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM rooms WHERE room_no = ?", (room_no,))
-    room = cursor.fetchone()
+    room = _find_room_by_no(conn, room_no)
     if not room:
         conn.close()
         return jsonify({'error': f'房间 {room_no} 不存在'}), 404
 
     room_id = room[0]
+    room_no = room[1]
+    cursor = conn.cursor()
     cursor.execute(
         """
         SELECT id, name, id_card, phone, gender, check_in_date, check_out_date, status
-        FROM tenants 
-        WHERE room_id = ? AND status = '在住'
-        ORDER BY name
+        FROM tenants
+        WHERE room_id = ?
+        ORDER BY CASE WHEN status = '在住' THEN 0 ELSE 1 END, check_in_date DESC, id DESC
         """,
         (room_id,),
     )
@@ -171,14 +464,14 @@ def api_checkout_room(current_user, room_no):
         description: 房间不存在
     """
     conn = connect()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM rooms WHERE room_no = ?", (room_no,))
-    room = cursor.fetchone()
+    room = _find_room_by_no(conn, room_no)
     if not room:
         conn.close()
         return jsonify({'error': f'房间 {room_no} 不存在'}), 404
 
     room_id = room[0]
+    room_no = room[1]
+    cursor = conn.cursor()
     cursor.execute("SELECT id, name FROM tenants WHERE room_id = ? AND status = '在住'", (room_id,))
     tenants = cursor.fetchall()
     if not tenants:
@@ -231,17 +524,16 @@ def api_add_room(current_user):
           type: object
           required:
             - room_no
-            - floor
             - room_type
             - price
           properties:
             room_no:
               type: string
-            floor:
-              type: integer
             room_type:
               type: string
             price:
+              type: number
+            deposit:
               type: number
             building:
               type: string
@@ -254,37 +546,55 @@ def api_add_room(current_user):
         description: 数据库错误
     """
     data = request.json
-    if not data or not all(k in data for k in ('room_no', 'floor', 'room_type', 'price')):
+    if not data or not all(k in data for k in ('room_no', 'room_type', 'price')):
         return jsonify({'error': '缺少必要参数'}), 400
 
-    room_no = data['room_no']
-    floor = data['floor']
+    building = _normalize_building_code(data.get('building', ''))
+    room_no = _compose_room_no(building, data.get('room_no', ''))
+    floor = _derive_floor(room_no)
     room_type = data['room_type']
     price = data['price']
-    building = data.get('building', '')
+    deposit = data.get('deposit', 0)
+    water_meter_img = data.get('water_meter_img', '')
+    electricity_meter_img = data.get('electricity_meter_img', '')
+    description = data.get('description', '')
 
     conn = connect()
+    room_columns = _get_rooms_table_columns(conn)
     cursor = conn.cursor()
     try:
+        insert_columns = ['room_no', 'floor', 'room_type', 'price', 'building']
+        insert_values = [room_no, floor, room_type, price, building]
+        if 'deposit' in room_columns:
+            insert_columns.append('deposit')
+            insert_values.append(deposit)
+        if 'description' in room_columns:
+            insert_columns.append('description')
+            insert_values.append(description)
+        if 'water_meter_img' in room_columns:
+            insert_columns.append('water_meter_img')
+            insert_values.append(water_meter_img)
+        if 'electricity_meter_img' in room_columns:
+            insert_columns.append('electricity_meter_img')
+            insert_values.append(electricity_meter_img)
+        columns_sql = ', '.join(insert_columns)
+        placeholders = ', '.join(['?'] * len(insert_columns))
         cursor.execute(
-            """
-            INSERT INTO rooms (room_no, floor, room_type, price, building)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (room_no, floor, room_type, price, building),
+            f"INSERT INTO rooms ({columns_sql}) VALUES ({placeholders})",
+            tuple(insert_values),
         )
         room_id = cursor.lastrowid
         conn.commit()
         conn.close()
-        return jsonify({'message': f'房间 {room_no} 已添加', 'id': room_id, 'room_no': room_no})
+        return jsonify({'message': f'房间 {room_no} 已添加', 'id': room_id, 'room_no': _extract_room_number(room_no, building), 'room_display': room_no})
     except sqlite3.Error as e:
         conn.close()
         return jsonify({'error': str(e)}), 500
 
 
-@rooms_bp.route('/rooms/<room_no>', methods=['PUT'])
+@rooms_bp.route('/rooms/<int:room_id>', methods=['PUT'])
 @token_required
-def api_update_room(current_user, room_no):
+def api_update_room(current_user, room_id):
     """
     更新房间信息
     ---
@@ -294,20 +604,22 @@ def api_update_room(current_user, room_no):
       - Bearer: []
     parameters:
       - in: path
-        name: room_no
-        type: string
+        name: room_id
+        type: integer
         required: true
-        description: 房间号
+        description: 房间ID
       - in: body
         name: body
         schema:
           type: object
           properties:
-            floor:
-              type: integer
+            room_no:
+              type: string
             room_type:
               type: string
             price:
+              type: number
+            deposit:
               type: number
             building:
               type: string
@@ -323,28 +635,62 @@ def api_update_room(current_user, room_no):
     if not data:
         return jsonify({'error': '缺少更新数据'}), 400
 
-    allowed_fields = ['floor', 'room_type', 'price', 'building']
+    conn = connect()
+    room_columns = _get_rooms_table_columns(conn)
+    allowed_fields = [field for field in ['room_no', 'room_type', 'price', 'deposit', 'building', 'description', 'water_meter_img', 'electricity_meter_img'] if field in room_columns]
     update_data = {k: v for k, v in data.items() if k in allowed_fields}
 
     if not update_data:
+        conn.close()
         return jsonify({'error': '没有有效的更新字段'}), 400
-
-    conn = connect()
     cursor = conn.cursor()
 
     try:
-        cursor.execute("SELECT id FROM rooms WHERE room_no = ?", (room_no,))
+        cursor.execute("SELECT id FROM rooms WHERE id = ?", (room_id,))
         room = cursor.fetchone()
         if not room:
             conn.close()
-            return jsonify({'error': f'房间 {room_no} 不存在'}), 404
+            return jsonify({'error': f'房间ID {room_id} 不存在'}), 404
+
+        current_room_no = ''
+        current_building = ''
+        cursor.execute("SELECT room_no, building FROM rooms WHERE id = ?", (room_id,))
+        current_row = cursor.fetchone()
+        if current_row:
+            current_room_no = current_row[0] or ''
+            current_building = current_row[1] or ''
+
+        new_building = _normalize_building_code(update_data.get('building', current_building))
+        if 'building' in update_data:
+            update_data['building'] = new_building
+        if 'room_no' in update_data:
+            update_data['room_no'] = _compose_room_no(new_building, update_data.get('room_no'))
+        if 'room_no' in update_data and 'floor' in room_columns:
+            update_data['floor'] = _derive_floor(update_data['room_no'])
+        if (
+            'room_no' in update_data
+            and str(update_data['room_no']) == str(current_room_no)
+            and 'room_no' in update_data
+        ):
+            update_data.pop('room_no', None)
+            if 'floor' in update_data:
+                update_data.pop('floor', None)
+
+        if not update_data:
+            conn.close()
+            return jsonify({'message': '房间信息已更新'})
 
         for key, value in update_data.items():
-            cursor.execute(f"UPDATE rooms SET {key} = ? WHERE room_no = ?", (value, room_no))
+            cursor.execute(f"UPDATE rooms SET {key} = ? WHERE id = ?", (value, room_id))
 
         conn.commit()
         conn.close()
-        return jsonify({'message': f'房间 {room_no} 信息已更新'})
+        return jsonify({'message': f'房间信息已更新'})
+    except sqlite3.IntegrityError as e:
+        conn.close()
+        if 'UNIQUE constraint failed: rooms.room_no' in str(e):
+            return jsonify({'error': f'房间号已存在'}), 400
+        return jsonify({'error': str(e)}), 500
     except sqlite3.Error as e:
         conn.close()
         return jsonify({'error': str(e)}), 500

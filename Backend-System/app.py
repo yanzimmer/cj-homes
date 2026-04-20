@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 from flask import Flask, jsonify
 from flask_cors import CORS
 from flasgger import Swagger
@@ -9,16 +9,19 @@ from contracts_api import contracts_bp, ensure_contracts_schema
 from auth_api import auth_bp
 from ocr_api import ocr_bp
 from notify_api import notify_bp
-from rooms_api import rooms_bp
+from rooms_api import rooms_bp, ensure_rooms_schema
 from tenants_api import tenants_bp
 from moves_api import moves_bp
-from repair_records_api import repair_bp
+from repair_records_api import repair_bp, ensure_repair_records_schema
 from system_api import system_bp
+from procurement_api import procurement_bp, ensure_procurement_schema
+from warehouse_api import warehouse_bp, ensure_warehouse_schema
+from upload_api import upload_bp
 import forgot_password as fp
 
 
 app = Flask(__name__)
-# 允许跨域并显式声明方法与请求头，确保带 Authorization 的预检通过
+# 鍏佽璺ㄥ煙骞舵樉寮忓０鏄庢柟娉曚笌璇锋眰澶达紝纭繚甯?Authorization 鐨勯妫€閫氳繃
 CORS(
     app,
     resources={
@@ -26,18 +29,18 @@ CORS(
             "origins": "*",
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"],
-            # 暴露刷新令牌相关响应头，便于前端读取
+            # 鏆撮湶鍒锋柊浠ょ墝鐩稿叧鍝嶅簲澶达紝渚夸簬鍓嶇璇诲彇
             "expose_headers": ["Content-Type", "X-Refreshed-Token", "X-Token-Expires"],
         }
     },
     supports_credentials=True,
 )
 
-# 应用基础配置（集中在 common.py）
+# 搴旂敤鍩虹閰嶇疆锛堥泦涓湪 common.py锛?
 app.config['SECRET_KEY'] = SECRET_KEY
 app.config['JWT_EXPIRATION_DELTA'] = JWT_EXPIRATION_DELTA
 
-# 配置 Swagger
+# 閰嶇疆 Swagger
 app.config['SWAGGER'] = {
     'title': 'Homes Rental Management API',
     'uiversion': 3,
@@ -61,37 +64,47 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 app.logger.setLevel(logging.INFO)
 
 
-# 初始化找回密码模块（如存在则进行初始化）
+# 鍒濆鍖栨壘鍥炲瘑鐮佹ā鍧楋紙濡傚瓨鍦ㄥ垯杩涜鍒濆鍖栵級
 try:
     fp.ensure_schema()
-    # 设置一个默认的恢复信息，避免首次使用时没有配置
+    # 璁剧疆涓€涓粯璁ょ殑鎭㈠淇℃伅锛岄伩鍏嶉娆′娇鐢ㄦ椂娌℃湁閰嶇疆
     fp.set_recovery_info('admin', security_answer='15286304124')
 except Exception as e:
-    app.logger.warning(f"初始化找回密码模块失败: {e}")
+    app.logger.warning(f"鍒濆鍖栨壘鍥炲瘑鐮佹ā鍧楀け璐? {e}")
+app.register_blueprint(upload_bp)
 
 
-# 注册各功能蓝图
+# 娉ㄥ唽鍚勫姛鑳借摑鍥?
 try:
     ensure_contract_templates_schema()
     app.register_blueprint(templates_bp)
 except Exception as e:
-    app.logger.warning(f"注册合同模板模块失败: {e}")
+    app.logger.warning(f"娉ㄥ唽鍚堝悓妯℃澘妯″潡澶辫触: {e}")
 
-# 注册合同档案蓝图
+# 娉ㄥ唽鍚堝悓妗ｆ钃濆浘
 try:
     ensure_contracts_schema()
     app.register_blueprint(contracts_bp)
 except Exception as e:
-    app.logger.warning(f"注册合同档案模块失败: {e}")
+    app.logger.warning(f"娉ㄥ唽鍚堝悓妗ｆ妯″潡澶辫触: {e}")
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(ocr_bp)
 app.register_blueprint(notify_bp)
+ensure_rooms_schema()
 app.register_blueprint(rooms_bp)
 app.register_blueprint(tenants_bp)
 app.register_blueprint(moves_bp)
+ensure_repair_records_schema()
 app.register_blueprint(repair_bp)
 app.register_blueprint(system_bp)
+ensure_procurement_schema()
+app.register_blueprint(procurement_bp)
+try:
+    ensure_warehouse_schema()
+    app.register_blueprint(warehouse_bp)
+except Exception as e:
+    app.logger.warning(f"娉ㄥ唽搴撴埧妯″潡澶辫触: {e}")
 
 
 @app.errorhandler(404)

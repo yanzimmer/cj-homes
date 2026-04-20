@@ -1,16 +1,15 @@
 <template>
   <div class="notification-config">
     <div class="page-header">
-      <h2>通知详情配置</h2>
       <div class="header-operations">
         <div v-if="config.last_updated" class="last-updated">
           <el-icon><Timer /></el-icon>
           <span>最后更新: {{ config.last_updated }}</span>
         </div>
-        <el-button type="primary" @click="saveConfig" :loading="saving" style="margin-left: 15px;">
+        <el-button class="header-action-btn" type="primary" @click="saveConfig" :loading="saving">
           <el-icon><Check /></el-icon> 保存配置
         </el-button>
-        <el-button @click="resetForm">
+        <el-button class="header-action-btn" @click="resetForm">
           <el-icon><RefreshRight /></el-icon> 重置
         </el-button>
       </div>
@@ -863,16 +862,16 @@ onMounted(() => {
 <style scoped>
 .notification-config {
   padding: 20px;
-  height: calc(100vh - 100px); /* 适应屏幕高度 */
+  height: calc(100vh - 100px);
   display: flex;
   flex-direction: column;
+  border-radius: 16px;
 }
 
 .page-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
   flex-shrink: 0;
 }
 .page-header h2 {
@@ -882,6 +881,12 @@ onMounted(() => {
 .header-operations {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.header-action-btn {
+  margin-left: 0 !important;
 }
 
 .last-updated {
@@ -890,7 +895,6 @@ onMounted(() => {
   gap: 5px;
   font-size: 0.85rem;
   color: #909399;
-  margin-right: 15px;
 }
 
 .config-form {
@@ -904,16 +908,18 @@ onMounted(() => {
   flex: 1;
   height: 100%;
   background-color: var(--card-bg);
-  border-radius: 4px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+  border-radius: 16px;
+  border: 1px solid var(--surface-border);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
   display: flex;
+  overflow: hidden;
 }
 
 :deep(.el-tabs__header) {
-  background-color: transparent;
+  background-color: var(--surface-muted);
   margin-right: 0 !important;
-  border-right: 1px solid var(--el-border-color-light, #dcdfe6);
-  width: 200px; /* Fixed width for sidebar */
+  border-right: 1px solid var(--surface-border);
+  width: 208px;
 }
 
 :deep(.el-tabs__nav-wrap) {
@@ -939,17 +945,17 @@ onMounted(() => {
   transition: background-color 0.3s, color 0.3s;
   border-left: 3px solid transparent;
   margin-bottom: 0;
-  border-bottom: 1px solid var(--el-border-color-light, #ebeef5);
+  border-bottom: 1px solid var(--surface-border);
 }
 
 :deep(.el-tabs__item:hover) {
   color: var(--el-color-primary);
-  background-color: var(--el-fill-color-light, #f5f7fa);
+  background-color: rgba(37, 99, 235, 0.06);
 }
 
 :deep(.el-tabs__item.is-active) {
   color: var(--el-color-primary);
-  background-color: var(--el-color-primary-light-9, #ecf5ff);
+  background-color: rgba(37, 99, 235, 0.12);
   border-left-color: var(--el-color-primary);
   font-weight: 600;
   border-right: none;
@@ -971,6 +977,42 @@ onMounted(() => {
 
 .section-card {
   margin-bottom: 20px;
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
+}
+
+:deep(.section-card .el-card__header) {
+  background: var(--surface-muted);
+}
+
+:deep(.section-card .el-card__body) {
+  background: var(--card-bg);
+}
+
+:deep(.config-form .el-form-item__label) {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+:deep(.config-form .el-input__wrapper),
+:deep(.config-form .el-textarea__inner),
+:deep(.config-form .el-input-number),
+:deep(.config-form .el-select__wrapper) {
+  background: var(--surface-muted);
+  border-color: var(--surface-border);
+}
+
+:deep(.config-form .el-input__wrapper:hover),
+:deep(.config-form .el-textarea__inner:hover),
+:deep(.config-form .el-select__wrapper:hover) {
+  border-color: var(--el-color-primary-light-5);
+}
+
+:deep(.config-form .el-input.is-focus .el-input__wrapper),
+:deep(.config-form .el-textarea.is-focus .el-textarea__inner),
+:deep(.config-form .el-select.is-focus .el-select__wrapper) {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.16);
 }
 
 .card-header {

@@ -1,0 +1,816 @@
+<template>
+  <view class="page">
+    <view class="card toolbar-card">
+      <view class="header-block">
+        <view class="row space-between head-top">
+          <view>
+            <text class="section-title">房间管理</text>
+            <text class="subtle">房态、租住与二维码管理</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="row action-row">
+        <button class="btn-strong" @click="openCreateRoom">新增房间</button>
+        <button class="btn-outline" :disabled="loading" @click="fetchRooms">刷新</button>
+      </view>
+
+      <view class="search-card">
+        <text class="search-label">模糊搜索</text>
+        <view class="row search-row">
+          <input v-model="searchKeyword" class="input search-input" placeholder="楼栋 / 房间号 / 房型 / 描述" />
+          <view class="count-pill">{{ filteredRooms.length }} 条</view>
+        </view>
+      </view>
+
+      <view class="filter-bar row">
+        <view class="summary-tags">
+          <text class="summary-chip">状态 · {{ statusOptions[statusIndex] }}</text>
+          <text class="summary-chip">房型 · {{ roomTypeOptions[roomTypeIndex] }}</text>
+          <text class="summary-chip">排序 · {{ sortLabels[sortIndex] }}</text>
+        </view>
+        <button class="btn-outline" @click="openFilterDrawer">筛选/排序</button>
+      </view>
+    </view>
+
+    <view v-if="loading" class="card empty-card">
+      <text class="muted">加载中...</text>
+    </view>
+
+    <view v-else-if="filteredRooms.length == 0" class="card empty-card">
+      <text class="muted">暂无房间数据</text>
+    </view>
+
+    <view>
+      <view v-for="item in visibleRooms" :key="item.id" class="card room-card">
+        <view class="row space-between room-head">
+          <view class="row room-title">
+            <view class="status-dot" :class="statusClass(item.status)"></view>
+            <text class="room-no">{{ displayRoomNo(item) }}</text>
+          </view>
+          <text class="status-pill" :class="statusClass(item.status)">{{ statusLabel(item.status) }}</text>
+        </view>
+
+        <view class="room-meta">
+          <text class="room-line">楼栋：{{ item.building || "-" }}</text>
+          <text class="room-line">类型：{{ item.room_type || "-" }} / 租金：{{ item.price || 0 }} 元</text>
+          <text class="room-line">在住人数：{{ item.tenant_count || 0 }}</text>
+          <text class="room-line">描述：{{ item.description || "-" }}</text>
+        </view>
+
+        <view class="row qr-row">
+          <view class="qr-chip">
+            <text class="qr-label">水表</text>
+            <text class="qr-flag">{{ item.has_water_meter_img ? "已上传" : "未上传" }}</text>
+            <button class="tiny-btn" :disabled="!item.has_water_meter_img" @click="previewMeter(item, 'water')">预览</button>
+          </view>
+          <view class="qr-chip">
+            <text class="qr-label">电表</text>
+            <text class="qr-flag">{{ item.has_electricity_meter_img ? "已上传" : "未上传" }}</text>
+            <button class="tiny-btn" :disabled="!item.has_electricity_meter_img" @click="previewMeter(item, 'electricity')">预览</button>
+          </view>
+        </view>
+
+        <view class="row button-row">
+          <button class="small-btn edit-btn" @click="openEditRoom(item)">编辑</button>
+          <button class="small-btn btn-ghost" @click="openDetail(item)">详情</button>
+          <button class="small-btn btn-outline" @click="checkoutRoom(item)">退租</button>
+          <button class="small-btn danger-btn" @click="removeRoom(item)">删除</button>
+        </view>
+      </view>
+      <view v-if="filteredRooms.length > 0" class="card pager-card">
+        <view class="row space-between pager-row">
+          <button class="btn-outline pager-btn" :disabled="currentPage <= 1" @click="goPrevPage">上一页</button>
+          <text class="pager-text">{{ currentPage }} / {{ totalPages }} 页（共 {{ filteredRooms.length }} 条）</text>
+          <button class="btn-outline pager-btn" :disabled="currentPage >= totalPages" @click="goNextPage">下一页</button>
+        </view>
+      </view>
+    </view>
+
+    <view v-if="detailVisible" class="detail-mask" @click="closeDetail">
+      <scroll-view class="detail-sheet" scroll-y="true">
+        <view class="card detail-card" @click.stop>
+          <view class="row space-between">
+            <text class="section-title">房间详情</text>
+            <button class="btn-outline" @click="closeDetail">关闭</button>
+          </view>
+          <view v-if="detailLoading">
+            <text class="muted">加载中...</text>
+          </view>
+          <view v-else>
+            <text class="room-line">房号：{{ displayRoomNo(detailRoom) }}</text>
+            <text class="room-line">楼栋：{{ detailRoom.building || "-" }}</text>
+            <text class="room-line">类型：{{ detailRoom.room_type || "-" }} / 租金：{{ detailRoom.price || 0 }} 元</text>
+            <text class="room-line">状态：{{ statusLabel(detailRoom.status) }}</text>
+            <text class="room-line">描述：{{ detailRoom.description || "-" }}</text>
+
+            <text class="sub-title">关联租户</text>
+            <view v-if="detailTenants.length == 0">
+              <text class="muted">暂无租户记录</text>
+            </view>
+            <view v-for="tenant in detailTenants" :key="tenant.id_card || tenant.id" class="tenant-card">
+              <text class="room-line">姓名：{{ tenant.name || "-" }} / 手机：{{ tenant.phone || "-" }}</text>
+              <text class="room-line">入住：{{ tenant.check_in_date || "-" }} / 退租：{{ tenant.check_out_date || tenant.checkout_date || "-" }}</text>
+              <text class="room-line">状态：{{ tenant.status || tenant.tenant_status || "-" }}</text>
+            </view>
+          </view>
+        </view>
+      </scroll-view>
+    </view>
+
+    <view v-if="filterDrawerVisible" class="filter-mask" @click="closeFilterDrawer">
+      <view class="filter-sheet" @click.stop>
+        <text class="section-title">筛选与排序</text>
+        <view class="filter-sheet-row">
+          <text class="sheet-label">状态</text>
+          <picker mode="selector" :range="statusOptions" @change="onStatusChange">
+            <view class="sheet-picker">{{ statusOptions[statusIndex] }}</view>
+          </picker>
+        </view>
+        <view class="filter-sheet-row">
+          <text class="sheet-label">房型</text>
+          <picker mode="selector" :range="roomTypeOptions" @change="onRoomTypeChange">
+            <view class="sheet-picker">{{ roomTypeOptions[roomTypeIndex] }}</view>
+          </picker>
+        </view>
+        <view class="filter-sheet-row">
+          <text class="sheet-label">排序</text>
+          <picker mode="selector" :range="sortLabels" @change="onSortChange">
+            <view class="sheet-picker">{{ sortLabels[sortIndex] }}</view>
+          </picker>
+        </view>
+        <view class="row sheet-actions">
+          <button class="btn-strong" @click="closeFilterDrawer">完成</button>
+        </view>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+import { computed, ref, watch } from "vue"
+import { onShow } from "@dcloudio/uni-app"
+import {
+  apiCheckoutRoom,
+  apiDeleteRoom,
+  apiGetRoomDetail,
+  apiGetRoomMeterImage,
+  apiGetRoomTenants,
+  apiGetRooms,
+} from "../../api/services.uts"
+import { getApiHost } from "../../common/request.uts"
+import { getErrorMessage, normalizeArray } from "../../common/page.uts"
+
+const rooms = ref<any[]>([])
+const loading = ref(false)
+
+const searchKeyword = ref("")
+
+const statusOptions = ["全部", "空闲", "已入住", "即将到期", "已过期"]
+const statusIndex = ref(0)
+
+const roomTypeOptions = ref<string[]>(["全部"])
+const roomTypeIndex = ref(0)
+
+const sortLabels = ["默认", "租金升序", "租金降序", "房号升序", "房号降序", "在住人数降序"]
+const sortIndex = ref(0)
+const pageSize = ref(10)
+const currentPage = ref(1)
+
+const detailVisible = ref(false)
+const detailLoading = ref(false)
+const detailRoom = ref<any>({})
+const detailTenants = ref<any[]>([])
+
+const filterDrawerVisible = ref(false)
+
+const filteredRooms = computed(() => {
+  const targetStatus = statusOptions[statusIndex.value]
+  const targetRoomType = roomTypeOptions.value[roomTypeIndex.value]
+  const keyword = searchKeyword.value.trim().toLowerCase()
+
+  let list = rooms.value.slice(0)
+  list = list.filter((room) => {
+    const buildingText = room.building != null ? String(room.building).toLowerCase() : ""
+    const roomNoText = displayRoomNo(room).toLowerCase()
+    const roomTypeText = room.room_type != null ? String(room.room_type).toLowerCase() : ""
+    const descText = room.description != null ? String(room.description).toLowerCase() : ""
+
+    if (keyword != "") {
+      const hit =
+        buildingText.includes(keyword) ||
+        roomNoText.includes(keyword) ||
+        roomTypeText.includes(keyword) ||
+        descText.includes(keyword)
+      if (!hit) return false
+    }
+
+    if (targetRoomType != null && targetRoomType != "全部" && targetRoomType != "") {
+      if (roomTypeText != String(targetRoomType).toLowerCase()) return false
+    }
+
+    if (targetStatus != "全部") {
+      const normalized = statusLabel(room.status)
+      if (targetStatus == "已入住") {
+        return normalized == "在住" || normalized == "已入住"
+      }
+      return normalized == targetStatus
+    }
+
+    return true
+  })
+
+  const sortRule = sortIndex.value
+  if (sortRule == 1) {
+    list.sort((a, b) => Number(a.price || 0) - Number(b.price || 0))
+  } else if (sortRule == 2) {
+    list.sort((a, b) => Number(b.price || 0) - Number(a.price || 0))
+  } else if (sortRule == 3) {
+    list.sort((a, b) => String(a.room_no || "").localeCompare(String(b.room_no || "")))
+  } else if (sortRule == 4) {
+    list.sort((a, b) => String(b.room_no || "").localeCompare(String(a.room_no || "")))
+  } else if (sortRule == 5) {
+    list.sort((a, b) => Number(b.tenant_count || 0) - Number(a.tenant_count || 0))
+  }
+
+  return list
+})
+
+const totalPages = computed(() => {
+  const total = Math.ceil(filteredRooms.value.length / pageSize.value)
+  return total <= 0 ? 1 : total
+})
+const visibleRooms = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  const end = start + pageSize.value
+  return filteredRooms.value.slice(start, end)
+})
+
+function openFilterDrawer() {
+  filterDrawerVisible.value = true
+}
+
+function closeFilterDrawer() {
+  filterDrawerVisible.value = false
+}
+
+function statusLabel(status : any) : string {
+  const text = status == null ? "" : String(status)
+  if (text == "已入住") {
+    return "在住"
+  }
+  return text == "" ? "未知" : text
+}
+
+function statusClass(status : any) : string {
+  const text = statusLabel(status)
+  if (text == "空闲") return "status-free"
+  if (text == "在住") return "status-live"
+  if (text == "即将到期") return "status-soon"
+  if (text == "已过期") return "status-expired"
+  return "status-unknown"
+}
+
+function displayRoomNo(room : any) : string {
+  if (room != null && room.room_display != null && String(room.room_display).trim() != "") {
+    return String(room.room_display).trim().toUpperCase()
+  }
+  const rawNo = room != null && room.room_no != null ? String(room.room_no).trim() : ""
+  if (rawNo == "") return "-"
+  const upperNo = rawNo.toUpperCase()
+  if (/^[A-Z]-\d+$/.test(upperNo)) return upperNo
+  if (/^[A-Z]\d+$/.test(upperNo)) return `${upperNo.substring(0, 1)}-${upperNo.substring(1)}`
+  if (/^\d+$/.test(upperNo)) {
+    const buildingText = room != null && room.building != null ? String(room.building).toUpperCase() : ""
+    const matched = buildingText.match(/[A-Z]/)
+    if (matched != null && matched.length > 0) {
+      return `${matched[0]}-${upperNo}`
+    }
+  }
+  return upperNo
+}
+
+function onStatusChange(e : any) {
+  statusIndex.value = Number(e.detail.value)
+}
+
+function onRoomTypeChange(e : any) {
+  roomTypeIndex.value = Number(e.detail.value)
+}
+
+function onSortChange(e : any) {
+  sortIndex.value = Number(e.detail.value)
+}
+
+function goPrevPage() {
+  if (currentPage.value <= 1) return
+  currentPage.value -= 1
+}
+
+function goNextPage() {
+  if (currentPage.value >= totalPages.value) return
+  currentPage.value += 1
+}
+
+function openCreateRoom() {
+  uni.navigateTo({ url: "/pages/rooms/form?action=create" })
+}
+
+function openEditRoom(room : any) {
+  const id = Number(room != null ? room.id : 0)
+  if (isNaN(id) || id <= 0) {
+    uni.showToast({ title: "房间ID无效，无法编辑", icon: "none" })
+    return
+  }
+  const roomNo = encodeURIComponent(String(room != null && room.room_no != null ? room.room_no : ""))
+  const roomType = encodeURIComponent(String(room != null && room.room_type != null ? room.room_type : ""))
+  const price = encodeURIComponent(String(room != null && room.price != null ? room.price : ""))
+  const building = encodeURIComponent(String(room != null && room.building != null ? room.building : ""))
+  const description = encodeURIComponent(String(room != null && room.description != null ? room.description : ""))
+  const url =
+    `/pages/rooms/form?action=edit&id=${id}` +
+    `&room_no=${roomNo}&room_type=${roomType}&price=${price}&building=${building}&description=${description}`
+  uni.navigateTo({
+    url,
+    success: (res) => {
+      const channel = res.eventChannel
+      if (channel != null) {
+        channel.emit("roomSelected", room)
+      }
+    },
+  })
+}
+
+function removeRoom(room : any) {
+  const id = Number(room != null ? room.id : 0)
+  if (isNaN(id) || id <= 0) {
+    uni.showToast({ title: "房间ID无效", icon: "none" })
+    return
+  }
+  uni.showModal({
+    title: "确认删除",
+    content: `确定删除房间 ${room.room_no} 吗？`,
+    success: async (res) => {
+      if (!res.confirm) return
+      try {
+        await apiDeleteRoom(id)
+        uni.showToast({ title: "删除成功", icon: "success" })
+        fetchRooms()
+      } catch (err) {
+        uni.showToast({ title: getErrorMessage(err, "删除失败"), icon: "none" })
+      }
+    },
+  })
+}
+
+async function checkoutRoom(room : any) {
+  if (room == null || room.room_no == null) {
+    uni.showToast({ title: "房间号无效", icon: "none" })
+    return
+  }
+
+  uni.showModal({
+    title: "退租",
+    content: `确认让房间 ${room.room_no} 的租户全部退租吗？`,
+    success: async (res) => {
+      if (!res.confirm) return
+      try {
+        await apiCheckoutRoom(String(room.room_no))
+        uni.showToast({ title: "退租成功", icon: "success" })
+        fetchRooms()
+      } catch (err) {
+        uni.showToast({ title: getErrorMessage(err, "退租失败"), icon: "none" })
+      }
+    },
+  })
+}
+
+async function previewMeter(room : any, meterType : string) {
+  const id = Number(room.id)
+  if (isNaN(id) || id <= 0) {
+    uni.showToast({ title: "房间ID无效", icon: "none" })
+    return
+  }
+  try {
+    const data = await apiGetRoomMeterImage(id, meterType)
+    let image = data != null && data.image != null ? String(data.image) : ""
+    if (image.startsWith("/")) {
+      image = `${getApiHost()}${image}`
+    }
+    if (image == "") {
+      uni.showToast({ title: "未获取到二维码", icon: "none" })
+      return
+    }
+    uni.previewImage({ urls: [image] })
+  } catch (err) {
+    uni.showToast({ title: getErrorMessage(err, "获取二维码失败"), icon: "none" })
+  }
+}
+
+async function openDetail(room : any) {
+  if (room == null) return
+  detailVisible.value = true
+  detailLoading.value = true
+  detailRoom.value = room
+  detailTenants.value = []
+  try {
+    if (room.id != null) {
+      const data = await apiGetRoomDetail(Number(room.id))
+      detailRoom.value = data != null ? data : room
+    }
+    if (room.room_no != null) {
+      const tenantData = await apiGetRoomTenants(String(room.room_no))
+      detailTenants.value = normalizeArray(tenantData, ["tenants", "items", "list", "records"])
+    }
+  } catch (err) {
+    uni.showToast({ title: getErrorMessage(err, "加载详情失败"), icon: "none" })
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+function closeDetail() {
+  detailVisible.value = false
+}
+
+async function fetchRooms() {
+  if (loading.value) return
+  loading.value = true
+  try {
+    const data = await apiGetRooms()
+    rooms.value = normalizeArray(data, ["rooms", "items", "list"]).map((item : any) => {
+      return {
+        ...item,
+        tenant_count: item != null && item.tenant_count != null ? item.tenant_count : 0,
+      }
+    })
+    roomTypeOptions.value = ["全部"].concat(
+      Array.from(new Set(rooms.value.map((item : any) => String(item.room_type || "")).filter((v : string) => v != ""))),
+    )
+    currentPage.value = 1
+  } catch (err) {
+    uni.showToast({ title: getErrorMessage(err, "获取房间失败"), icon: "none" })
+  } finally {
+    loading.value = false
+  }
+}
+
+watch([searchKeyword, statusIndex, roomTypeIndex, sortIndex], () => {
+  currentPage.value = 1
+})
+
+onShow(() => {
+  fetchRooms()
+})
+</script>
+
+<style>
+.empty-card,
+.room-card {
+  margin-bottom: 14px;
+}
+
+.toolbar-card {
+  border: 1px solid rgba(10, 111, 116, 0.2);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.94) 0%, rgba(227, 246, 248, 0.86) 56%, rgba(255, 244, 223, 0.86) 100%);
+  box-shadow: 0 18px 34px rgba(13, 41, 59, 0.12);
+}
+
+.header-block {
+  gap: 8px;
+}
+
+.head-top {
+  align-items: flex-start;
+}
+
+.subtle {
+  display: block;
+  color: #5d6c7b;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.action-row {
+  gap: 9px;
+  margin-top: 12px;
+}
+
+.btn-strong,
+.btn-soft,
+.btn-outline {
+  height: 40px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.btn-strong {
+  flex: 1.15;
+}
+
+.btn-soft {
+  flex: 1;
+}
+
+.btn-outline {
+  flex: 0.78;
+}
+
+.search-card {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(20, 38, 56, 0.1);
+}
+
+.search-label {
+  font-size: 12px;
+  color: #607285;
+  margin-bottom: 7px;
+  display: block;
+}
+
+.search-row {
+  gap: 8px;
+  align-items: center;
+}
+
+.search-input {
+  flex: 1;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 12px;
+}
+
+.count-pill {
+  min-width: 74px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(10, 111, 116, 0.18), rgba(17, 163, 178, 0.22));
+  color: #0a6f74;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.filter-bar {
+  margin-top: 10px;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(248, 252, 253, 0.84);
+  border: 1px solid rgba(20, 38, 56, 0.1);
+}
+
+.filter-bar .btn-outline {
+  flex: 0 0 auto;
+  min-width: 92px;
+  padding: 0 14px;
+}
+
+.summary-tags {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.summary-chip {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(224, 243, 246, 0.9);
+  color: #345468;
+  font-size: 11px;
+  border: 1px solid rgba(52, 84, 104, 0.12);
+}
+
+.room-card {
+  border: 1px solid rgba(20, 38, 56, 0.1);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 12px 24px rgba(20, 38, 56, 0.09);
+}
+
+.room-head {
+  margin-bottom: 8px;
+}
+
+.room-title {
+  gap: 7px;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.room-no {
+  font-size: 20px;
+  color: #102435;
+  font-weight: 800;
+}
+
+.room-meta {
+  margin-top: 5px;
+}
+
+.room-line {
+  display: block;
+  margin-top: 4px;
+  color: #2d4458;
+  font-size: 13px;
+}
+
+.status-pill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.qr-row {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.qr-chip {
+  flex: 1;
+  min-width: 140px;
+  background: #f8fbfd;
+  border-radius: 11px;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(20, 38, 56, 0.08);
+}
+
+.qr-label {
+  font-size: 12px;
+  color: #5d6c7b;
+}
+
+.qr-flag {
+  font-size: 12px;
+  color: #11283b;
+}
+
+.tiny-btn {
+  height: 28px;
+  padding: 0 9px;
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.button-row {
+  margin-top: 10px;
+  gap: 8px;
+}
+
+.small-btn {
+  flex: 1;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.pager-card {
+  margin-top: 10px;
+  margin-bottom: 14px;
+}
+
+.pager-row {
+  gap: 10px;
+}
+
+.pager-btn {
+  flex: 0 0 auto;
+  min-width: 88px;
+}
+
+.pager-text {
+  flex: 1;
+  text-align: center;
+  font-size: 12px;
+  color: #4f6479;
+}
+
+.status-free {
+  background-color: #ddf7e6;
+  color: #17633a;
+}
+
+.status-live {
+  background-color: #e0eeff;
+  color: #1e4d9f;
+}
+
+.status-soon {
+  background-color: #fff1d7;
+  color: #8c5304;
+}
+
+.status-expired {
+  background-color: #ffe5e5;
+  color: #9f2a2a;
+}
+
+.status-unknown {
+  background-color: #edf1f5;
+  color: #4b5563;
+}
+
+.detail-mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(13, 28, 43, 0.4);
+  z-index: 1000;
+  padding: 20px 16px;
+  box-sizing: border-box;
+}
+
+.filter-mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(13, 28, 43, 0.4);
+  z-index: 1000;
+  padding: 0 12px 12px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+}
+
+.detail-sheet {
+  height: 90vh;
+  max-height: 90vh;
+}
+
+.detail-card {
+  margin-top: 0;
+}
+
+.filter-sheet {
+  width: 100%;
+  background: #ffffff;
+  border-radius: 18px 18px 0 0;
+  padding: 16px;
+  box-shadow: 0 -12px 24px rgba(13, 28, 43, 0.18);
+}
+
+.filter-sheet-row {
+  margin-top: 10px;
+}
+
+.sheet-label {
+  font-size: 12px;
+  color: #5d6c7b;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.sheet-picker {
+  height: 38px;
+  border-radius: 11px;
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(20, 38, 56, 0.14);
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  background: #f8fbfd;
+  color: #102435;
+}
+
+.sheet-actions {
+  margin-top: 16px;
+}
+
+.tenant-card {
+  padding: 10px;
+  margin-top: 8px;
+  border-radius: 10px;
+  background: #f8fbfd;
+  border: 1px solid rgba(20, 38, 56, 0.08);
+}
+
+</style>
+
+
+
+
+
+

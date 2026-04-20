@@ -1,13 +1,12 @@
 <template>
   <div class="templates-container">
     <div class="page-header">
-      <h2>合同名称</h2>
       <div class="header-operations">
         <el-input
+          class="search-input"
           v-model="searchQuery"
           placeholder="搜索名称/说明"
           clearable
-          style="margin-right: 10px; width: 240px;"
         >
           <template #prefix>
             <el-icon><Search /></el-icon>
@@ -15,7 +14,7 @@
         </el-input>
 
         <!-- 视图切换 -->
-        <el-radio-group v-model="currentView" size="default" style="margin-right: 15px;">
+        <el-radio-group v-model="currentView" size="default" class="view-switch">
           <el-radio-button label="table">
             <el-icon><List /></el-icon> 列表
           </el-radio-button>
@@ -27,10 +26,10 @@
           </el-radio-button>
         </el-radio-group>
 
-        <el-button type="primary" @click="openAddDialog">新增合同</el-button>
+        <el-button class="toolbar-btn" type="primary" @click="openAddDialog">新增合同</el-button>
         <el-button
+          class="toolbar-btn"
           type="danger"
-          style="margin-left: 10px;"
           :disabled="multipleSelection.length === 0"
           @click="confirmBatchDelete"
         >批量删除</el-button>
@@ -38,6 +37,7 @@
     </div>
 
     <el-table
+      class="templates-table"
       v-if="currentView === 'table'"
       :data="pagedTemplates"
       v-loading="loading"
@@ -67,7 +67,7 @@
       </el-table-column>
     </el-table>
 
-    <div v-if="currentView === 'table' || currentView === 'grid'" class="pagination-container" style="display:flex; justify-content:flex-end; margin-top: 10px;">
+    <div v-if="currentView === 'table' || currentView === 'grid'" class="pagination-container">
       <el-pagination
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
@@ -981,9 +981,8 @@ onUnmounted(() => {
 
 .page-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .page-header h2 {
@@ -994,6 +993,58 @@ onUnmounted(() => {
 .header-operations {
   display: flex;
   align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.search-input {
+  width: 240px;
+}
+
+.view-switch {
+  margin-right: 6px;
+}
+
+.toolbar-btn {
+  margin-left: 0 !important;
+}
+
+.pagination-container {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+  padding-top: 12px;
+  border-top: 1px solid var(--surface-border);
+}
+
+:deep(.templates-table) {
+  --el-table-header-bg-color: var(--surface-muted);
+  --el-table-tr-bg-color: var(--card-bg);
+  --el-table-row-hover-bg-color: rgba(37, 99, 235, 0.06);
+  --el-table-border-color: var(--surface-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+:deep(.templates-table .el-table__header-wrapper th.el-table__cell) {
+  font-weight: 700;
+  color: var(--text-main);
+  height: 48px;
+}
+
+:deep(.templates-table .el-table__body-wrapper td.el-table__cell) {
+  padding: 12px 0;
+}
+
+:deep(.templates-table .el-table__fixed-right::before),
+:deep(.templates-table .el-table__fixed::before) {
+  background-color: transparent;
+}
+
+@media (max-width: 768px) {
+  .search-input {
+    width: 100%;
+  }
 }
 
 .narrow-fields {

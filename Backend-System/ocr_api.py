@@ -1,7 +1,8 @@
-import os
+﻿import os
 import re
 import json
 from datetime import datetime
+from urllib.parse import urlparse
 
 from flask import Blueprint, request, jsonify, current_app
 
@@ -80,7 +81,7 @@ def _normalize_date_str(s):
 def _parse_valid_period(s):
     if not s:
         return None, None
-    s = s.strip().replace('至', '-').replace('——', '-').replace('—', '-').replace('~', '-')
+    s = s.strip().replace('至', '-').replace('—', '-').replace('－', '-').replace('~', '-')
     s = s.replace('年', '-').replace('月', '-').replace('日', '').replace(' ', '')
     s = s.replace('.', '-')
     m = re.search(r"(\d{4}-\d{1,2}-\d{1,2}).*?(\d{4}-\d{1,2}-\d{1,2})", s)
@@ -96,22 +97,22 @@ def _extract_idcard_fields(text):
         m = re.search(pattern, text)
         return m.group(idx).strip() if m else ''
 
-    name = find(r"姓名[：: ]?([^\n]{2,20})")
-    gender = find(r"性别[：: ]?(男|女)")
-    nation = find(r"民族[：: ]?([^\n]{1,10})")
-    birth_raw = find(r"出生[：: ]?([0-9]{4}[年\-/\.][0-9]{1,2}[月\-/\.][0-9]{1,2}日?)")
+    name = find(r"濮撳悕[锛? ]?([^\n]{2,20})")
+    gender = find(r"鎬у埆[锛? ]?(鐢穦濂?")
+    nation = find(r"姘戞棌[锛? ]?([^\n]{1,10})")
+    birth_raw = find(r"鍑虹敓[锛? ]?([0-9]{4}[骞碶-/\.][0-9]{1,2}[鏈圽-/\.][0-9]{1,2}鏃?)")
     birth_date = _normalize_date_str(birth_raw)
     id_card = ''
-    m_id = re.search(r"(公民身份号码|身份证号)[：: ]?([0-9Xx]{15,18})", text)
+    m_id = re.search(r"(鍏皯韬唤鍙风爜|韬唤璇佸彿)[锛? ]?([0-9Xx]{15,18})", text)
     if m_id:
         id_card = m_id.group(2)
-    address = find(r"住址[：: ]?(.+)")
-    issuer = find(r"签发机关[：: ]?(.+)")
-    valid_raw = find(r"有效期限[：: ]?(.+)") or find(r"有效期[：: ]?(.+)")
+    address = find(r"浣忓潃[锛? ]?(.+)")
+    issuer = find(r"绛惧彂鏈哄叧[锛? ]?(.+)")
+    valid_raw = find(r"鏈夋晥鏈熼檺[锛? ]?(.+)") or find(r"鏈夋晥鏈焄锛? ]?(.+)")
     valid_start, valid_end = _parse_valid_period(valid_raw)
     valid_period = ''
     if valid_start and valid_end:
-        valid_period = f"{valid_start} 至 {valid_end}"
+        valid_period = f"{valid_start} 鑷?{valid_end}"
 
     return {
         'name': name,
@@ -180,7 +181,7 @@ def _ocr_extract_text(save_path, cfg):
 @token_required
 def api_ocr_idcard(current_user):
     """
-    身份证OCR识别
+    韬唤璇丱CR璇嗗埆
     ---
     tags:
       - OCR
@@ -193,15 +194,14 @@ def api_ocr_idcard(current_user):
         name: image
         type: file
         required: true
-        description: 身份证图片文件
-      - in: formData
+        description: 韬唤璇佸浘鐗囨枃浠?      - in: formData
         name: side
         type: string
         default: front
-        description: 身份证正反面 (front/back)
+        description: 韬唤璇佹鍙嶉潰 (front/back)
     responses:
       200:
-        description: 识别成功
+        description: 璇嗗埆鎴愬姛
         schema:
           type: object
           properties:
@@ -221,10 +221,8 @@ def api_ocr_idcard(current_user):
             image_url:
               type: string
       400:
-        description: 请上传图片文件
-      501:
-        description: PaddleOCR未安装
-    """
+        description: 璇蜂笂浼犲浘鐗囨枃浠?      501:
+        description: PaddleOCR鏈畨瑁?    """
     if 'image' not in request.files:
         return jsonify({'error': '请上传图片文件（字段名 image）'}), 400
     side = request.form.get('side', 'front')
@@ -242,11 +240,11 @@ def api_ocr_idcard(current_user):
     text, engine = _ocr_extract_text(save_path, cfg)
     fields = _extract_idcard_fields(text)
 
-    # 构建静态资源 URL
+    # 鏋勫缓闈欐€佽祫婧?URL
     rel = save_path.replace(os.path.dirname(__file__), '')
     static_url = request.host_url.rstrip('/') + '/static' + rel.replace('\\', '/').replace('/static', '')
 
-    # 记录识别日志（脱敏处理，仅打印片段）
+    # 璁板綍璇嗗埆鏃ュ織锛堣劚鏁忓鐞嗭紝浠呮墦鍗扮墖娈碉級
     try:
         snippet = (text or '').replace('\n', ' ')[:300]
         current_app.logger.info(
@@ -269,4 +267,92 @@ def api_ocr_idcard(current_user):
             'id_card_masked': _mask_idcard(fields.get('id_card', '')),
         },
         'image_url': static_url,
+    })
+
+
+def _resolve_uploaded_file_path(image_url):
+    if not image_url:
+        return ''
+    raw = str(image_url).strip()
+    parsed = urlparse(raw)
+    path = parsed.path if parsed.scheme else raw
+    path = path.split('?', 1)[0].replace('\\', '/')
+    if not path.startswith('/'):
+        path = '/' + path
+    if not path.startswith('/static/uploads/'):
+        return ''
+
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+    static_root = os.path.abspath(os.path.join(base_dir, 'static'))
+    full_path = os.path.abspath(os.path.join(base_dir, path.lstrip('/')))
+    if not full_path.startswith(static_root):
+        return ''
+    return full_path
+
+
+def _to_public_url(image_url):
+    value = str(image_url or '').strip()
+    if value == '':
+        return ''
+    if value.startswith('http://') or value.startswith('https://'):
+        return value
+    if not value.startswith('/'):
+        value = '/' + value
+    return request.host_url.rstrip('/') + value
+
+
+@ocr_bp.route('/ocr/idcard/url', methods=['POST'])
+@token_required
+def api_ocr_idcard_url(current_user):
+    data = request.get_json(silent=True) or {}
+    image_url = str(data.get('image_url') or '').strip()
+    side = str(data.get('side') or 'front').strip().lower()
+
+    if image_url == '':
+        return jsonify({'error': 'image_url 不能为空'}), 400
+    if side not in ('front', 'back'):
+        side = 'front'
+
+    save_path = _resolve_uploaded_file_path(image_url)
+    if save_path == '' or (not os.path.exists(save_path)):
+        return jsonify({'error': '图片不存在或路径不合法'}), 404
+
+    if not PADDLE_OCR_AVAILABLE:
+        return jsonify({'error': '服务器未安装 PaddleOCR'}), 501
+
+    cfg = _load_ocr_config()
+    text, engine = _ocr_extract_text(save_path, cfg)
+    fields = _extract_idcard_fields(text)
+
+    public_url = _to_public_url(image_url)
+    ocr_data = {
+        **fields,
+        'id_card_masked': _mask_idcard(fields.get('id_card', '')),
+    }
+    if side == 'front':
+        ocr_data['front_img'] = public_url
+    else:
+        ocr_data['back_img'] = public_url
+
+    try:
+        snippet = (text or '').replace('\n', ' ')[:300]
+        current_app.logger.info(
+            "OCR(url) engine=%s side=%s name=%s id_card=%s text_snippet=%s image=%s",
+            engine,
+            side,
+            fields.get('name', ''),
+            _mask_idcard(fields.get('id_card', '')),
+            snippet,
+            public_url,
+        )
+    except Exception:
+        pass
+
+    return jsonify({
+        'engine': engine,
+        'text': text,
+        'raw_text': text,
+        'fields': ocr_data,
+        'data': ocr_data,
+        'image_url': public_url,
     })

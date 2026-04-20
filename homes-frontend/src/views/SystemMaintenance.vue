@@ -1,14 +1,17 @@
 <template>
   <div class="system-container page-container">
-    <div class="page-header">
-      <h2>系统维护</h2>
-      <span class="subtitle">数据备份与迁移</span>
+    <div class="system-hero">
+      <div>
+        <h2 class="hero-title">系统维护中心</h2>
+        <p class="hero-subtitle">统一管理备份恢复、系统重置和演示数据生成</p>
+      </div>
+      <el-tag class="hero-tag" effect="dark">高安全操作区</el-tag>
     </div>
 
-    <el-row :gutter="24">
+    <div class="system-top-grid">
       <!-- 导出数据 -->
-      <el-col :span="12" :xs="24">
-        <div class="card-box h-100">
+      <div class="system-grid-item">
+        <div class="card-box h-100 system-card">
           <div class="card-header">
             <el-icon class="icon"><Download /></el-icon>
             <h3>数据导出</h3>
@@ -30,11 +33,11 @@
             </div>
           </div>
         </div>
-      </el-col>
+      </div>
 
       <!-- 导入数据 -->
-      <el-col :span="12" :xs="24">
-        <div class="card-box h-100">
+      <div class="system-grid-item">
+        <div class="card-box h-100 system-card">
           <div class="card-header">
             <el-icon class="icon"><Upload /></el-icon>
             <h3>数据导入</h3>
@@ -69,23 +72,29 @@
               <div v-if="selectedFile" class="selected-file">
                 <el-icon><Document /></el-icon>
                 <span>{{ selectedFile.name }}</span>
-                <el-button link type="danger" @click="selectedFile = null">移除</el-button>
+                <el-button link type="danger" @click="selectedFile = null; importUploadProgress = 0">移除</el-button>
               </div>
 
               <div class="action-area" v-if="selectedFile">
                 <el-button type="warning" size="large" :loading="importing" @click="handleImport">
                   <el-icon class="el-icon--left"><Refresh /></el-icon>
-                  确认恢复数据
+                  ??????
                 </el-button>
+              </div>
+
+              <div v-if="importing || importUploadProgress > 0" class="upload-progress-wrap">
+                <el-progress :percentage="importUploadProgress" :stroke-width="8" />
               </div>
             </div>
           </div>
         </div>
-      </el-col>
+      </div>
 
-      <!-- 系统重置 -->
-      <el-col :span="24" class="mt-4">
-        <div class="card-box danger-zone">
+    </div>
+
+    <div class="system-danger-section">
+      <div class="system-grid-item">
+        <div class="card-box danger-zone system-card danger-card">
           <div class="card-header">
             <el-icon class="icon danger"><Delete /></el-icon>
             <h3>危险区域</h3>
@@ -101,7 +110,7 @@
               </el-button>
             </div>
             
-            <div class="danger-row" style="border-top: 1px solid var(--el-border-color-light); margin-top: 16px; padding-top: 16px;">
+            <div class="danger-row danger-row-divider">
               <div class="danger-info">
                 <h4>生成模拟演示数据</h4>
                 <p>在清空状态下，自动生成一套包含房间、租户、合同和维修记录的演示数据。</p>
@@ -113,8 +122,8 @@
             </div>
           </div>
         </div>
-      </el-col>
-    </el-row>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -123,12 +132,14 @@ import { ref } from 'vue'
 import { Download, Upload, UploadFilled, Document, Refresh, Delete, MagicStick } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { systemApi } from '../api'
+import { uploadFileByChunks } from '../utils/chunkUploader'
 
 const exporting = ref(false)
 const importing = ref(false)
 const resetting = ref(false)
 const seeding = ref(false)
 const selectedFile = ref(null)
+const importUploadProgress = ref(0)
 
 const handleExport = async () => {
   try {
@@ -155,18 +166,34 @@ const handleExport = async () => {
     ElMessage.success('导出成功')
   } catch (error) {
     console.error(error)
-    ElMessage.error('导出失败: ' + (error.response?.data?.error || error.message))
+    let message = error.response?.data?.error || error.message
+    if (error.response?.data instanceof Blob) {
+      try {
+        const text = await error.response.data.text()
+        const json = JSON.parse(text)
+        message = json.error || message
+      } catch (_) {}
+    }
+    ElMessage.error('导出失败: ' + message)
   } finally {
     exporting.value = false
   }
 }
 
 const handleFileChange = (file) => {
-  if (file.raw.type !== 'application/x-zip-compressed' && !file.name.endsWith('.zip')) {
-    ElMessage.warning('请选择 .zip 格式的备份文件')
+  const raw = file?.raw
+  if (!raw) return
+  if (raw.type !== 'application/x-zip-compressed' && !String(raw.name || '').toLowerCase().endsWith('.zip')) {
+    ElMessage.warning('??? .zip ???????')
     return
   }
-  selectedFile.value = file.raw
+  selectedFile.value = raw
+  importUploadProgress.value = 0
+}
+
+const buildImportSubDir = () => {
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+  return `system/${day}`
 }
 
 const handleImport = () => {
@@ -183,8 +210,24 @@ const handleImport = () => {
   ).then(async () => {
     try {
       importing.value = true
-      await systemApi.importData(selectedFile.value)
-      ElMessage.success('数据恢复成功！')
+      importUploadProgress.value = 0
+      const uploadResult = await uploadFileByChunks(selectedFile.value, {
+        category: 'system_import',
+        subDir: buildImportSubDir(),
+        chunkSize: 1024 * 1024,
+        maxRetries: 3,
+        retryDelay: 800,
+        onProgress: (percent) => {
+          importUploadProgress.value = percent
+        }
+      })
+      const fileUrl = uploadResult?.file_url
+      if (!fileUrl) {
+        throw new Error('?????? file_url')
+      }
+      await systemApi.importData(fileUrl)
+      importUploadProgress.value = 100
+      ElMessage.success('??????')
       selectedFile.value = null
       // Optional: Refresh page or logout
       setTimeout(() => {
@@ -192,6 +235,7 @@ const handleImport = () => {
       }, 1500)
     } catch (error) {
       console.error(error)
+      importUploadProgress.value = 0
       ElMessage.error('导入失败: ' + (error.response?.data?.error || error.message))
     } finally {
       importing.value = false
@@ -209,20 +253,32 @@ const handleReset = () => {
       type: 'error',
       confirmButtonClass: 'el-button--danger'
     }
-  ).then(async () => {
-    try {
-      resetting.value = true
-      await systemApi.resetSystem()
-      ElMessage.success('系统已成功重置')
-      setTimeout(() => {
-        window.location.reload()
-      }, 1500)
-    } catch (error) {
-      console.error(error)
-      ElMessage.error('重置失败: ' + (error.response?.data?.error || error.message))
-    } finally {
-      resetting.value = false
-    }
+  ).then(() => {
+    ElMessageBox.prompt(
+      '请输入 RESET 确认执行系统重置',
+      '二次确认',
+      {
+        confirmButtonText: '确认重置',
+        cancelButtonText: '取消',
+        inputPattern: /^RESET$/,
+        inputErrorMessage: '请输入大写 RESET',
+        type: 'error'
+      }
+    ).then(async () => {
+      try {
+        resetting.value = true
+        await systemApi.resetSystem()
+        ElMessage.success('系统已成功重置')
+        setTimeout(() => {
+          window.location.reload()
+        }, 1500)
+      } catch (error) {
+        console.error(error)
+        ElMessage.error('重置失败: ' + (error.response?.data?.error || error.message))
+      } finally {
+        resetting.value = false
+      }
+    }).catch(() => {})
   }).catch(() => {})
 }
 
@@ -270,9 +326,49 @@ const handleSeed = () => {
   display: block;
 }
 
+.system-container {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(18px, 2.6vw, 28px);
+}
+
+.system-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #2563eb 0%, #0ea5e9 100%);
+  color: #fff;
+  box-shadow: 0 14px 30px rgba(37, 99, 235, 0.24);
+}
+
+.hero-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.hero-subtitle {
+  margin: 6px 0 0;
+  font-size: 13px;
+  opacity: 0.92;
+}
+
+.hero-tag {
+  border: none;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+}
+
 .card-box {
   display: flex;
   flex-direction: column;
+  margin-bottom: 0;
+}
+
+.system-card {
+  border-radius: 16px;
 }
 
 .h-100 {
@@ -353,6 +449,10 @@ const handleSeed = () => {
   color: var(--text-main);
 }
 
+.upload-progress-wrap {
+  margin-top: 14px;
+}
+
 :deep(.el-upload-dragger) {
   background-color: var(--bg-color);
   border-color: var(--el-border-color);
@@ -362,12 +462,30 @@ const handleSeed = () => {
   border-color: var(--el-color-primary);
 }
 
-.mt-4 {
-  margin-top: 24px;
+.system-top-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: clamp(20px, 2.4vw, 28px);
+}
+
+.system-danger-section {
+  margin-top: clamp(36px, 5vw, 64px);
+}
+
+@media (max-width: 768px) {
+  .system-top-grid {
+    grid-template-columns: 1fr;
+    row-gap: 20px;
+  }
+
+  .system-danger-section {
+    margin-top: 22px;
+  }
 }
 
 .danger-zone {
   border: 1px solid var(--el-color-danger-light-5);
+  box-shadow: 0 12px 30px rgba(239, 68, 68, 0.12);
 }
 
 .danger-row {
@@ -375,6 +493,12 @@ const handleSeed = () => {
   justify-content: space-between;
   align-items: center;
   padding: 10px 0;
+}
+
+.danger-row-divider {
+  border-top: 1px dashed var(--surface-border);
+  margin-top: 16px;
+  padding-top: 16px;
 }
 
 .danger-info h4 {
@@ -386,5 +510,21 @@ const handleSeed = () => {
   margin: 0;
   color: var(--text-secondary);
   font-size: 14px;
+}
+
+@media (max-width: 900px) {
+  .system-hero {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+}
+
+@media (max-width: 768px) {
+  .danger-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
 }
 </style>

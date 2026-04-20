@@ -1,0 +1,551 @@
+<template>
+  <view class="page">
+    <view class="card hero-card">
+      <view class="row space-between top-line">
+        <view>
+          <text class="section-title">搬迁管理</text>
+          <text class="hero-sub">按网页端逻辑支持租户搬迁、整房搬迁与记录检索</text>
+        </view>
+        <view class="count-chip">{{ filteredMoves.length }} 条</view>
+      </view>
+      <view class="row search-row">
+        <input v-model="searchKeyword" class="input search-input" placeholder="搜索租户/房间/日期/原因" />
+        <button class="btn-outline clear-btn" @click="clearSearch">清空</button>
+        <button class="btn-outline refresh-btn" :disabled="loading" @click="fetchMoves">{{ loading ? "加载中..." : "刷新" }}</button>
+        <picker mode="selector" :range="sortOptions" @change="onSortChange">
+          <view class="picker-view sort-mini">排序</view>
+        </picker>
+      </view>
+    </view>
+
+    <view class="card form-card">
+      <view class="row space-between form-head">
+        <text class="sub-title">新增搬迁</text>
+      </view>
+      <view class="field-group">
+        <text class="label">搬迁方式</text>
+        <picker mode="selector" :range="moveTypeOptions" @change="onMoveTypeChange">
+          <view class="picker-view">{{ moveTypeOptions[moveTypeIndex] }}</view>
+        </picker>
+      </view>
+
+      <view v-if="moveTypeIndex == 0" class="field-group">
+        <text class="label">租户</text>
+        <picker mode="selector" :range="tenantPickerLabels" @change="onTenantChange">
+          <view class="picker-view">{{ selectedTenantLabel }}</view>
+        </picker>
+      </view>
+      <view v-if="moveTypeIndex == 0" class="field-group">
+        <text class="label">原房间</text>
+        <input :value="fromRoom" class="input" disabled />
+      </view>
+      <view v-else class="field-group">
+        <text class="label">原房间</text>
+        <picker mode="selector" :range="roomOptions" @change="onFromRoomChange">
+          <view class="picker-view">{{ fromRoom == "" ? "请选择原房间" : fromRoom }}</view>
+        </picker>
+      </view>
+
+      <view class="field-group">
+        <text class="label">新房间</text>
+        <picker mode="selector" :range="targetRoomOptions" @change="onToRoomChange">
+          <view class="picker-view">{{ toRoom == "" ? "请选择新房间" : toRoom }}</view>
+        </picker>
+      </view>
+
+      <view class="field-group">
+        <text class="label">搬迁原因</text>
+        <textarea v-model="reason" class="textarea reason-input" placeholder="请输入搬迁原因（可选）" />
+      </view>
+
+      <button class="btn-strong submit-btn" :disabled="submitting" @click="submitMove">{{ submitting ? "提交中..." : "提交搬迁" }}</button>
+    </view>
+
+    <view v-if="filteredMoves.length == 0" class="card empty-card">
+      <text class="muted">暂无搬迁记录</text>
+    </view>
+    <view v-for="item in visibleMoves" :key="item.id" class="card record-card">
+      <view class="row space-between record-head">
+        <text class="record-title">记录 #{{ item.id || "-" }}</text>
+        <view class="row record-head-right">
+          <text class="type-tag">{{ moveTypeText(item) }}</text>
+          <button class="tiny-btn select-btn" :class="isSelected(item) ? 'selected-btn' : ''" @click="toggleSelect(item)">
+            {{ isSelected(item) ? "已选" : "选择" }}
+          </button>
+        </view>
+      </view>
+      <view class="record-body">
+        <text class="line">租户：{{ item.tenant_name || item.tenant_id || "-" }}</text>
+        <text class="line">原房间：{{ item.from_room || item.from_room_no || "-" }}</text>
+        <text class="line">新房间：{{ item.to_room || item.to_room_no || "-" }}</text>
+        <text class="line">搬迁日期：{{ item.move_date || item.created_at || "-" }}</text>
+        <text class="line">原因：{{ item.reason || "-" }}</text>
+      </view>
+      <button class="danger-btn remove-btn" @click="deleteMove(item)">删除</button>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+import { computed, ref, watch } from "vue"
+import { onShow } from "@dcloudio/uni-app"
+import { apiDeleteMove, apiGetMoves, apiGetRooms, apiGetTenants, apiMoveRoom, apiMoveTenant } from "../../api/services.uts"
+import { getErrorMessage, normalizeArray } from "../../common/page.uts"
+
+const loading = ref(false)
+const submitting = ref(false)
+const moves = ref<any[]>([])
+const tenants = ref<any[]>([])
+const rooms = ref<any[]>([])
+const searchKeyword = ref("")
+const sortOptions = ["按日期最新", "按日期最早", "按租户姓名"]
+const sortIndex = ref(0)
+const selectedMoveIds = ref<number[]>([])
+
+const moveTypeOptions = ["选择租户搬迁", "整间搬迁"]
+const moveTypeIndex = ref(0)
+const selectedTenantIndex = ref(-1)
+const fromRoom = ref("")
+const toRoom = ref("")
+const reason = ref("")
+
+const roomOptions = computed(() => {
+  const list = rooms.value.map((item : any) => String(item != null && item.room_no != null ? item.room_no : "")).filter((v : string) => v != "")
+  return Array.from(new Set(list))
+})
+
+const targetRoomOptions = computed(() => {
+  return roomOptions.value.filter((roomNo : string) => roomNo != fromRoom.value)
+})
+
+const tenantPickerLabels = computed(() => {
+  return tenants.value.map((item : any) => {
+    const name = item != null && item.name != null ? String(item.name) : "未命名租户"
+    const roomNo = item != null && item.room_no != null ? String(item.room_no) : "-"
+    const phone = item != null && item.phone != null ? String(item.phone) : "-"
+    return `${name}｜${roomNo}｜${phone}`
+  })
+})
+
+const selectedTenantLabel = computed(() => {
+  if (selectedTenantIndex.value < 0 || selectedTenantIndex.value >= tenantPickerLabels.value.length) {
+    return "请选择租户"
+  }
+  return tenantPickerLabels.value[selectedTenantIndex.value]
+})
+
+const filteredMoves = computed(() => {
+  const keyword = searchKeyword.value.trim().toLowerCase()
+  if (keyword == "") return moves.value
+  return moves.value.filter((item : any) => {
+    const tenantName = String(item != null && item.tenant_name != null ? item.tenant_name : "").toLowerCase()
+    const from = String(item != null && item.from_room != null ? item.from_room : item != null && item.from_room_no != null ? item.from_room_no : "").toLowerCase()
+    const to = String(item != null && item.to_room != null ? item.to_room : item != null && item.to_room_no != null ? item.to_room_no : "").toLowerCase()
+    const date = String(item != null && item.move_date != null ? item.move_date : item != null && item.created_at != null ? item.created_at : "").toLowerCase()
+    const moveReason = String(item != null && item.reason != null ? item.reason : "").toLowerCase()
+    return tenantName.includes(keyword) || from.includes(keyword) || to.includes(keyword) || date.includes(keyword) || moveReason.includes(keyword)
+  })
+})
+
+const sortedMoves = computed(() => {
+  const list = filteredMoves.value.slice(0)
+  if (sortIndex.value == 1) {
+    list.sort((a, b) => parseMoveTime(a) - parseMoveTime(b))
+    return list
+  }
+  if (sortIndex.value == 2) {
+    list.sort((a, b) => {
+      const an = String(a != null && a.tenant_name != null ? a.tenant_name : "")
+      const bn = String(b != null && b.tenant_name != null ? b.tenant_name : "")
+      return an.localeCompare(bn)
+    })
+    return list
+  }
+  list.sort((a, b) => parseMoveTime(b) - parseMoveTime(a))
+  return list
+})
+
+const visibleMoves = computed(() => {
+  return sortedMoves.value
+})
+
+function parseMoveTime(item : any) : number {
+  const text = String(item != null && item.move_date != null ? item.move_date : item != null && item.created_at != null ? item.created_at : "")
+  if (text == "") return 0
+  const ts = Date.parse(text.replace(/-/g, "/"))
+  if (isNaN(ts)) return 0
+  return ts
+}
+
+function moveTypeText(item : any) : string {
+  const raw = String(item != null && item.move_type != null ? item.move_type : item != null && item.type != null ? item.type : "").toLowerCase()
+  if (raw == "all" || raw == "2") return "整间搬迁"
+  if (raw == "single" || raw == "1") return "租户搬迁"
+  return raw == "" ? "未知类型" : raw
+}
+
+function clearSearch() {
+  searchKeyword.value = ""
+}
+
+function onSortChange(e : any) {
+  sortIndex.value = Number(e.detail.value)
+}
+
+function onMoveTypeChange(e : any) {
+  moveTypeIndex.value = Number(e.detail.value)
+  selectedTenantIndex.value = -1
+  fromRoom.value = ""
+  toRoom.value = ""
+}
+
+function onTenantChange(e : any) {
+  selectedTenantIndex.value = Number(e.detail.value)
+  const tenant = tenants.value[selectedTenantIndex.value]
+  fromRoom.value = tenant != null && tenant.room_no != null ? String(tenant.room_no) : ""
+  toRoom.value = ""
+}
+
+function onFromRoomChange(e : any) {
+  const idx = Number(e.detail.value)
+  fromRoom.value = roomOptions.value[idx] || ""
+  toRoom.value = ""
+}
+
+function onToRoomChange(e : any) {
+  const idx = Number(e.detail.value)
+  toRoom.value = targetRoomOptions.value[idx] || ""
+}
+
+function isSelected(item : any) : boolean {
+  const id = Number(item != null ? item.id : 0)
+  if (isNaN(id) || id <= 0) return false
+  return selectedMoveIds.value.includes(id)
+}
+
+function toggleSelect(item : any) {
+  const id = Number(item != null ? item.id : 0)
+  if (isNaN(id) || id <= 0) return
+  const idx = selectedMoveIds.value.indexOf(id)
+  if (idx >= 0) {
+    selectedMoveIds.value.splice(idx, 1)
+    return
+  }
+  selectedMoveIds.value.push(id)
+}
+
+async function fetchMoves() {
+  if (loading.value) return
+  loading.value = true
+  try {
+    const data = await apiGetMoves()
+    moves.value = normalizeArray(data, ["moves", "records"])
+    selectedMoveIds.value = selectedMoveIds.value.filter((id : number) => moves.value.some((item : any) => Number(item.id) == id))
+  } catch (err) {
+    uni.showToast({ title: getErrorMessage(err, "获取搬迁记录失败"), icon: "none" })
+  } finally {
+    loading.value = false
+  }
+}
+
+async function fetchTenants() {
+  try {
+    const data = await apiGetTenants()
+    tenants.value = normalizeArray(data, ["tenants", "items", "list"])
+  } catch (_) {
+    tenants.value = []
+  }
+}
+
+async function fetchRooms() {
+  try {
+    const data = await apiGetRooms()
+    rooms.value = normalizeArray(data, ["rooms", "items", "list"])
+  } catch (_) {
+    rooms.value = []
+  }
+}
+
+async function submitMove() {
+  if (submitting.value) return
+  if (toRoom.value.trim() == "") {
+    uni.showToast({ title: "请选择新房间", icon: "none" })
+    return
+  }
+
+  submitting.value = true
+  try {
+    if (moveTypeIndex.value == 0) {
+      if (selectedTenantIndex.value < 0 || selectedTenantIndex.value >= tenants.value.length) {
+        uni.showToast({ title: "请选择租户", icon: "none" })
+        return
+      }
+      const tenant = tenants.value[selectedTenantIndex.value]
+      const tenantId = tenant != null && tenant.id != null ? tenant.id : ""
+      if (String(tenantId) == "") {
+        uni.showToast({ title: "租户ID无效", icon: "none" })
+        return
+      }
+      await apiMoveTenant({
+        move_type: "single",
+        tenant_id: tenantId,
+        from_room: fromRoom.value.trim(),
+        to_room: toRoom.value.trim(),
+        reason: reason.value.trim(),
+      })
+    } else {
+      if (fromRoom.value.trim() == "") {
+        uni.showToast({ title: "请选择原房间", icon: "none" })
+        return
+      }
+      await apiMoveRoom({
+        from_room_no: fromRoom.value.trim(),
+        to_room_no: toRoom.value.trim(),
+        reason: reason.value.trim(),
+      })
+    }
+    uni.showToast({ title: "搬迁成功", icon: "success" })
+    selectedTenantIndex.value = -1
+    fromRoom.value = ""
+    toRoom.value = ""
+    reason.value = ""
+    await fetchMoves()
+    await fetchTenants()
+    await fetchRooms()
+  } catch (err) {
+    uni.showToast({ title: getErrorMessage(err, "搬迁失败"), icon: "none" })
+  } finally {
+    submitting.value = false
+  }
+}
+
+function deleteMove(item : any) {
+  const id = Number(item != null ? item.id : 0)
+  if (isNaN(id) || id <= 0) {
+    uni.showToast({ title: "记录ID无效", icon: "none" })
+    return
+  }
+  uni.showModal({
+    title: "确认删除",
+    content: `确认删除搬迁记录 #${id} 吗？`,
+    success: async (res) => {
+      if (!res.confirm) return
+      try {
+        await apiDeleteMove(id)
+        uni.showToast({ title: "删除成功", icon: "success" })
+        await fetchMoves()
+      } catch (err) {
+        uni.showToast({ title: getErrorMessage(err, "删除失败"), icon: "none" })
+      }
+    },
+  })
+}
+
+onShow(async () => {
+  await fetchMoves()
+  await fetchTenants()
+  await fetchRooms()
+})
+</script>
+
+<style>
+.hero-card,
+.form-card,
+.empty-card,
+.record-card {
+  margin-bottom: 12px;
+}
+
+.hero-card {
+  border: 1px solid rgba(9, 96, 123, 0.2);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.95) 0%, rgba(225, 245, 251, 0.86) 58%, rgba(255, 246, 230, 0.86) 100%);
+  box-shadow: 0 16px 28px rgba(16, 44, 68, 0.14);
+}
+
+.top-line {
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.top-line > view:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.hero-sub {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #5b6f82;
+}
+
+.count-chip {
+  height: 28px;
+  min-width: 72px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #0b6885 0%, #1389ad 100%);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.search-row {
+  gap: 6px;
+  margin-top: 12px;
+  align-items: center;
+}
+
+.search-input {
+  flex: 0 0 34%;
+  min-width: 96px;
+  padding: 0 12px;
+  border-radius: 10px;
+}
+
+.clear-btn {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 36px;
+  padding: 0;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.refresh-btn {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 36px;
+  padding: 0;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.sort-mini {
+  width: 56px;
+  justify-content: center;
+  font-size: 13px;
+}
+
+.form-card {
+  border: 1px solid rgba(18, 43, 65, 0.12);
+  background: rgba(255, 255, 255, 0.93);
+  box-shadow: 0 12px 22px rgba(18, 43, 65, 0.1);
+}
+
+.form-head {
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+.field-group {
+  margin-top: 8px;
+}
+
+.input {
+  height: 40px;
+  padding: 0 12px;
+  margin-top: 8px;
+}
+
+.picker-view {
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(18, 43, 65, 0.14);
+  padding: 0 12px;
+  background: rgba(250, 253, 255, 0.94);
+  display: flex;
+  align-items: center;
+  color: #12263a;
+}
+
+.search-row .search-input {
+  height: 36px;
+  margin-top: 0;
+}
+
+.search-row .sort-mini {
+  height: 36px;
+  border-radius: 10px;
+  padding: 0;
+}
+
+.reason-input {
+  margin-top: 8px;
+  min-height: 86px;
+}
+
+.submit-btn {
+  margin-top: 10px;
+}
+
+.record-card {
+  border: 1px solid rgba(18, 43, 65, 0.12);
+  background: rgba(255, 255, 255, 0.93);
+}
+
+.record-head {
+  margin-bottom: 8px;
+}
+
+.record-head-right {
+  gap: 6px;
+}
+
+.record-title {
+  font-size: 17px;
+  font-weight: 800;
+  color: #11293d;
+}
+
+.type-tag {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(15, 130, 158, 0.14);
+  color: #0e5069;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+}
+
+.record-body {
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(247, 252, 255, 0.92);
+  border: 1px solid rgba(18, 43, 65, 0.08);
+}
+
+.line {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  color: #2d4458;
+}
+
+.line:first-child {
+  margin-top: 0;
+}
+
+.select-btn {
+  min-width: 56px;
+}
+
+.selected-btn {
+  background: linear-gradient(135deg, #0b7a67 0%, #16a085 100%) !important;
+  color: #ffffff !important;
+  border: none !important;
+}
+
+.remove-btn {
+  margin-top: 10px;
+}
+
+</style>

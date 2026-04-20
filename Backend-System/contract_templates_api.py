@@ -1,8 +1,34 @@
-﻿﻿﻿﻿import sqlite3
+import sqlite3
 from flask import Blueprint, request, jsonify
 from auth_api import token_required
 from common import connect
 
+
+DEFAULT_TEMPLATE_NAME = "\u9ed8\u8ba4\u79df\u8d41\u5408\u540c\uff08\u793a\u4f8b\uff09"
+DEFAULT_TEMPLATE_DESC = "\u7cfb\u7edf\u81ea\u52a8\u521b\u5efa\u7684\u793a\u4f8b\u5408\u540c\u6a21\u677f\uff0c\u53ef\u6309\u9700\u4fee\u6539\u3002"
+DEFAULT_TEMPLATE_HTML = """
+<div style="font-family:Arial,'Microsoft YaHei',sans-serif;line-height:1.8;color:#1f2937;">
+  <h2 style="text-align:center;margin:0 0 16px;">\u623f\u5c4b\u79df\u8d41\u5408\u540c\uff08\u793a\u4f8b\uff09</h2>
+  <p>\u51fa\u79df\u65b9\uff08\u7532\u65b9\uff09\uff1a{{landlord}}</p>
+  <p>\u627f\u79df\u65b9\uff08\u4e59\u65b9\uff09\uff1a{{tenant_name}}</p>
+  <p>\u8eab\u4efd\u8bc1\u53f7\uff1a{{id_card}}</p>
+  <p>\u623f\u95f4\u53f7\uff1a{{room_no}}</p>
+  <p>\u79df\u8d41\u671f\u9650\uff1a{{start_date}} \u81f3 {{end_date}}</p>
+  <p>\u6708\u79df\u91d1\uff1a{{rent}}\u5143</p>
+  <p>\u62bc\u91d1\uff1a{{deposit}}\u5143</p>
+  <p style="margin-top:16px;">\u5907\u6ce8\uff1a\u6b64\u6a21\u677f\u4e3a\u7cfb\u7edf\u9ed8\u8ba4\u793a\u4f8b\uff0c\u8bf7\u6309\u5b9e\u9645\u4e1a\u52a1\u9700\u6c42\u8c03\u6574\u6761\u6b3e\u5185\u5bb9\u3002</p>
+</div>
+""".strip()
+
+
+def ensure_default_contract_template(cursor):
+    cursor.execute("SELECT id FROM contract_templates WHERE name = ? LIMIT 1", (DEFAULT_TEMPLATE_NAME,))
+    if cursor.fetchone() is not None:
+        return
+    cursor.execute(
+        "INSERT INTO contract_templates (name, description, content_html, updated_at) VALUES (?, ?, ?, DATETIME('now'))",
+        (DEFAULT_TEMPLATE_NAME, DEFAULT_TEMPLATE_DESC, DEFAULT_TEMPLATE_HTML),
+    )
 
 def ensure_contract_templates_schema():
     conn = connect()
@@ -19,6 +45,7 @@ def ensure_contract_templates_schema():
         )
         """
     )
+    ensure_default_contract_template(cursor)
     conn.commit()
     conn.close()
 
@@ -174,7 +201,6 @@ def update_template(current_user, tid: int):
         return jsonify({"error": "没有有效的更新字段"}), 400
     conn = connect()
     cursor = conn.cursor()
-    # 动态更新
     for k, v in updates.items():
         cursor.execute(f"UPDATE contract_templates SET {k} = ?, updated_at = DATETIME('now') WHERE id = ?", (v, tid))
     if cursor.rowcount == 0:
@@ -192,18 +218,15 @@ def delete_template(current_user, tid: int):
     conn = connect()
     cursor = conn.cursor()
     try:
-        # 检查模板是否存在
         cursor.execute("SELECT id FROM contract_templates WHERE id = ?", (tid,))
         if not cursor.fetchone():
             conn.close()
             return jsonify({"error": "模板不存在"}), 404
 
-        # 查询并删除所有关联合同
         cursor.execute("SELECT COUNT(*) FROM contracts WHERE template_id = ?", (tid,))
         linked_count = cursor.fetchone()[0] or 0
         cursor.execute("DELETE FROM contracts WHERE template_id = ?", (tid,))
 
-        # 删除模板
         cursor.execute("DELETE FROM contract_templates WHERE id = ?", (tid,))
         conn.commit()
         conn.close()
@@ -266,7 +289,6 @@ def render_template(current_user, tid: int):
     if not row:
         return jsonify({"error": "模板不存在"}), 404
     html = row[0] or ""
-    # 简单替换：{{key}} -> value
     try:
         for k, v in (data.get("vars") or {}).items():
             placeholder = f"{{{{{k}}}}}"

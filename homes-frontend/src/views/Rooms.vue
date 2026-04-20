@@ -7,7 +7,7 @@
         <el-input
           v-model="searchQuery"
           placeholder="搜索房间号/楼层/类型"
-          style="width: 220px; margin-right: 10px"
+          class="search-input"
           clearable
           @clear="handleSearchClear"
         >
@@ -26,10 +26,10 @@
           </el-radio-button>
         </el-radio-group>
 
-        <el-button type="primary" @click="openAddDialog">添加房间</el-button>
-        <el-button style="margin-left: 10px;" type="danger" :disabled="selectedRooms.length === 0" :loading="batchDeleting" @click="handleBatchDelete">批量删除</el-button>
+        <el-button class="toolbar-btn" type="primary" @click="openAddDialog">添加房间</el-button>
+        <el-button class="toolbar-btn" type="danger" :disabled="selectedRooms.length === 0" :loading="batchDeleting" @click="handleBatchDelete">批量删除</el-button>
         <el-dropdown trigger="click" @command="handleExportCommand">
-          <el-button style="margin-left: 10px;" type="success">
+          <el-button class="toolbar-btn" type="success">
             导出 <el-icon style="margin-left:4px"><Filter /></el-icon>
           </el-button>
           <template #dropdown>
@@ -45,7 +45,9 @@
 
     <!-- 列表视图 -->
     <div v-if="currentView === 'table'">
+      <div class="table-panel">
       <el-table 
+        class="rooms-table" 
         ref="roomsTableRef"
         :data="visibleRooms" 
         row-key="id"
@@ -59,9 +61,9 @@
       >
         <el-table-column type="selection" width="50" :selectable="rowSelectable"></el-table-column>
         <el-table-column prop="id" label="ID" min-width="80" sortable="custom" show-overflow-tooltip></el-table-column>
-        <el-table-column prop="room_no" label="房间号" min-width="120" sortable="custom" show-overflow-tooltip></el-table-column>
         <el-table-column prop="building" label="楼栋" min-width="100" sortable="custom" show-overflow-tooltip></el-table-column>
-        <el-table-column prop="floor" label="楼层" min-width="80" sortable="custom" show-overflow-tooltip></el-table-column>
+
+        <el-table-column prop="room_no" label="房间号" min-width="120" sortable="custom" show-overflow-tooltip></el-table-column>
         <el-table-column prop="room_type" label="房间类型" min-width="120" sortable="custom" show-overflow-tooltip>
           <template #header>
             <div style="display: flex; align-items: center;">
@@ -138,9 +140,10 @@
           </template>
         </el-table-column>
       </el-table>
+      </div>
       
       <!-- 分页控件 -->
-      <div class="pagination-container" style="margin-top: 20px; display: flex; justify-content: center;">
+      <div class="pagination-container">
         <el-pagination
           v-model:current-page="currentPage"
           v-model:page-size="pageSize"
@@ -607,7 +610,7 @@ onUnmounted(() => {
 const fetchRooms = async () => {
   loading.value = true
   try {
-    const response = await roomsApi.listRooms()
+    const response = await roomsApi.listRooms({ fields: 'id,room_no,room_display,building,room_type,price,deposit,description,status,tenant_count,has_water_meter_img,has_electricity_meter_img' })
     rooms.value = response.data.rooms || []
   } catch (error) {
     ElMessage.error('获取房间列表失败')
@@ -914,6 +917,61 @@ const exportToPDF = async () => {
 .page-header h2 {
   margin: 0;
   color: #409EFF;
+}
+
+.header-operations {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.search-input {
+  width: 220px;
+}
+
+.toolbar-btn {
+  margin-left: 0 !important;
+}
+
+.table-panel {
+  background: var(--card-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: 16px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  padding: 10px 10px 16px;
+}
+
+.pagination-container {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+  padding-top: 12px;
+  border-top: 1px solid var(--surface-border);
+}
+
+:deep(.rooms-table) {
+  --el-table-header-bg-color: var(--surface-muted);
+  --el-table-tr-bg-color: var(--card-bg);
+  --el-table-row-hover-bg-color: rgba(37, 99, 235, 0.06);
+  --el-table-border-color: var(--surface-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+:deep(.rooms-table .el-table__header-wrapper th.el-table__cell) {
+  font-weight: 700;
+  color: var(--text-main);
+  height: 48px;
+}
+
+:deep(.rooms-table .el-table__body-wrapper td.el-table__cell) {
+  padding: 12px 0;
+}
+
+:deep(.rooms-table .el-table__fixed-right::before),
+:deep(.rooms-table .el-table__fixed::before) {
+  background-color: transparent;
 }
 
 .dialog-footer {
