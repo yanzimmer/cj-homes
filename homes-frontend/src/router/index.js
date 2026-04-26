@@ -11,6 +11,16 @@ const routes = [
     component: () => import('../views/Login.vue')
   },
   {
+    path: '/check-in/:token',
+    name: 'PublicCheckIn',
+    component: () => import('../views/PublicCheckIn.vue')
+  },
+  {
+    path: '/entry/:businessType/:token',
+    name: 'PublicBusinessEntry',
+    component: () => import('../views/PublicBusinessEntry.vue')
+  },
+  {
     path: '/dashboard',
     name: 'Dashboard',
     component: () => import('../views/Dashboard.vue'),
@@ -75,6 +85,18 @@ const routes = [
         path: 'system',
         name: 'System',
         component: () => import('../views/SystemMaintenance.vue'),
+        meta: { requiresAuth: true }
+      },
+      {
+        path: 'ai-assistant',
+        name: 'AiAssistant',
+        component: () => import('../views/AiAssistant.vue'),
+        meta: { requiresAuth: true }
+      },
+      {
+        path: 'ai-settings',
+        name: 'AiSettings',
+        component: () => import('../views/AiSettings.vue'),
         meta: { requiresAuth: true }
       }
     ]

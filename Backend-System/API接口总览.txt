@@ -87,23 +87,6 @@ POST /api/change-password
 }
 
 ==================================================
-三、OCR模块
-==================================================
-[1] 身份证OCR识别
-POST /api/ocr/idcard
-请求头: Authorization: Bearer <token>
-请求体: multipart/form-data
-- image: 文件(必填)
-- side: front/back(可选)
-成功响应(示例):
-{
-  "engine": "paddleocr|qwen-vl",
-  "text": "...",
-  "fields": { ... },
-  "image_url": "/static/uploads/..."
-}
-
-==================================================
 四、通知配置模块
 ==================================================
 [1] 获取通知配置

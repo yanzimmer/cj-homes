@@ -1,3 +1,4 @@
+# 该文件负责处理合同档案的创建、查询、更新与相关数据映射。
 from flask import Blueprint, request, jsonify
 import sqlite3
 import datetime

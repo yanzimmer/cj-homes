@@ -1,3 +1,4 @@
+# 该文件负责通过接口请求方式验证采购模块的核心行为是否正常。
 import requests
 import json
 from datetime import datetime

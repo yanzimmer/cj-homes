@@ -3,6 +3,18 @@ import sys
 import os
 import time
 import signal
+import socket
+
+
+def pick_backend_port(start_port=5000, max_port=5010):
+    for port in range(start_port, max_port + 1):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind(("127.0.0.1", port))
+                return port
+            except OSError:
+                continue
+    raise RuntimeError(f"未找到可用端口（尝试范围: {start_port}-{max_port}）")
 
 def main():
     # 获取当前脚本所在目录（项目根目录）
@@ -22,6 +34,16 @@ def main():
         print(f"Warning: 未找到虚拟环境 {python_exe}，将使用系统 Python")
         python_exe = sys.executable
 
+    backend_port = pick_backend_port()
+    if backend_port != 5000:
+        print(f"Warning: 端口 5000 已被占用，后端将改用端口 {backend_port}")
+
+    backend_env = os.environ.copy()
+    backend_env["PORT"] = str(backend_port)
+
+    frontend_env = os.environ.copy()
+    frontend_env["VITE_API_BASE_URL"] = f"http://127.0.0.1:{backend_port}/api"
+
     processes = []
 
     try:
@@ -34,6 +56,7 @@ def main():
         backend_process = subprocess.Popen(
             [python_exe, 'app.py'],
             cwd=backend_dir,
+            env=backend_env,
             shell=False  # 直接执行，不通过 shell
         )
         processes.append(('Backend', backend_process))
@@ -45,13 +68,16 @@ def main():
         frontend_process = subprocess.Popen(
             [npm_cmd, 'run', 'dev'],
             cwd=frontend_dir,
-            shell=True # npm 需要 shell 环境
+            env=frontend_env,
+            shell=False
         )
         processes.append(('Frontend', frontend_process))
         print("[前端] 已尝试启动")
 
         print("="*50)
         print("服务启动中。按 Ctrl+C 停止所有服务。")
+        print(f"后端地址: http://127.0.0.1:{backend_port}")
+        print(f"前端地址: http://localhost:5173")
         print("="*50)
 
         # 监控进程状态

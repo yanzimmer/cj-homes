@@ -171,6 +171,7 @@ import { Document, Packer, Paragraph, Table as DocxTable, TableRow, TableCell, T
 import { saveAs } from 'file-saver'
 import html2canvas from 'html2canvas'
 import { Filter } from '@element-plus/icons-vue'
+import { consumeAiDraft } from '../utils/aiDrafts'
 
 // 数据
 const moves = ref([])
@@ -284,11 +285,12 @@ const moveRules = {
 }
 
 // 生命周期
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('resize', handleResize)
-  fetchMoves()
-  fetchTenants()
-  fetchAvailableRooms()
+  await fetchMoves()
+  await fetchTenants()
+  await fetchAvailableRooms()
+  applyMoveDraft()
 })
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
@@ -394,6 +396,29 @@ const resetMoveForm = () => {
 const openMoveDialog = () => {
   resetMoveForm()
   moveDialogVisible.value = true
+}
+
+const applyMoveDraft = () => {
+  const draft = consumeAiDraft('move')
+  if (!draft) return
+  openMoveDialog()
+  moveForm.move_type = Number(draft.move_type || 1)
+  if (draft.reason) moveForm.reason = String(draft.reason)
+  if (draft.to_room) moveForm.to_room = String(draft.to_room)
+  if (moveForm.move_type === 1) {
+    const tenantName = String(draft.tenant_name || '').trim()
+    const matchedTenant = (tenants.value || []).find(item => String(item.name || '').trim() === tenantName)
+    if (matchedTenant) {
+      moveForm.tenant_id = matchedTenant.id
+      moveForm.tenant_name = matchedTenant.name
+      moveForm.from_room = matchedTenant.room_no || String(draft.from_room || '')
+    } else {
+      moveForm.from_room = String(draft.from_room || '')
+    }
+  } else {
+    moveForm.from_room_whole = String(draft.from_room_whole || '')
+  }
+  ElMessage.success('AI 草稿已带入搬迁表单')
 }
 
 const handleTenantChange = (tenantId) => {

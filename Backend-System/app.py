@@ -1,4 +1,6 @@
-﻿import logging
+﻿# 该文件负责创建并启动后端 Flask 应用，统一注册各业务模块的路由与基础配置。
+import logging
+import os
 from flask import Flask, jsonify
 from flask_cors import CORS
 from flasgger import Swagger
@@ -7,14 +9,17 @@ from common import SECRET_KEY, JWT_EXPIRATION_DELTA
 from contract_templates_api import templates_bp, ensure_contract_templates_schema
 from contracts_api import contracts_bp, ensure_contracts_schema
 from auth_api import auth_bp
-from ocr_api import ocr_bp
+from ai_assistant_api import ai_bp
+from dashboard_api import dashboard_bp
 from notify_api import notify_bp
 from rooms_api import rooms_bp, ensure_rooms_schema
+from self_checkin_api import self_checkin_bp, ensure_self_checkin_schema
 from tenants_api import tenants_bp
 from moves_api import moves_bp
 from repair_records_api import repair_bp, ensure_repair_records_schema
 from system_api import system_bp
 from procurement_api import procurement_bp, ensure_procurement_schema
+from public_entry_links_api import public_entry_bp, ensure_public_entry_schema
 from warehouse_api import warehouse_bp, ensure_warehouse_schema
 from upload_api import upload_bp
 import forgot_password as fp
@@ -89,10 +94,13 @@ except Exception as e:
     app.logger.warning(f"娉ㄥ唽鍚堝悓妗ｆ妯″潡澶辫触: {e}")
 
 app.register_blueprint(auth_bp)
-app.register_blueprint(ocr_bp)
+app.register_blueprint(ai_bp)
+app.register_blueprint(dashboard_bp)
 app.register_blueprint(notify_bp)
 ensure_rooms_schema()
+ensure_self_checkin_schema()
 app.register_blueprint(rooms_bp)
+app.register_blueprint(self_checkin_bp)
 app.register_blueprint(tenants_bp)
 app.register_blueprint(moves_bp)
 ensure_repair_records_schema()
@@ -100,6 +108,8 @@ app.register_blueprint(repair_bp)
 app.register_blueprint(system_bp)
 ensure_procurement_schema()
 app.register_blueprint(procurement_bp)
+ensure_public_entry_schema()
+app.register_blueprint(public_entry_bp)
 try:
     ensure_warehouse_schema()
     app.register_blueprint(warehouse_bp)
@@ -119,4 +129,4 @@ def internal_error(error):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=int(os.getenv("PORT", "5000")))

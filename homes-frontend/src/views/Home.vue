@@ -3,9 +3,55 @@
     <div class="home-hero">
       <div>
         <h2 class="hero-title">运营总览</h2>
-        <p class="hero-subtitle">实时查看房间、租户、维修和到期预警数据</p>
+        <p class="hero-subtitle">实时查看房间、租户、维修、OCR 和到期预警数据</p>
       </div>
       <el-tag effect="dark" class="hero-date">{{ todayLabel }}</el-tag>
+    </div>
+
+    <div class="alert-panel">
+      <div class="section-header">
+        <div class="header-left">
+          <el-icon class="warning-icon"><Warning /></el-icon>
+          <h3 class="section-title">即将到期预警</h3>
+          <el-tag type="danger" size="small" v-if="stats.expiring.count > 0">{{ stats.expiring.count }} 人即将到期</el-tag>
+        </div>
+        <div class="header-right">
+          <span class="advance-days-info">当前预警天数：{{ advanceDays }} 天</span>
+        </div>
+      </div>
+
+      <el-table 
+        v-loading="loading.expiring" 
+        :data="stats.expiring.list" 
+        style="width: 100%" 
+        :row-class-name="tableRowClassName"
+        empty-text="暂无即将到期的租户"
+      >
+        <el-table-column prop="name" label="租户姓名" width="120">
+          <template #default="scope">
+            <span class="tenant-name">{{ scope.row.name }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="room_no" label="房间号" width="120">
+          <template #default="scope">
+            <el-tag size="small" effect="plain">{{ scope.row.room_no }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="phone" label="联系电话" width="150" />
+        <el-table-column prop="check_out_date" label="到期日期" width="150" sortable />
+        <el-table-column label="剩余天数" width="150" sortable :sort-method="(a, b) => a.days_remaining - b.days_remaining">
+          <template #default="scope">
+            <el-tag :type="getRemainingDaysTagType(scope.row.days_remaining)">
+              {{ getRemainingDaysText(scope.row.days_remaining) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" min-width="120">
+          <template #default>
+            <el-tag type="success" size="small">在住</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
     </div>
 
     <div class="overview-grid">
@@ -94,8 +140,8 @@
                 <span class="value danger">{{ stats.repairs.pending }}</span>
               </div>
               <div class="sub-item">
-                <span class="label">已完成</span>
-                <span class="value success">{{ stats.repairs.completed }}</span>
+                <span class="label">总金额</span>
+                <span class="value primary">¥{{ Number(stats.repairs.totalAmount || 0).toFixed(2) }}</span>
               </div>
             </div>
             <div class="progress-area">
@@ -112,60 +158,72 @@
             </div>
           </div>
       </div>
+
+      <div class="stat-card-wrapper overview-card">
+          <div class="stat-header">
+            <div class="icon-box icon-procurement">
+              <el-icon><Tools /></el-icon>
+            </div>
+            <div class="stat-title">采购统计</div>
+          </div>
+          <div v-loading="loading.procurements" class="stat-body">
+            <div class="main-value">¥{{ Number(stats.procurements.totalAmount || 0).toFixed(2) }}</div>
+            <div class="sub-stats">
+              <div class="sub-item">
+                <span class="label">记录数</span>
+                <span class="value info">{{ stats.procurements.total }}</span>
+              </div>
+              <div class="sub-item">
+                <span class="label">总金额</span>
+                <span class="value primary">¥{{ Number(stats.procurements.totalAmount || 0).toFixed(2) }}</span>
+              </div>
+            </div>
+            <div class="progress-area">
+              <div class="progress-label">
+                <span>采购总金额</span>
+                <span>累计支出</span>
+              </div>
+              <div class="ocr-status-line">用于展示采购记录累计金额</div>
+            </div>
+          </div>
+      </div>
+
+      <div class="stat-card-wrapper overview-card">
+          <div class="stat-header">
+            <div class="icon-box icon-info">
+              <el-icon><InfoFilled /></el-icon>
+            </div>
+            <div class="stat-title">OCR 识别统计</div>
+          </div>
+          <div v-loading="loading.ocr" class="stat-body">
+            <div class="main-value">{{ stats.ocr.usedCount }} <span class="unit">次</span></div>
+            <div class="sub-stats">
+              <div class="sub-item">
+                <span class="label">剩余</span>
+                <span class="value info">{{ stats.ocr.configuredTotal > 0 ? (stats.ocr.remainingCount ?? 0) : '不限' }}</span>
+              </div>
+              <div class="sub-item">
+                <span class="label">个人设置总次数</span>
+                <span class="value primary">{{ stats.ocr.configuredTotal > 0 ? stats.ocr.configuredTotal : '不限' }}</span>
+              </div>
+            </div>
+            <div class="progress-area">
+              <div class="progress-label">
+                <span>阿里云默认免费额度</span>
+                <span>{{ stats.ocr.aliyunFreeQuota }} 次/月</span>
+              </div>
+              <div class="ocr-status-line">{{ stats.ocr.reason || (stats.ocr.enabled ? '当前可识别' : '当前不可识别') }}</div>
+            </div>
+          </div>
+      </div>
     </div>
 
-    <!-- 预警列表区域 -->
-    <div class="alert-panel">
-      <div class="section-header">
-        <div class="header-left">
-          <el-icon class="warning-icon"><Warning /></el-icon>
-          <h3 class="section-title">即将到期预警</h3>
-          <el-tag type="danger" size="small" v-if="stats.expiring.count > 0">{{ stats.expiring.count }} 人即将到期</el-tag>
-        </div>
-        <div class="header-right">
-          <span class="advance-days-info">当前预警天数：{{ advanceDays }} 天</span>
-        </div>
-      </div>
-      
-      <el-table 
-        v-loading="loading.expiring" 
-        :data="stats.expiring.list" 
-        style="width: 100%" 
-        :row-class-name="tableRowClassName"
-        empty-text="暂无即将到期的租户"
-      >
-        <el-table-column prop="name" label="租户姓名" width="120">
-          <template #default="scope">
-            <span class="tenant-name">{{ scope.row.name }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="room_no" label="房间号" width="120">
-          <template #default="scope">
-            <el-tag size="small" effect="plain">{{ scope.row.room_no }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="phone" label="联系电话" width="150" />
-        <el-table-column prop="check_out_date" label="到期日期" width="150" sortable />
-        <el-table-column label="剩余天数" width="150" sortable :sort-method="(a, b) => a.days_remaining - b.days_remaining">
-          <template #default="scope">
-            <el-tag :type="getRemainingDaysTagType(scope.row.days_remaining)">
-              {{ getRemainingDaysText(scope.row.days_remaining) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" min-width="120">
-          <template #default>
-            <el-tag type="success" size="small">在住</el-tag>
-          </template>
-        </el-table-column>
-      </el-table>
-    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
-import { roomsApi, tenantsApi, repairRecordsApi, notifyApi } from '../api'
+import { dashboardApi } from '../api'
 import { ElMessage } from 'element-plus'
 import { House, User, Tools, InfoFilled, Warning } from '@element-plus/icons-vue'
 
@@ -174,7 +232,9 @@ const loading = reactive({
   rooms: true,
   tenants: true,
   repairs: true,
-  expiring: true
+  expiring: true,
+  ocr: true,
+  procurements: true
 })
 
 // 预警天数配置
@@ -204,11 +264,25 @@ const stats = reactive({
     pending: 0,
     inProgress: 0,
     completed: 0,
+    totalAmount: 0,
     completionRate: 0
+  },
+  procurements: {
+    total: 0,
+    totalAmount: 0
   },
   expiring: {
     count: 0,
     list: []
+  },
+  ocr: {
+    usedCount: 0,
+    remainingCount: 0,
+    configuredTotal: 0,
+    aliyunFreeQuota: 200,
+    enabled: false,
+    configured: false,
+    reason: '',
   }
 })
 
@@ -220,116 +294,6 @@ const percentageFormat = (percentage) => {
 // 根据百分比获取进度条颜色
 const getProgressColor = (percentage) => {
   return '#409EFF' // 统一使用蓝色
-}
-
-// 获取房间统计数据
-const fetchRoomStats = async () => {
-  loading.rooms = true
-  try {
-    const response = await roomsApi.listRooms()
-    const rooms = response.data.rooms || []
-    
-    stats.rooms.total = rooms.length
-    stats.rooms.occupied = rooms.filter(room => room.status === '已入住').length
-    stats.rooms.vacant = rooms.filter(room => room.status === '空闲').length
-    stats.rooms.occupancyRate = stats.rooms.total > 0 
-      ? Math.round((stats.rooms.occupied / stats.rooms.total) * 100) 
-      : 0
-  } catch (error) {
-    console.error('获取房间统计失败:', error)
-    ElMessage.error('获取房间统计失败')
-  } finally {
-    loading.rooms = false
-  }
-}
-
-// 获取租户统计数据
-const fetchTenantStats = async () => {
-  loading.tenants = true
-  try {
-    const response = await tenantsApi.listTenants()
-    const tenants = response.data.tenants || []
-    
-    stats.tenants.total = tenants.length
-    stats.tenants.active = tenants.filter(tenant => tenant.status === '在住').length
-    stats.tenants.inactive = tenants.filter(tenant => tenant.status === '已退租').length
-    stats.tenants.activeRate = stats.tenants.total > 0 
-      ? Math.round((stats.tenants.active / stats.tenants.total) * 100) 
-      : 0
-    
-    // 计算平均租期（天数）
-    const tenantsWithLeaseDays = tenants.filter(tenant => tenant.check_in_date)
-    if (tenantsWithLeaseDays.length > 0) {
-      const totalDays = tenantsWithLeaseDays.reduce((sum, tenant) => {
-        const checkInDate = new Date(tenant.check_in_date)
-        const endDate = tenant.status === '已退租' && tenant.check_out_date 
-          ? new Date(tenant.check_out_date) 
-          : new Date() // 如果还在住，使用当前日期
-        const days = Math.floor((endDate - checkInDate) / (1000 * 60 * 60 * 24))
-        return sum + (days > 0 ? days : 0)
-      }, 0)
-      stats.tenants.averageLeaseDays = Math.round(totalDays / tenantsWithLeaseDays.length)
-    } else {
-      stats.tenants.averageLeaseDays = 0
-    }
-  } catch (error) {
-    console.error('获取租户统计失败:', error)
-    ElMessage.error('获取租户统计失败')
-  } finally {
-    loading.tenants = false
-  }
-}
-
-// 获取即将到期租户
-const fetchExpiringContracts = async () => {
-  loading.expiring = true
-  try {
-    // 1. 获取通知配置
-    try {
-      const { data: configData } = await notifyApi.getConfig()
-      if (configData && configData.advance_days) {
-        advanceDays.value = parseInt(configData.advance_days)
-      }
-    } catch (e) {
-      console.warn('获取通知配置失败，使用默认值 7 天', e)
-    }
-
-    // 2. 获取租户列表并筛选
-    const response = await tenantsApi.listTenants()
-    const tenants = response.data.tenants || []
-    
-    const now = new Date()
-    // 清除时分秒，只比较日期
-    now.setHours(0, 0, 0, 0)
-    
-    const expiringList = tenants.filter(tenant => {
-      // 只检查在住租户
-      if (tenant.status !== '在住' || !tenant.check_out_date) return false
-      
-      const endDate = new Date(tenant.check_out_date)
-      endDate.setHours(0, 0, 0, 0)
-      
-      // 计算剩余天数
-      const diffTime = endDate.getTime() - now.getTime()
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-      
-      // 保存剩余天数以便展示
-      tenant.days_remaining = diffDays
-      
-      // 筛选条件：剩余天数 <= 预警天数
-      // 注意：这里也包含已经过期的（diffDays < 0）
-      return diffDays <= advanceDays.value
-    }).sort((a, b) => a.days_remaining - b.days_remaining) // 按剩余天数升序排序
-    
-    stats.expiring.list = expiringList
-    stats.expiring.count = expiringList.length
-    
-  } catch (error) {
-    console.error('获取到期预警失败:', error)
-    ElMessage.error('获取到期预警失败')
-  } finally {
-    loading.expiring = false
-  }
 }
 
 // 表格行样式
@@ -356,34 +320,39 @@ const getRemainingDaysText = (days) => {
   return `剩余 ${days} 天`
 }
 
-// 获取维修记录统计数据
-const fetchRepairStats = async () => {
+const fetchDashboardStats = async () => {
+  loading.rooms = true
+  loading.tenants = true
   loading.repairs = true
+  loading.expiring = true
+  loading.ocr = true
+  loading.procurements = true
   try {
-    const response = await repairRecordsApi.listRepairRecords()
-    const repairs = response.data.repair_records || []
-    
-    stats.repairs.total = repairs.length
-    stats.repairs.pending = repairs.filter(record => record.status === '待处理').length
-    stats.repairs.inProgress = repairs.filter(record => record.status === '处理中').length
-    stats.repairs.completed = repairs.filter(record => record.status === '已完成').length
-    stats.repairs.completionRate = stats.repairs.total > 0 
-      ? Math.round((stats.repairs.completed / stats.repairs.total) * 100) 
-      : 0
+    const { data } = await dashboardApi.getStats()
+    advanceDays.value = Number(data?.advance_days || 7)
+
+    Object.assign(stats.rooms, data?.rooms || {})
+    Object.assign(stats.tenants, data?.tenants || {})
+    Object.assign(stats.repairs, data?.repairs || {})
+    Object.assign(stats.procurements, data?.procurements || {})
+    Object.assign(stats.expiring, data?.expiring || { count: 0, list: [] })
+    Object.assign(stats.ocr, data?.ocr || {})
   } catch (error) {
-    console.error('获取维修统计失败:', error)
-    ElMessage.error('获取维修统计失败')
+    console.error('获取首页统计失败:', error)
+    ElMessage.error('获取首页统计失败')
   } finally {
+    loading.rooms = false
+    loading.tenants = false
     loading.repairs = false
+    loading.expiring = false
+    loading.ocr = false
+    loading.procurements = false
   }
 }
 
 // 页面加载时获取所有统计数据
 onMounted(() => {
-  fetchRoomStats()
-  fetchTenantStats()
-  fetchRepairStats()
-  fetchExpiringContracts()
+  fetchDashboardStats()
 })
 </script>
 
@@ -405,7 +374,7 @@ onMounted(() => {
 .home-container {
   display: flex;
   flex-direction: column;
-  gap: clamp(14px, 2.4vw, 26px);
+  gap: 16px;
 }
 
 .home-hero {
@@ -439,8 +408,9 @@ onMounted(() => {
 
 .overview-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: clamp(12px, 2vw, 20px);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  column-gap: 16px;
+  row-gap: 16px;
 }
 
 .overview-card {
@@ -454,7 +424,6 @@ onMounted(() => {
 
 .alert-panel {
   margin: 0;
-  margin-top: clamp(20px, 3vw, 36px);
   background: var(--card-bg);
   border: 1px solid var(--surface-border);
   border-radius: 16px;
@@ -482,7 +451,7 @@ html.dark .alert-panel {
   }
 
   .home-container {
-    gap: 18px;
+    gap: 16px;
   }
 
   .home-hero {
@@ -502,9 +471,7 @@ html.dark .alert-panel {
 }
 
 .stat-card-wrapper {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
+  height: auto;
 }
 
 .stat-header {
@@ -536,6 +503,14 @@ html.dark .alert-panel {
   background-color: rgba(230, 162, 60, 0.1);
   color: var(--el-color-warning);
 }
+.icon-info {
+  background-color: rgba(59, 130, 246, 0.1);
+  color: var(--el-color-info);
+}
+.icon-procurement {
+  background-color: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+}
 
 .stat-title {
   font-size: 17px;
@@ -544,9 +519,9 @@ html.dark .alert-panel {
 }
 
 .stat-body {
-  flex: 1;
   display: flex;
   flex-direction: column;
+  gap: 16px;
 }
 
 .main-value {
@@ -554,7 +529,7 @@ html.dark .alert-panel {
   font-weight: 700;
   color: var(--text-main);
   line-height: 1.2;
-  margin-bottom: 16px;
+  margin-bottom: 0;
 }
 .unit {
   font-size: 14px;
@@ -566,7 +541,7 @@ html.dark .alert-panel {
 .sub-stats {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: 0;
   padding: 14px;
   background-color: var(--surface-muted);
   border-radius: 12px;
@@ -594,10 +569,11 @@ html.dark .alert-panel {
 .value.warning { color: var(--el-color-warning); }
 .value.danger { color: var(--el-color-danger); }
 .value.info { color: var(--el-color-info); }
+.value.primary { color: var(--el-color-primary); }
 
 .progress-area {
-  margin-top: auto;
-  padding-top: 4px;
+  margin-top: 0;
+  padding-top: 0;
 }
 
 .progress-label {
@@ -606,6 +582,11 @@ html.dark .alert-panel {
   font-size: 13px;
   color: var(--text-secondary);
   margin-bottom: 8px;
+}
+
+.ocr-status-line {
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 .section-header {

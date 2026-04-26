@@ -1,12 +1,15 @@
+# 该文件负责处理房间信息、房态管理及表计图片相关接口。
 import sqlite3
 import os
 import uuid
+import json
 from datetime import datetime
 
 from flask import Blueprint, request, jsonify
 
 from auth_api import token_required
 from common import connect, parse_fields_arg, parse_pagination_args, paginate_list, project_fields
+from room_feature_config import get_room_feature_options
 
 
 rooms_bp = Blueprint('rooms', __name__, url_prefix='/api')
@@ -33,6 +36,7 @@ def ensure_rooms_schema():
             deposit REAL DEFAULT 0,
             status TEXT DEFAULT '空闲',
             description TEXT,
+            features_json TEXT DEFAULT '[]',
             water_meter_img TEXT,
             electricity_meter_img TEXT
         )
@@ -41,8 +45,35 @@ def ensure_rooms_schema():
     room_columns = _get_rooms_table_columns(conn)
     if 'deposit' not in room_columns:
         cursor.execute("ALTER TABLE rooms ADD COLUMN deposit REAL DEFAULT 0")
+    if 'features_json' not in room_columns:
+        cursor.execute("ALTER TABLE rooms ADD COLUMN features_json TEXT DEFAULT '[]'")
     conn.commit()
     conn.close()
+
+
+def _parse_room_features(value):
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    raw = str(value or "").strip()
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+        if isinstance(data, list):
+            return [str(v).strip() for v in data if str(v).strip()]
+    except Exception:
+        pass
+    return [raw]
+
+
+def _dump_room_features(values):
+    return json.dumps(_parse_room_features(values), ensure_ascii=False)
+
+
+@rooms_bp.route('/rooms/feature-options', methods=['GET'])
+@token_required
+def api_get_room_feature_options(current_user):
+    return jsonify({'options': get_room_feature_options()})
 
 
 def _ensure_room_meter_upload_dir():
@@ -158,6 +189,7 @@ def api_list_rooms(current_user):
     room_columns = _get_rooms_table_columns(conn)
     has_description = 'description' in room_columns
     has_deposit = 'deposit' in room_columns
+    has_features = 'features_json' in room_columns
     has_water_meter_img = 'water_meter_img' in room_columns
     has_electricity_meter_img = 'electricity_meter_img' in room_columns
     cursor = conn.cursor()
@@ -171,19 +203,20 @@ def api_list_rooms(current_user):
         r.price,
         {"COALESCE(r.deposit, 0)" if has_deposit else "0"} AS deposit,
         {"r.description" if has_description else "''"} AS description,
+        {"COALESCE(r.features_json, '[]')" if has_features else "'[]'"} AS features_json,
         CASE
             WHEN EXISTS (
                 SELECT 1 FROM tenants t
                 WHERE t.room_id = r.id
                   AND t.status = '在住'
-                  AND DATE('now') BETWEEN t.check_in_date AND t.check_out_date
+                  AND DATE('now','localtime') BETWEEN t.check_in_date AND t.check_out_date
             ) THEN '已入住'
             ELSE '空闲'
         END AS current_status,
         (SELECT COUNT(*) FROM tenants t
          WHERE t.room_id = r.id
            AND t.status = '在住'
-           AND DATE('now') BETWEEN t.check_in_date AND t.check_out_date) AS tenant_count,
+           AND DATE('now','localtime') BETWEEN t.check_in_date AND t.check_out_date) AS tenant_count,
         {"CASE WHEN COALESCE(r.water_meter_img, '') <> '' THEN 1 ELSE 0 END" if has_water_meter_img else "0"} AS has_water_meter_img,
         {"CASE WHEN COALESCE(r.electricity_meter_img, '') <> '' THEN 1 ELSE 0 END" if has_electricity_meter_img else "0"} AS has_electricity_meter_img
     FROM rooms r
@@ -204,10 +237,11 @@ def api_list_rooms(current_user):
             'price': row[4],
             'deposit': row[5],
             'description': row[6],
-            'status': row[7],
-            'tenant_count': row[8],
-            'has_water_meter_img': bool(row[9]),
-            'has_electricity_meter_img': bool(row[10]),
+            'features': _parse_room_features(row[7]),
+            'status': row[8],
+            'tenant_count': row[9],
+            'has_water_meter_img': bool(row[10]),
+            'has_electricity_meter_img': bool(row[11]),
         })
 
     q = (request.args.get('q') or request.args.get('search') or '').strip().lower()
@@ -264,6 +298,7 @@ def api_list_rooms(current_user):
         'price',
         'deposit',
         'description',
+        'features',
         'status',
         'tenant_count',
         'has_water_meter_img',
@@ -282,6 +317,7 @@ def api_get_room(current_user, room_id):
     room_columns = _get_rooms_table_columns(conn)
     has_description = 'description' in room_columns
     has_deposit = 'deposit' in room_columns
+    has_features = 'features_json' in room_columns
     has_water_meter_img = 'water_meter_img' in room_columns
     has_electricity_meter_img = 'electricity_meter_img' in room_columns
     cursor = conn.cursor()
@@ -290,6 +326,7 @@ def api_get_room(current_user, room_id):
         SELECT id, room_no, building, room_type, price,
                {"COALESCE(deposit, 0)" if has_deposit else "0"} AS deposit,
                {"description" if has_description else "''"} AS description,
+               {"COALESCE(features_json, '[]')" if has_features else "'[]'"} AS features_json,
                {"water_meter_img" if has_water_meter_img else "''"} AS water_meter_img,
                {"electricity_meter_img" if has_electricity_meter_img else "''"} AS electricity_meter_img
         FROM rooms
@@ -311,10 +348,11 @@ def api_get_room(current_user, room_id):
             'price': row[4],
             'deposit': row[5],
             'description': row[6],
-            'water_meter_img': row[7] or '',
-            'electricity_meter_img': row[8] or '',
-            'has_water_meter_img': bool(row[7]),
-            'has_electricity_meter_img': bool(row[8]),
+            'features': _parse_room_features(row[7]),
+            'water_meter_img': row[8] or '',
+            'electricity_meter_img': row[9] or '',
+            'has_water_meter_img': bool(row[8]),
+            'has_electricity_meter_img': bool(row[9]),
         }
     })
 
@@ -488,15 +526,15 @@ def api_checkout_room(current_user, room_no):
     cursor.execute(
         """
     UPDATE rooms
-    SET status = CASE
-        WHEN EXISTS (
-            SELECT 1 FROM tenants t
-            WHERE t.room_id = rooms.id
-              AND t.status = '在住'
-              AND DATE('now') BETWEEN t.check_in_date AND t.check_out_date
-        ) THEN '已入住'
-        ELSE '空闲'
-    END
+        SET status = CASE
+            WHEN EXISTS (
+                SELECT 1 FROM tenants t
+                WHERE t.room_id = rooms.id
+                  AND t.status = '在住'
+                  AND DATE('now','localtime') BETWEEN t.check_in_date AND t.check_out_date
+            ) THEN '已入住'
+            ELSE '空闲'
+        END
     WHERE id = ?
     """,
         (room_id,),
@@ -558,6 +596,7 @@ def api_add_room(current_user):
     water_meter_img = data.get('water_meter_img', '')
     electricity_meter_img = data.get('electricity_meter_img', '')
     description = data.get('description', '')
+    features_json = _dump_room_features(data.get('features', []))
 
     conn = connect()
     room_columns = _get_rooms_table_columns(conn)
@@ -571,6 +610,9 @@ def api_add_room(current_user):
         if 'description' in room_columns:
             insert_columns.append('description')
             insert_values.append(description)
+        if 'features_json' in room_columns:
+            insert_columns.append('features_json')
+            insert_values.append(features_json)
         if 'water_meter_img' in room_columns:
             insert_columns.append('water_meter_img')
             insert_values.append(water_meter_img)
@@ -639,6 +681,8 @@ def api_update_room(current_user, room_id):
     room_columns = _get_rooms_table_columns(conn)
     allowed_fields = [field for field in ['room_no', 'room_type', 'price', 'deposit', 'building', 'description', 'water_meter_img', 'electricity_meter_img'] if field in room_columns]
     update_data = {k: v for k, v in data.items() if k in allowed_fields}
+    if 'features_json' in room_columns and 'features' in data:
+        update_data['features_json'] = _dump_room_features(data.get('features', []))
 
     if not update_data:
         conn.close()
@@ -736,7 +780,7 @@ def api_delete_room(current_user, room_id):
         SELECT COUNT(*) FROM tenants
         WHERE room_id = ?
           AND status = '在住'
-          AND DATE('now') BETWEEN check_in_date AND check_out_date
+          AND DATE('now','localtime') BETWEEN check_in_date AND check_out_date
         """,
         (room_id,),
     )
@@ -755,8 +799,12 @@ def api_delete_room(current_user, room_id):
     moves_count = cursor.fetchone()[0]
     cursor.execute("SELECT COUNT(*) FROM repair_records WHERE room_no = ?", (room_no,))
     repairs_count = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM self_checkin_links WHERE room_id = ?", (room_id,))
+    self_checkin_links_count = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM self_checkin_submissions WHERE room_id = ?", (room_id,))
+    self_checkin_submissions_count = cursor.fetchone()[0]
 
-    if total_tenants > 0 or moves_count > 0 or repairs_count > 0:
+    if total_tenants > 0 or moves_count > 0 or repairs_count > 0 or self_checkin_links_count > 0 or self_checkin_submissions_count > 0:
         details = []
         if total_tenants > 0:
             details.append(f"租户档案 {total_tenants} 条（含已退租）")
@@ -764,6 +812,10 @@ def api_delete_room(current_user, room_id):
             details.append(f"搬迁记录 {moves_count} 条")
         if repairs_count > 0:
             details.append(f"维修记录 {repairs_count} 条")
+        if self_checkin_links_count > 0:
+            details.append(f"入住链接 {self_checkin_links_count} 条")
+        if self_checkin_submissions_count > 0:
+            details.append(f"入住提交记录 {self_checkin_submissions_count} 条")
         conn.close()
         return jsonify({'error': f'房间 {room_no} 存在关联数据，无法删除：' + '；'.join(details) + '。请先清理关联数据后再尝试删除。'}), 400
 

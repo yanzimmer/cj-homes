@@ -5,7 +5,7 @@
         <el-input
           class="search-input"
           v-model="searchQuery"
-          placeholder="搜索物资名称/分类/位置/备注"
+          placeholder="搜索物品/规格/位置/备注"
           clearable
           @keyup.enter="handleSearch"
           @clear="handleSearch"
@@ -15,16 +15,18 @@
           </template>
         </el-input>
         <el-button class="toolbar-btn" type="primary" @click="handleSearch">搜索</el-button>
-        <el-button class="toolbar-btn" type="primary" @click="openDialog('add')">新增物资</el-button>
+        <el-button class="toolbar-btn" type="primary" @click="openDialog('add')">新增物品</el-button>
+        <el-button class="toolbar-btn" type="success" @click="linkDialogVisible = true">填写链接</el-button>
       </div>
     </div>
 
     <div class="table-panel">
       <el-table class="warehouse-table" :data="items" v-loading="loading" border stripe style="width: 100%">
         <el-table-column prop="id" label="ID" width="80" align="center" />
-        <el-table-column prop="item_name" label="物资名称" min-width="150" show-overflow-tooltip />
-        <el-table-column prop="category" label="分类" width="120" show-overflow-tooltip />
-        <el-table-column prop="quantity" label="库存数量" width="120" align="center" />
+        <el-table-column prop="procurement_date" label="时间" width="120" />
+        <el-table-column prop="item_name" label="物品" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="specification" label="规格" width="120" show-overflow-tooltip />
+        <el-table-column prop="quantity" label="数量" width="120" align="center" />
         <el-table-column prop="unit" label="单位" width="90" align="center" />
         <el-table-column prop="location" label="存放位置" width="160" show-overflow-tooltip />
         <el-table-column label="图片" width="90" align="center">
@@ -63,13 +65,22 @@
     </div>
     <el-dialog :title="dialog.title" v-model="dialog.visible" width="520px" @close="resetForm">
     <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
-      <el-form-item label="物资名称" prop="item_name">
-        <el-input v-model="form.item_name" placeholder="请输入物资名称" />
+      <el-form-item label="时间" prop="procurement_date">
+        <el-date-picker
+          v-model="form.procurement_date"
+          type="date"
+          placeholder="选择日期"
+          value-format="YYYY-MM-DD"
+          style="width: 100%"
+        />
       </el-form-item>
-      <el-form-item label="分类" prop="category">
-        <el-input v-model="form.category" placeholder="如：五金/照明/水电材料" />
+      <el-form-item label="物品" prop="item_name">
+        <el-input v-model="form.item_name" placeholder="请输入物品" />
       </el-form-item>
-      <el-form-item label="库存数量" prop="quantity">
+      <el-form-item label="规格" prop="specification">
+        <el-input v-model="form.specification" placeholder="请输入规格型号" />
+      </el-form-item>
+      <el-form-item label="数量" prop="quantity">
         <el-input-number v-model="form.quantity" :min="0" :precision="2" style="width: 100%" />
       </el-form-item>
       <el-form-item label="单位" prop="unit">
@@ -87,7 +98,7 @@
             :auto-upload="false"
             accept="image/*"
             multiple
-            :limit="20"
+            :limit="30"
             :on-change="handleImageUpload"
           >
             <div class="image-upload-card">
@@ -99,9 +110,9 @@
             </div>
           </el-upload>
           <div class="image-upload-actions">
-            <el-button v-if="form.images.length > 0" type="danger" plain @click="clearImages">清空图片</el-button>
-            <span class="image-upload-tip">支持 JPG/PNG/WEBP，最多 20 张，建议单张小于 2MB</span>
-            <span class="image-upload-tip">已选：{{ form.images.length }} / 20</span>
+            <el-button v-if="form.images.length > 0" type="danger" plain @click="clearImages">全部删除图片</el-button>
+            <span class="image-upload-tip">支持 JPG/PNG/WEBP，最多 30 张，建议单张小于 2MB</span>
+            <span class="image-upload-tip">已选：{{ form.images.length }} / 30</span>
             <el-progress
               v-if="imageUploading"
               :percentage="imageUploadProgress"
@@ -127,6 +138,13 @@
       </span>
     </template>
     </el-dialog>
+
+    <BusinessPublicLinkDialog
+      v-model="linkDialogVisible"
+      business-type="warehouse"
+      title="库存填写链接"
+      business-label="库存管理"
+    />
   </div>
 </template>
 
@@ -136,8 +154,11 @@ import { warehouseApi } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Plus } from '@element-plus/icons-vue'
 import { uploadFileByChunks } from '../utils/chunkUploader'
+import { consumeAiDraft } from '../utils/aiDrafts'
+import BusinessPublicLinkDialog from '../components/BusinessPublicLinkDialog.vue'
 
 const loading = ref(false)
+const linkDialogVisible = ref(false)
 const items = ref([])
 const searchQuery = ref('')
 const pagination = reactive({
@@ -148,6 +169,7 @@ const pagination = reactive({
 const formRef = ref(null)
 const imageUploading = ref(false)
 const imageUploadProgress = ref(0)
+const MAX_WAREHOUSE_FORM_IMAGES = 30
 
 const dialog = reactive({
   visible: false,
@@ -158,8 +180,9 @@ const dialog = reactive({
 
 const form = reactive({
   id: null,
+  procurement_date: '',
   item_name: '',
-  category: '',
+  specification: '',
   quantity: 0,
   unit: '',
   location: '',
@@ -168,11 +191,11 @@ const form = reactive({
 })
 
 const rules = {
-  item_name: [{ required: true, message: '请输入物资名称', trigger: 'blur' }],
-  quantity: [{ required: true, message: '请输入库存数量', trigger: 'blur' }]
+  item_name: [{ required: true, message: '请输入物品', trigger: 'blur' }],
+  quantity: [{ required: true, message: '请输入数量', trigger: 'blur' }]
 }
 
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:5000/api').replace(/\/api\/?$/, '')
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/api\/?$/, '')
 const resolveImageUrl = (src) => {
   const value = String(src || '').trim()
   if (!value) return ''
@@ -204,7 +227,7 @@ const fetchItems = async () => {
     const params = {
       page: pagination.page,
       page_size: pagination.pageSize,
-      fields: 'id,item_name,category,quantity,unit,location,image,images,remarks,updated_at,has_image'
+      fields: 'id,procurement_date,item_name,specification,quantity,unit,location,image,images,remarks,updated_at,has_image'
     }
     if (searchQuery.value.trim()) params.q = searchQuery.value.trim()
     const res = await warehouseApi.listItems(params)
@@ -238,8 +261,9 @@ const resetForm = () => {
   if (formRef.value) formRef.value.resetFields()
   Object.assign(form, {
     id: null,
+    procurement_date: '',
     item_name: '',
-    category: '',
+    specification: '',
     quantity: 0,
     unit: '',
     location: '',
@@ -252,7 +276,7 @@ const resetForm = () => {
 
 const openDialog = async (type, row = null) => {
   dialog.type = type
-  dialog.title = type === 'add' ? '新增库存物资' : '编辑库存物资'
+  dialog.title = type === 'add' ? '新增物品' : '编辑物品'
   resetForm()
   if (type === 'edit' && row) {
     try {
@@ -267,11 +291,24 @@ const openDialog = async (type, row = null) => {
   dialog.visible = true
 }
 
+const applyWarehouseDraft = () => {
+  const draft = consumeAiDraft('warehouse')
+  if (!draft) return
+  openDialog('add')
+  if (draft.item_name) form.item_name = String(draft.item_name)
+  if (draft.specification) form.specification = String(draft.specification)
+  if (draft.quantity !== undefined && draft.quantity !== null && draft.quantity !== '') form.quantity = Number(draft.quantity)
+  if (draft.unit) form.unit = String(draft.unit)
+  if (draft.location) form.location = String(draft.location)
+  if (draft.remarks) form.remarks = String(draft.remarks)
+  ElMessage.success('AI 草稿已带入库存表单')
+}
+
 const handleImageUpload = async (file) => {
   const raw = file?.raw || file
   if (!raw) return
-  if (form.images.length >= 20) {
-    ElMessage.warning('最多上传20张图片')
+  if (form.images.length >= MAX_WAREHOUSE_FORM_IMAGES) {
+    ElMessage.warning(`最多上传${MAX_WAREHOUSE_FORM_IMAGES}张图片`)
     return
   }
   if (!String(raw.type || '').startsWith('image/')) {
@@ -288,7 +325,7 @@ const handleImageUpload = async (file) => {
   try {
     const result = await uploadFileByChunks(raw, {
       category: 'warehouse',
-      subDir: String(form.category || 'items').trim() || 'items',
+      subDir: String(form.specification || 'items').trim() || 'items',
       chunkSize: 1024 * 1024,
       maxRetries: 3,
       retryDelay: 800,
@@ -327,8 +364,9 @@ const submitForm = async () => {
     dialog.submitting = true
     try {
       const payload = {
+        procurement_date: form.procurement_date,
         item_name: form.item_name,
-        category: form.category,
+        specification: form.specification,
         quantity: form.quantity,
         unit: form.unit,
         location: form.location,
@@ -371,6 +409,7 @@ const handleDelete = async (row) => {
 
 onMounted(() => {
   fetchItems()
+  applyWarehouseDraft()
 })
 </script>
 

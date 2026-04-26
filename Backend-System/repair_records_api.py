@@ -1,3 +1,4 @@
+# 该文件负责处理维修记录的增删改查、图片上传与数据格式转换。
 import json
 import os
 import re
@@ -9,6 +10,15 @@ from flask import Blueprint, jsonify, request
 
 from auth_api import token_required
 from common import connect, parse_fields_arg, parse_pagination_args, paginate_list, project_fields
+from inventory_sync_service import (
+    _parse_inventory_usages,
+    apply_inventory_usage,
+    dump_inventory_usages,
+    ensure_inventory_sync_schema,
+    list_warehouse_stock_options,
+    restore_inventory_usage,
+    validate_inventory_usages,
+)
 
 
 repair_bp = Blueprint("repair_records", __name__, url_prefix="/api")
@@ -27,8 +37,16 @@ def ensure_repair_records_schema():
         cursor.execute("ALTER TABLE repair_records ADD COLUMN repair_image_before TEXT")
     if "repair_image_after" not in cols:
         cursor.execute("ALTER TABLE repair_records ADD COLUMN repair_image_after TEXT")
+    if "amount" not in cols:
+        cursor.execute("ALTER TABLE repair_records ADD COLUMN amount REAL")
+    if "payment_person" not in cols:
+        cursor.execute("ALTER TABLE repair_records ADD COLUMN payment_person TEXT")
+    if "payment_images" not in cols:
+        cursor.execute("ALTER TABLE repair_records ADD COLUMN payment_images TEXT")
+    cursor.execute("UPDATE repair_records SET amount = repair_cost WHERE amount IS NULL AND repair_cost IS NOT NULL")
     conn.commit()
     conn.close()
+    ensure_inventory_sync_schema()
 
 
 def _ensure_repair_upload_dir():
@@ -85,7 +103,8 @@ def _extract_repair_image_fields_from_payload(data):
     before_images = _extract_images_from_payload(data, "repair_images_before", "repair_image_before")
     after_images = _extract_images_from_payload(data, "repair_images_after", "repair_image_after")
     legacy_images = _extract_images_from_payload(data, "repair_images", "repair_image")
-    return before_images, after_images, legacy_images
+    payment_images = _extract_images_from_payload(data, "payment_images", "payment_image")
+    return before_images, after_images, legacy_images, payment_images
 
 
 def _merge_repair_images(*groups):
@@ -115,9 +134,12 @@ def _safe_dir_component(value):
 
 
 def _repair_record_to_dict(row):
-    before_images = _parse_repair_images(row[12])
-    after_images = _parse_repair_images(row[13])
-    legacy_images = _parse_repair_images(row[14])
+    before_images = _parse_repair_images(row[15])
+    after_images = _parse_repair_images(row[16])
+    legacy_images = _parse_repair_images(row[17])
+    payment_images = _parse_repair_images(row[18])
+    amount = row[10] if row[10] is not None else row[9]
+    inventory_usages = _parse_inventory_usages(row[14])
 
     # Old data only had repair_image. Keep it visible as "before" by default.
     if not before_images and not after_images and legacy_images:
@@ -138,14 +160,19 @@ def _repair_record_to_dict(row):
         "status": row[7],
         "repair_date": row[8],
         "repair_cost": row[9],
-        "repair_person": row[10],
-        "remarks": row[11],
+        "amount": amount,
+        "repair_person": row[11],
+        "payment_person": row[12],
+        "remarks": row[13],
+        "inventory_usages": inventory_usages,
         "repair_images_before": before_images,
         "repair_image_before": before_images[0] if before_images else "",
         "repair_images_after": after_images,
         "repair_image_after": after_images[0] if after_images else "",
         "repair_images": combined_images,
         "repair_image": combined_images[0] if combined_images else "",
+        "payment_images": payment_images,
+        "payment_image": payment_images[0] if payment_images else "",
     }
 
 
@@ -165,8 +192,8 @@ def api_list_repair_records(current_user):
         SELECT
             id, building, room_no, repair_type, description,
             report_date, report_by, status,
-            repair_date, repair_cost, repair_person, remarks,
-            repair_image_before, repair_image_after, repair_image
+            repair_date, repair_cost, amount, repair_person, payment_person, remarks, inventory_usages,
+            repair_image_before, repair_image_after, repair_image, payment_images
         FROM repair_records
         ORDER BY report_date DESC
         """
@@ -193,7 +220,7 @@ def api_list_repair_records(current_user):
     if status_filter:
         records = [item for item in records if str(item.get('status') or '') == status_filter]
 
-    if sort_by in ('id', 'building', 'room_no', 'repair_type', 'report_date', 'status', 'repair_date', 'repair_cost'):
+    if sort_by in ('id', 'building', 'room_no', 'repair_type', 'report_date', 'status', 'repair_date', 'repair_cost', 'amount'):
         reverse = sort_order == 'desc'
         records.sort(key=lambda x: x.get(sort_by), reverse=reverse)
 
@@ -226,14 +253,19 @@ def api_list_repair_records(current_user):
         'status',
         'repair_date',
         'repair_cost',
+        'amount',
         'repair_person',
+        'payment_person',
         'remarks',
+        'inventory_usages',
         'repair_images_before',
         'repair_image_before',
         'repair_images_after',
         'repair_image_after',
         'repair_images',
         'repair_image',
+        'payment_images',
+        'payment_image',
     ]
     selected_fields = parse_fields_arg(request.args, allowed_fields)
     records = project_fields(records, selected_fields, always_include=['id'])
@@ -251,8 +283,8 @@ def api_get_repair_record(current_user, record_id):
         SELECT
             id, building, room_no, repair_type, description,
             report_date, report_by, status,
-            repair_date, repair_cost, repair_person, remarks,
-            repair_image_before, repair_image_after, repair_image
+            repair_date, repair_cost, amount, repair_person, payment_person, remarks, inventory_usages,
+            repair_image_before, repair_image_after, repair_image, payment_images
         FROM repair_records
         WHERE id = ?
         """,
@@ -289,25 +321,34 @@ def api_add_repair_record(current_user):
     report_date = data.get("report_date", datetime.now().strftime("%Y-%m-%d"))
     status = data.get("status", "待处理")
     remarks = data.get("remarks", "")
+    amount = data.get("amount")
+    if amount in (None, ""):
+        amount = data.get("repair_cost")
+    payment_person = data.get("payment_person", "")
+    inventory_usages = data.get("inventory_usages") or []
 
-    before_images, after_images, legacy_images = _extract_repair_image_fields_from_payload(data)
+    before_images, after_images, legacy_images, payment_images = _extract_repair_image_fields_from_payload(data)
     if before_images is None:
         before_images = legacy_images or []
     if after_images is None:
         after_images = []
+    if payment_images is None:
+        payment_images = []
     combined_images = _merge_repair_images(before_images, after_images)
     if not combined_images and legacy_images:
         combined_images = legacy_images[:MAX_REPAIR_IMAGES]
 
     try:
+        normalized_usages = validate_inventory_usages(conn, inventory_usages)
+        apply_inventory_usage(conn, normalized_usages)
         cursor.execute(
             """
             INSERT INTO repair_records (
                 building, room_no, repair_type, description,
                 report_date, report_by, status,
-                repair_date, repair_cost, repair_person, remarks,
-                repair_image_before, repair_image_after, repair_image
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                repair_date, repair_cost, amount, repair_person, payment_person, remarks, inventory_usages,
+                repair_image_before, repair_image_after, repair_image, payment_images
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 building,
@@ -318,12 +359,16 @@ def api_add_repair_record(current_user):
                 data["report_by"],
                 status,
                 data.get("repair_date"),
-                data.get("repair_cost"),
+                amount,
+                amount,
                 data.get("repair_person"),
+                payment_person,
                 remarks,
+                dump_inventory_usages(normalized_usages),
                 _dump_repair_images(before_images),
                 _dump_repair_images(after_images),
                 _dump_repair_images(combined_images),
+                _dump_repair_images(payment_images),
             ),
         )
         record_id = cursor.lastrowid
@@ -348,8 +393,11 @@ def api_update_repair_record(current_user, record_id):
         "status",
         "repair_date",
         "repair_cost",
+        "amount",
         "repair_person",
+        "payment_person",
         "remarks",
+        "inventory_usages",
     ]
     update_data = {k: v for k, v in data.items() if k in allowed_fields}
 
@@ -362,13 +410,15 @@ def api_update_repair_record(current_user, record_id):
             "repair_image_after",
             "repair_images",
             "repair_image",
+            "payment_images",
+            "payment_image",
         ]
     )
 
     conn = connect()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT id, repair_image_before, repair_image_after, repair_image FROM repair_records WHERE id = ?",
+        "SELECT id, repair_image_before, repair_image_after, repair_image, inventory_usages, payment_images FROM repair_records WHERE id = ?",
         (record_id,),
     )
     record = cursor.fetchone()
@@ -380,18 +430,22 @@ def api_update_repair_record(current_user, record_id):
         current_before = _parse_repair_images(record[1])
         current_after = _parse_repair_images(record[2])
         current_legacy = _parse_repair_images(record[3])
+        current_payment = _parse_repair_images(record[5])
         if not current_before and not current_after and current_legacy:
             current_before = current_legacy[:MAX_REPAIR_IMAGES]
 
-        before_images, after_images, legacy_images = _extract_repair_image_fields_from_payload(data)
+        before_images, after_images, legacy_images, payment_images = _extract_repair_image_fields_from_payload(data)
         has_new_before = "repair_images_before" in data or "repair_image_before" in data
         has_new_after = "repair_images_after" in data or "repair_image_after" in data
         has_legacy = "repair_images" in data or "repair_image" in data
+        has_payment = "payment_images" in data or "payment_image" in data
 
         if before_images is None:
             before_images = current_before
         if after_images is None:
             after_images = current_after
+        if payment_images is None:
+            payment_images = current_payment
 
         # Backward compatibility: old clients only send repair_images/repair_image.
         if has_legacy and not has_new_before and not has_new_after:
@@ -405,6 +459,19 @@ def api_update_repair_record(current_user, record_id):
         update_data["repair_image_before"] = _dump_repair_images(before_images)
         update_data["repair_image_after"] = _dump_repair_images(after_images)
         update_data["repair_image"] = _dump_repair_images(combined_images)
+        if has_payment or payment_images != current_payment:
+            update_data["payment_images"] = _dump_repair_images(payment_images)
+
+    if "amount" in update_data and "repair_cost" not in update_data:
+        update_data["repair_cost"] = update_data["amount"]
+    if "repair_cost" in update_data and "amount" not in update_data:
+        update_data["amount"] = update_data["repair_cost"]
+    old_usages = _parse_inventory_usages(record[4])
+    if "inventory_usages" in data:
+        normalized_usages = validate_inventory_usages(conn, data.get("inventory_usages") or [])
+        restore_inventory_usage(conn, old_usages)
+        apply_inventory_usage(conn, normalized_usages)
+        update_data["inventory_usages"] = dump_inventory_usages(normalized_usages)
 
     if not update_data:
         conn.close()
@@ -434,6 +501,9 @@ def api_delete_repair_record(current_user, record_id):
         return jsonify({"error": f"维修记录 {record_id} 不存在"}), 404
 
     try:
+        cursor.execute("SELECT inventory_usages FROM repair_records WHERE id = ?", (record_id,))
+        usage_row = cursor.fetchone()
+        restore_inventory_usage(conn, _parse_inventory_usages(usage_row[0] if usage_row else ""))
         cursor.execute("DELETE FROM repair_records WHERE id = ?", (record_id,))
         conn.commit()
         conn.close()
@@ -460,8 +530,8 @@ def api_get_room_repair_records(current_user, room_no):
         SELECT
             id, building, room_no, repair_type, description,
             report_date, report_by, status,
-            repair_date, repair_cost, repair_person, remarks,
-            repair_image_before, repair_image_after, repair_image
+            repair_date, repair_cost, amount, repair_person, payment_person, remarks, inventory_usages,
+            repair_image_before, repair_image_after, repair_image, payment_images
         FROM repair_records
         WHERE room_no = ?
         ORDER BY report_date DESC
@@ -473,6 +543,12 @@ def api_get_room_repair_records(current_user, room_no):
 
     records = [_repair_record_to_dict(row) for row in rows]
     return jsonify({"repair_records": records})
+
+
+@repair_bp.route("/repair-records/inventory-options", methods=["GET"])
+@token_required
+def api_list_repair_inventory_options(current_user):
+    return jsonify({"items": list_warehouse_stock_options()})
 
 
 @repair_bp.route("/repair-records/<int:record_id>/image", methods=["POST"])

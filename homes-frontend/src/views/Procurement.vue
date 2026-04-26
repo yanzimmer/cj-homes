@@ -6,7 +6,7 @@
         <el-input
           class="search-input"
           v-model="searchQuery"
-          placeholder="搜索维修项目或备注"
+          placeholder="搜索采购物品或备注"
           clearable
           @clear="handleSearch"
           @keyup.enter="handleSearch"
@@ -17,6 +17,7 @@
         </el-input>
         <el-button class="toolbar-btn" type="primary" @click="handleSearch">搜索</el-button>
         <el-button class="toolbar-btn" type="primary" @click="openDialog('add')">新增采购</el-button>
+        <el-button class="toolbar-btn" type="success" @click="linkDialogVisible = true">填写链接</el-button>
         <el-dropdown trigger="click" @command="handleExportCommand">
           <el-button class="toolbar-btn" type="success">
             导出 <el-icon style="margin-left:4px"><Filter /></el-icon>
@@ -51,7 +52,7 @@
       >
       <el-table-column prop="id" label="序号" width="80" align="center" />
       <el-table-column prop="procurement_date" label="时间" width="120" sortable />
-      <el-table-column prop="item_name" label="维修项目" min-width="150" />
+      <el-table-column prop="item_name" label="采购物品" min-width="150" />
       <el-table-column prop="specification" label="规格" width="120" />
       <el-table-column prop="quantity" label="数量" width="100" align="center" />
       <el-table-column prop="unit_price" label="单价" width="100" align="right">
@@ -123,8 +124,8 @@
             style="width: 100%"
           />
         </el-form-item>
-        <el-form-item label="维修项目" prop="item_name">
-          <el-input v-model="form.item_name" placeholder="请输入维修项目名称" />
+        <el-form-item label="采购物品" prop="item_name">
+          <el-input v-model="form.item_name" placeholder="请输入采购物品名称" />
         </el-form-item>
         <el-form-item label="规格" prop="specification">
           <el-input v-model="form.specification" placeholder="请输入规格型号" />
@@ -168,13 +169,22 @@
             :show-file-list="false"
             accept="image/*"
             multiple
-            :limit="20"
+            :limit="30"
             :on-change="handleProcurementImageChange"
           >
-            <el-button type="primary" plain>选择图片(最多20张)</el-button>
+            <el-button type="primary" plain>选择图片(最多30张)</el-button>
           </el-upload>
+          <el-button
+            v-if="form.procurement_images.length > 0"
+            style="margin-left: 8px"
+            type="danger"
+            plain
+            @click="clearAllProcurementImages"
+          >
+            全部删除图片
+          </el-button>
           <div class="upload-progress-text" v-if="uploadingProcurementImages">上传进度 {{ uploadProgress }}%</div>
-          <div class="upload-progress-text">已选 {{ form.procurement_images.length }} / 20</div>
+          <div class="upload-progress-text">已选 {{ form.procurement_images.length }} / 30</div>
           <div v-if="form.procurement_images.length > 0" class="image-preview-wrap">
             <div v-for="(img, index) in form.procurement_images" :key="`${img}-${index}`" class="image-box">
               <el-image lazy loading="lazy"
@@ -199,6 +209,13 @@
       </template>
     </el-dialog>
   </div>
+
+  <BusinessPublicLinkDialog
+    v-model="linkDialogVisible"
+    business-type="procurement"
+    title="采购填写链接"
+    business-label="采购管理"
+  />
 </template>
 
 <script setup>
@@ -208,9 +225,12 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Filter } from '@element-plus/icons-vue'
 import * as XLSX from 'xlsx'
 import { uploadFileByChunks } from '../utils/chunkUploader'
+import { consumeAiDraft } from '../utils/aiDrafts'
+import BusinessPublicLinkDialog from '../components/BusinessPublicLinkDialog.vue'
 
 // 状态定义
 const loading = ref(false)
+const linkDialogVisible = ref(false)
 const procurements = ref([])
 const searchQuery = ref('')
 const pagination = reactive({
@@ -228,7 +248,8 @@ const dialog = reactive({
 const procurementImageFiles = ref([])
 const uploadingProcurementImages = ref(false)
 const uploadProgress = ref(0)
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:5000/api'
+const MAX_PROCUREMENT_IMAGES = 30
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 const API_ORIGIN = API_BASE.replace(/\/api\/?$/, '')
 
 const formRef = ref(null)
@@ -257,7 +278,7 @@ const toImageUrl = (value) => {
 
 const parseProcurementImages = (record) => {
   if (record?.procurement_images && Array.isArray(record.procurement_images)) {
-    return record.procurement_images.map(v => String(v)).filter(v => v.trim() !== '').slice(0, 20)
+    return record.procurement_images.map(v => String(v)).filter(v => v.trim() !== '').slice(0, MAX_PROCUREMENT_IMAGES)
   }
   const raw = record?.procurement_image ? String(record.procurement_image) : ''
   if (!raw.trim()) return []
@@ -265,7 +286,7 @@ const parseProcurementImages = (record) => {
     try {
       const arr = JSON.parse(raw)
       if (Array.isArray(arr)) {
-        return arr.map(v => String(v)).filter(v => v.trim() !== '').slice(0, 20)
+        return arr.map(v => String(v)).filter(v => v.trim() !== '').slice(0, MAX_PROCUREMENT_IMAGES)
       }
     } catch (_) {}
   }
@@ -363,6 +384,21 @@ const openDialog = (type, row = null) => {
   }
 }
 
+const applyProcurementDraft = () => {
+  const draft = consumeAiDraft('procurement')
+  if (!draft) return
+  openDialog('add')
+  if (draft.procurement_date) form.procurement_date = String(draft.procurement_date)
+  if (draft.item_name) form.item_name = String(draft.item_name)
+  if (draft.specification) form.specification = String(draft.specification)
+  if (draft.quantity !== undefined && draft.quantity !== null && draft.quantity !== '') form.quantity = Number(draft.quantity)
+  if (draft.unit_price !== undefined && draft.unit_price !== null && draft.unit_price !== '') form.unit_price = Number(draft.unit_price)
+  if (draft.unit) form.unit = String(draft.unit)
+  if (draft.total_amount !== undefined && draft.total_amount !== null && draft.total_amount !== '') form.total_amount = Number(draft.total_amount)
+  if (draft.remarks) form.remarks = String(draft.remarks)
+  ElMessage.success('AI 草稿已带入采购表单')
+}
+
 // 重置表单
 const resetForm = () => {
   if (formRef.value) {
@@ -376,16 +412,16 @@ const resetForm = () => {
 
 const handleProcurementImageChange = (file) => {
   if (!file || !file.raw) return
-  if (form.procurement_images.length >= 20) {
-    ElMessage.warning('????20???')
+  if (form.procurement_images.length >= MAX_PROCUREMENT_IMAGES) {
+    ElMessage.warning(`最多上传${MAX_PROCUREMENT_IMAGES}张图片`)
     return
   }
   if (!String(file.raw.type || '').startsWith('image/')) {
-    ElMessage.warning('???????')
+    ElMessage.warning('请上传图片文件')
     return
   }
   if (file.raw.size && file.raw.size > 20 * 1024 * 1024) {
-    ElMessage.warning('???????? 20MB ??')
+    ElMessage.warning('图片请控制在 20MB 以内')
     return
   }
   const url = URL.createObjectURL(file.raw)
@@ -402,6 +438,16 @@ const removeFormImage = (index) => {
   if (String(target || '').startsWith('blob:')) {
     URL.revokeObjectURL(String(target))
   }
+}
+
+const clearAllProcurementImages = () => {
+  form.procurement_images.forEach((target) => {
+    if (String(target || '').startsWith('blob:')) {
+      URL.revokeObjectURL(String(target))
+    }
+  })
+  form.procurement_images = []
+  procurementImageFiles.value = []
 }
 
 // 提交表单
@@ -581,6 +627,7 @@ const handleImportFile = async (file) => {
 
 onMounted(() => {
   fetchProcurements()
+  applyProcurementDraft()
 })
 </script>
 

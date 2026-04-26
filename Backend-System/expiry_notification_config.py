@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+# 该文件负责管理租期到期提醒相关的通知配置读写与默认值处理。
 
 import os
 import json

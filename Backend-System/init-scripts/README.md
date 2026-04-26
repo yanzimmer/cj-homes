@@ -93,29 +93,3 @@ rooms:21 | tenants:36 | tenant_moves:7 | admins:1 | repair_records:5 | contracts
   - 最后更新时间：`last_updated`
 
 提示：首次迁移路径后，建议先执行打印模式确认配置路径与内容，再选择是否使用 `--force` 重置为默认值。
-
-## init_ocr_config.py 使用方法
-- 作用：初始化或重置 OCR 配置文件 `Backend-System/config/ocr_config.json`；若根目录存在旧版 `ocr_config.json` 且新路径不存在，会自动迁移到新路径；支持仅打印配置。
-
-- 可用参数：
-  - `--force`：强制覆盖为默认配置（即使文件已存在）。
-  - `--print`：仅打印当前配置和文件路径，不进行写入或迁移。
-
-- 在仓库根目录运行：
-  - 仅打印配置：`python "Backend-System\init-scripts\init_ocr_config.py" --print`
-  - 初始化（如不存在则创建；存在则保持原样）：`python "Backend-System\init-scripts\init_ocr_config.py"`
-  - 强制覆盖为默认配置：`python "Backend-System\init-scripts\init_ocr_config.py" --force`
-
-- 在 `Backend-System` 目录运行：
-  - 仅打印配置：`python "init-scripts\init_ocr_config.py" --print`
-  - 初始化（创建或保持）：`python "init-scripts\init_ocr_config.py"`
-  - 强制覆盖为默认配置：`python "init-scripts\init_ocr_config.py" --force`
-
-- 执行结果示例：
-  - 打印模式输出：`{"path": "<绝对路径>", "config": { ... } }`
-  - 初始化/覆盖模式提示：`创建OCR配置文件: <path>`、`保持已存在OCR配置文件: <path>` 或 `覆盖OCR配置文件: <path>`
-
-- 默认配置包含：
-  - PaddleOCR：`lang`、`use_angle_cls`、`ocr`（包含 `det/rec/cls`，详见 `Backend-System/config/ocr_config_fields.md`）。
-
-提示：单镜像部署中，supervisor 会在首次启动时自动执行该脚本，创建缺失的 `ocr_config.json`；随后由哨兵文件控制，重启不再重复执行。项目已移除 EasyOCR/Tesseract，统一到 PaddleOCR。

@@ -33,11 +33,6 @@ RUN set -eux; \
     \
     pip install --no-cache-dir --upgrade pip; \
     pip install --no-cache-dir flask flask-cors pyjwt gunicorn; \
-    # 显式安装 Paddle 运行时与 OCR 包，确保跨主机稳定
-    pip install --no-cache-dir paddlepaddle==2.6.1; \
-    pip install --no-cache-dir paddleocr opencv-python-headless; \
-    # 预热 PaddleOCR 模型缓存（lang=ch），避免容器首启时在线下载
-    python -c "from paddleocr import PaddleOCR; PaddleOCR(use_angle_cls=True, lang='ch'); print('PaddleOCR prewarm OK')" || echo 'PaddleOCR prewarm skipped'; \
     rm -rf /root/.cache/pip
 
 # 复制后端与前端构建成果
@@ -53,8 +48,8 @@ RUN mkdir -p /app/Backend-System/sql /var/log/supervisor
 
 EXPOSE 80
 
-# 健康检查：确保 PaddleOCR 与 OpenCV 可导入
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD python -c "from paddleocr import PaddleOCR; import cv2"
+# 健康检查：确保基础运行时可导入
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD python -c "import flask, flask_cors, jwt"
 
 # 通过 Supervisor 同时运行 Nginx 与 Gunicorn
 CMD ["/usr/bin/supervisord","-n","-c","/etc/supervisor/conf.d/supervisord.conf"]

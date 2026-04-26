@@ -2,8 +2,8 @@ import axios from 'axios'
 import router from '../router'
 import { ElMessage } from 'element-plus'
 
-// API 鍩虹鍦板潃锛氫紭鍏堣鍙栫幆澧冨彉閲忥紝鍥為€€鍒版湰鍦伴粯璁ゅ湴鍧€
-const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:5000/api'
+// API 基础地址：优先读取环境变量，回退到本地默认地址
+const API_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 
 // 鍒涘缓axios瀹炰緥
 const apiClient = axios.create({
@@ -42,7 +42,7 @@ apiClient.interceptors.response.use(
       localStorage.removeItem('user')
       // 鍙嬪ソ鎻愮ず
       try {
-        ElMessage.error('鐧诲綍鐘舵€佸凡杩囨湡锛岃閲嶆柊鐧诲綍')
+        ElMessage.error('登录状态已过期，请重新登录')
       } catch (_) {}
       // 閬垮厤鍦ㄧ櫥褰曢〉閲嶅璺宠浆
       const current = router.currentRoute?.value
@@ -57,13 +57,23 @@ apiClient.interceptors.response.use(
 // 鎴块棿绠＄悊API
 export const roomsApi = {
   listRooms: (params = {}) => apiClient.get('/rooms', { params }),
+  getFeatureOptions: () => apiClient.get('/rooms/feature-options'),
   getRoom: (roomId) => apiClient.get(`/rooms/${roomId}`),
   getRoomMeterImage: (roomId, type) => apiClient.get(`/rooms/${roomId}/meter-image?type=${type}`),
   addRoom: (roomData) => apiClient.post('/rooms', roomData),
   updateRoom: (roomId, roomData) => apiClient.put(`/rooms/${roomId}`, roomData),
   deleteRoom: (roomId) => apiClient.delete(`/rooms/${roomId}`),
   checkoutRoom: (roomNo) => apiClient.post(`/rooms/${roomNo}/checkout`),
-  getRoomTenants: (roomNo) => apiClient.get(`/rooms/${roomNo}/tenants`)
+  getRoomTenants: (roomNo) => apiClient.get(`/rooms/${roomNo}/tenants`),
+  listSelfCheckinLinks: (roomId) => apiClient.get(`/self-checkin/rooms/${roomId}/links`),
+  createSelfCheckinLink: (roomId) => apiClient.post(`/self-checkin/rooms/${roomId}/links`),
+  disableSelfCheckinLink: (linkId) => apiClient.post(`/self-checkin/links/${linkId}/disable`),
+  enableSelfCheckinLink: (linkId) => apiClient.post(`/self-checkin/links/${linkId}/enable`),
+  deleteSelfCheckinLink: (linkId) => apiClient.delete(`/self-checkin/links/${linkId}`),
+  listSelfCheckinSubmissions: (roomId) => apiClient.get(`/self-checkin/rooms/${roomId}/submissions`),
+  approveSelfCheckinSubmission: (submissionId) => apiClient.post(`/self-checkin/submissions/${submissionId}/approve`),
+  rejectSelfCheckinSubmission: (submissionId, payload) => apiClient.post(`/self-checkin/submissions/${submissionId}/reject`, payload),
+  deleteSelfCheckinSubmission: (submissionId) => apiClient.delete(`/self-checkin/submissions/${submissionId}`),
 }
 
 // 绉熸埛绠＄悊API
@@ -72,25 +82,15 @@ export const tenantsApi = {
   addTenant: (tenantData) => apiClient.post('/tenants', tenantData),
   updateTenant: (tenantId, tenantData) => apiClient.put(`/tenants/${tenantData.id_card}`, tenantData),
   deleteTenant: (idCard) => apiClient.delete(`/tenants/${encodeURIComponent(idCard)}`),
-  checkoutTenant: (idCard) => apiClient.post(`/tenants/${idCard}/checkout`)
-}
-
-// OCR API
-export const ocrApi = {
-  ocrIdCard: (file, side = 'front') => {
+  checkoutTenant: (idCard) => apiClient.post(`/tenants/${idCard}/checkout`),
+  recognizeIdCard: (file) => {
     const formData = new FormData()
-    formData.append('image', file)
-    formData.append('side', side)
-    return apiClient.post('/ocr/idcard', formData, {
+    formData.append('file', file)
+    return apiClient.post('/tenants/recognize-id-card', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
-  },
-  ocrIdCardByUrl: (imageUrl, side = 'front') => apiClient.post('/ocr/idcard/url', {
-    image_url: imageUrl,
-    side
-  })
+  }
 }
-
 
 // 鎼縼绠＄悊API
 export const movesApi = {
@@ -115,6 +115,7 @@ export const repairRecordsApi = {
   getRepairRecord: (recordId) => apiClient.get(`/repair-records/${recordId}`),
   addRepairRecord: (recordData) => apiClient.post('/repair-records', recordData),
   updateRepairRecord: (recordId, recordData) => apiClient.put(`/repair-records/${recordId}`, recordData),
+  listInventoryOptions: () => apiClient.get('/repair-records/inventory-options'),
   uploadRepairImage: (recordId, file, onProgress, imageType = 'before') => {
     const formData = new FormData()
     formData.append('file', file)
@@ -159,8 +160,34 @@ export const authApi = {
   verifyToken: () => apiClient.get('/verify-token', { skipLoading: true })
 }
 
+export const dashboardApi = {
+  getStats: () => apiClient.get('/dashboard/stats')
+}
+
+export const aiAssistantApi = {
+  assistantChat: (payload) => apiClient.post('/ai/assistant/chat', payload),
+  assistantTranscribe: (audioBlob, filename = 'recording.webm') => {
+    const formData = new FormData()
+    formData.append('audio', audioBlob, filename)
+    return apiClient.post('/ai/assistant/transcribe', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+  getSettings: () => apiClient.get('/ai/settings'),
+  updateSettings: (payload) => apiClient.put('/ai/settings', payload),
+  testChat: () => apiClient.post('/ai/settings/test-chat'),
+  testTranscription: () => apiClient.post('/ai/settings/test-transcription'),
+  listSessions: () => apiClient.get('/ai/sessions'),
+  getSession: (id) => apiClient.get(`/ai/sessions/${id}`),
+  deleteSession: (id) => apiClient.delete(`/ai/sessions/${id}`),
+}
+
 export const systemApi = {
   exportData: () => apiClient.get('/system/export', { responseType: 'blob' }),
+  getRoomFeatureOptions: () => apiClient.get('/system/room-feature-options'),
+  updateRoomFeatureOptions: (payload) => apiClient.put('/system/room-feature-options', payload),
+  getOcrSettings: () => apiClient.get('/system/ocr-settings'),
+  updateOcrSettings: (payload) => apiClient.put('/system/ocr-settings', payload),
   importData: (fileOrUrl) => {
     if (typeof fileOrUrl === 'string') {
       return apiClient.post('/system/import', { file_url: fileOrUrl }, {
@@ -200,6 +227,14 @@ export const procurementApi = {
   deleteProcurement: (id) => apiClient.delete(`/procurements/${id}`)
 }
 
+export const businessEntryLinksApi = {
+  getLink: (businessType) => apiClient.get(`/public-entry-links/${businessType}`),
+  createLink: (businessType) => apiClient.post(`/public-entry-links/${businessType}`),
+  disableLink: (linkId) => apiClient.post(`/public-entry-links/${linkId}/disable`),
+  enableLink: (linkId) => apiClient.post(`/public-entry-links/${linkId}/enable`),
+  deleteLink: (linkId) => apiClient.delete(`/public-entry-links/${linkId}`),
+}
+
 // 搴撴埧鏁版嵁API
 export const warehouseApi = {
   listItems: (params) => apiClient.get('/warehouse-items', { params }),
@@ -228,10 +263,32 @@ export const uploadApi = {
   getChunkUploadStatus: (uploadId) => apiClient.get(`/uploads/chunk/${uploadId}/status`),
   completeChunkUpload: (uploadId) => apiClient.post(`/uploads/chunk/${uploadId}/complete`)
 }
+
+export const publicSelfCheckinApi = {
+  getForm: (token) => apiClient.get(`/public/self-checkin/${token}`),
+  recognizeIdCard: (token, file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return apiClient.post(`/public/self-checkin/${token}/recognize-id-card`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+  submit: (token, payload) => apiClient.post(`/public/self-checkin/${token}/submit`, payload),
+}
+
+export const publicBusinessEntryApi = {
+  getForm: (businessType, token) => apiClient.get(`/public-entry/${businessType}/${token}`),
+  uploadImage: (businessType, token, file, onProgress) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return apiClient.post(`/public-entry/${businessType}/${token}/upload-image`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (evt) => {
+        if (!onProgress) return
+        onProgress(evt)
+      },
+    })
+  },
+  submit: (businessType, token, payload) => apiClient.post(`/public-entry/${businessType}/${token}/submit`, payload),
+}
 export default apiClient
-
-
-
-
-
-

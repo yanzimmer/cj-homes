@@ -1,3 +1,4 @@
+# 该文件负责串联执行数据库与通知配置初始化等一键启动前准备工作。
 import sys
 import os
 
@@ -7,11 +8,9 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 try:
     from init_hotel_db import ensure_tables, create_default_admin, ensure_sql_dir_and_migrate_db
     from init_notification_config import write_default_config as init_notify
-    from init_ocr_config import write_default_config as init_ocr
 except ImportError:
     from init_scripts.init_hotel_db import ensure_tables, create_default_admin, ensure_sql_dir_and_migrate_db
     from init_scripts.init_notification_config import write_default_config as init_notify
-    from init_scripts.init_ocr_config import write_default_config as init_ocr
 
 def main():
     print("开始系统初始化...")
@@ -31,8 +30,6 @@ def main():
     print("正在初始化配置文件...")
     notify_path = init_notify()
     print(f"✅ 通知配置已就绪: {notify_path}")
-    ocr_path = init_ocr()
-    print(f"✅ OCR配置已就绪: {ocr_path}")
     
     print("\n🎉 系统初始化全部完成！")
     print("接下来您可以运行 generate_mock_data.py 来生成演示数据。")

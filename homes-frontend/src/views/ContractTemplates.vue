@@ -263,6 +263,7 @@ import { contractTemplatesApi, tenantsApi, roomsApi, contractsApi, notifyApi } f
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
 import { List, Grid, Timer, Document, Printer, Edit, Delete, Search, View } from '@element-plus/icons-vue'
+import { consumeAiDraft } from '../utils/aiDrafts'
 
 const currentView = ref('table') // 'table', 'grid', 'timeline'
 const templates = ref([])
@@ -569,6 +570,22 @@ const openAddDialog = () => {
   // 预加载租户列表，便于在合同名称中联想选择租户姓名
   loadTenantOptions()
   dialogVisible.value = true
+}
+
+const applyContractTemplateDraft = () => {
+  const draft = consumeAiDraft('contract_template')
+  if (!draft) return
+  openAddDialog()
+  tplForm.value = {
+    name: String(draft.name || ''),
+    description: String(draft.description || ''),
+    content_html: String(draft.content_html || defaultSample()),
+    default_landlord: String(draft.default_landlord || tplForm.value.default_landlord || ''),
+  }
+  if (tplForm.value.default_landlord) {
+    vars.value.landlord = tplForm.value.default_landlord
+  }
+  ElMessage.success('AI 草稿已带入合同模板表单')
 }
 
 const openEditDialog = async (id) => {
@@ -964,10 +981,11 @@ const loadDefaultLandlord = async () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('resize', handleResize)
-  fetchTemplates()
-  loadDefaultLandlord()
+  await fetchTemplates()
+  await loadDefaultLandlord()
+  applyContractTemplateDraft()
 })
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)

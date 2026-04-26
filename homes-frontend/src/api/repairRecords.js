@@ -3,7 +3,7 @@ import router from '../router'
 import { ElMessage } from 'element-plus'
 
 // API 基础地址：优先读取环境变量，回退到本地默认地址
-const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:5000/api'
+const API_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 
 // 创建axios实例
 const apiClient = axios.create({

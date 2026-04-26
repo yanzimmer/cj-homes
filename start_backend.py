@@ -29,22 +29,43 @@ def detect_local_ip():
     return ip
 
 
+def pick_backend_port(start_port=5000, max_port=5010):
+    preferred = os.getenv("PORT")
+    if preferred:
+        try:
+            return int(preferred)
+        except ValueError:
+            pass
+
+    for port in range(start_port, max_port + 1):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind(("127.0.0.1", port))
+                return port
+            except OSError:
+                continue
+    raise RuntimeError(f"未找到可用端口（尝试范围: {start_port}-{max_port}）")
+
+
 def main():
     root_dir = os.path.dirname(os.path.abspath(__file__))
     backend_dir = os.path.join(root_dir, "Backend-System")
     python_exe = detect_python(root_dir)
     local_ip = detect_local_ip()
+    backend_port = pick_backend_port()
+    backend_env = os.environ.copy()
+    backend_env["PORT"] = str(backend_port)
 
     print("=" * 56)
     print("正在单独启动后端服务...")
     print(f"Python: {python_exe}")
     print(f"目录: {backend_dir}")
-    print("后端监听: 0.0.0.0:5000")
-    print(f"本机访问: http://127.0.0.1:5000")
-    print(f"局域网访问: http://{local_ip}:5000")
+    print(f"后端监听: 0.0.0.0:{backend_port}")
+    print(f"本机访问: http://127.0.0.1:{backend_port}")
+    print(f"局域网访问: http://{local_ip}:{backend_port}")
     print("=" * 56)
 
-    process = subprocess.Popen([python_exe, "app.py"], cwd=backend_dir, shell=False)
+    process = subprocess.Popen([python_exe, "app.py"], cwd=backend_dir, env=backend_env, shell=False)
     try:
         while True:
             time.sleep(1)

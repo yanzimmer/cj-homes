@@ -216,7 +216,7 @@ const submitForgot = async () => {
   await forgotFormRef.value.validate(async (valid) => {
     if (!valid) return
     try {
-      const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:5000/api'
+      const API_URL = import.meta.env.VITE_API_BASE_URL || '/api'
       const payload = {
         username: forgotForm.username,
         answer: forgotForm.answer,

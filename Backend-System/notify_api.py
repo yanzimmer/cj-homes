@@ -1,3 +1,4 @@
+# 该文件负责处理通知配置查询、测试发送与通知历史记录接口。
 from flask import Blueprint, request, jsonify
 
 from auth_api import token_required

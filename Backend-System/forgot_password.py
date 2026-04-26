@@ -1,3 +1,4 @@
+# 该文件负责处理管理员找回密码所需的密保信息存储与校验逻辑。
 import hashlib
 from common import connect
 

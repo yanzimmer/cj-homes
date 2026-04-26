@@ -1,3 +1,4 @@
+# 该文件负责处理库房物资的增删改查、分页筛选与字段裁剪逻辑。
 import sqlite3
 import json
 from flask import Blueprint, request, jsonify
@@ -57,9 +58,12 @@ def ensure_warehouse_schema():
         """
         CREATE TABLE IF NOT EXISTS warehouse_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            procurement_date TEXT,
             item_name TEXT NOT NULL,
+            specification TEXT,
             category TEXT,
             quantity REAL NOT NULL DEFAULT 0,
+            unit_price REAL DEFAULT 0,
             unit TEXT,
             location TEXT,
             image TEXT,
@@ -69,6 +73,14 @@ def ensure_warehouse_schema():
         )
         """
     )
+    cursor.execute("PRAGMA table_info(warehouse_items)")
+    cols = {row[1] for row in cursor.fetchall()}
+    if "procurement_date" not in cols:
+        cursor.execute("ALTER TABLE warehouse_items ADD COLUMN procurement_date TEXT")
+    if "specification" not in cols:
+        cursor.execute("ALTER TABLE warehouse_items ADD COLUMN specification TEXT")
+    if "unit_price" not in cols:
+        cursor.execute("ALTER TABLE warehouse_items ADD COLUMN unit_price REAL DEFAULT 0")
     conn.commit()
     conn.close()
 
@@ -93,7 +105,7 @@ def list_warehouse_items(current_user):
     if q:
         where_clause = """
             WHERE LOWER(COALESCE(item_name, '')) LIKE ?
-               OR LOWER(COALESCE(category, '')) LIKE ?
+               OR LOWER(COALESCE(specification, '')) LIKE ?
                OR LOWER(COALESCE(location, '')) LIKE ?
                OR LOWER(COALESCE(remarks, '')) LIKE ?
         """
@@ -109,7 +121,7 @@ def list_warehouse_items(current_user):
     page = max(1, min(page, total_pages))
 
     query = f"""
-        SELECT id, item_name, category, quantity, unit, location, image, remarks, created_at, updated_at
+        SELECT id, procurement_date, item_name, specification, quantity, unit_price, unit, location, image, remarks, created_at, updated_at
         FROM warehouse_items
         {where_clause}
         ORDER BY id DESC
@@ -127,23 +139,25 @@ def list_warehouse_items(current_user):
     items = [
         (lambda images: {
             'id': row[0],
-            'item_name': row[1],
-            'category': row[2] or '',
-            'quantity': row[3],
-            'unit': row[4] or '',
-            'location': row[5] or '',
+            'procurement_date': row[1] or '',
+            'item_name': row[2],
+            'specification': row[3] or '',
+            'quantity': row[4],
+            'unit_price': row[5] or 0,
+            'unit': row[6] or '',
+            'location': row[7] or '',
             'image': images[0] if len(images) > 0 else '',
             'images': images,
-            'remarks': row[7] or '',
-            'created_at': row[8],
-            'updated_at': row[9],
+            'remarks': row[9] or '',
+            'created_at': row[10],
+            'updated_at': row[11],
             'has_image': len(images) > 0,
-        })(_parse_warehouse_images(row[6]))
+        })(_parse_warehouse_images(row[8]))
         for row in rows
     ]
 
     allowed_fields = [
-        'id', 'item_name', 'category', 'quantity', 'unit', 'location',
+        'id', 'procurement_date', 'item_name', 'specification', 'quantity', 'unit_price', 'unit', 'location',
         'image', 'images', 'remarks', 'created_at', 'updated_at', 'has_image'
     ]
     selected_fields = parse_fields_arg(request.args, allowed_fields)
@@ -166,7 +180,7 @@ def get_warehouse_item(current_user, item_id):
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT id, item_name, category, quantity, unit, location, image, remarks, created_at, updated_at
+        SELECT id, procurement_date, item_name, specification, quantity, unit_price, unit, location, image, remarks, created_at, updated_at
         FROM warehouse_items
         WHERE id = ?
         """,
@@ -176,21 +190,23 @@ def get_warehouse_item(current_user, item_id):
     conn.close()
     if not row:
         return jsonify({'error': f'库房物资ID {item_id} 不存在'}), 404
-    images = _parse_warehouse_images(row[6])
+    images = _parse_warehouse_images(row[8])
     return jsonify(
         {
             'item': {
                 'id': row[0],
-                'item_name': row[1],
-                'category': row[2] or '',
-                'quantity': row[3],
-                'unit': row[4] or '',
-                'location': row[5] or '',
+                'procurement_date': row[1] or '',
+                'item_name': row[2],
+                'specification': row[3] or '',
+                'quantity': row[4],
+                'unit_price': row[5] or 0,
+                'unit': row[6] or '',
+                'location': row[7] or '',
                 'image': images[0] if len(images) > 0 else '',
                 'images': images,
-                'remarks': row[7] or '',
-                'created_at': row[8],
-                'updated_at': row[9],
+                'remarks': row[9] or '',
+                'created_at': row[10],
+                'updated_at': row[11],
                 'has_image': len(images) > 0,
             }
         }
@@ -201,17 +217,22 @@ def get_warehouse_item(current_user, item_id):
 @token_required
 def create_warehouse_item(current_user):
     data = request.json or {}
+    procurement_date = (data.get('procurement_date') or '').strip()
     item_name = (data.get('item_name') or '').strip()
     quantity = data.get('quantity', 0)
     if not item_name:
-        return jsonify({'error': '物资名称不能为空'}), 400
+        return jsonify({'error': '物品不能为空'}), 400
     try:
         quantity = float(quantity)
     except (TypeError, ValueError):
-        return jsonify({'error': '库存数量格式不正确'}), 400
+        return jsonify({'error': '数量格式不正确'}), 400
     if quantity < 0:
-        return jsonify({'error': '库存数量不能小于0'}), 400
-    category = (data.get('category') or '').strip()
+        return jsonify({'error': '数量不能小于0'}), 400
+    specification = (data.get('specification') or data.get('category') or '').strip()
+    try:
+        unit_price = float(data.get('unit_price', 0) or 0)
+    except (TypeError, ValueError):
+        return jsonify({'error': '单价格式不正确'}), 400
     unit = (data.get('unit') or '').strip()
     location = (data.get('location') or '').strip()
     images = _extract_warehouse_images_from_payload(data)
@@ -222,15 +243,15 @@ def create_warehouse_item(current_user):
     try:
         cursor.execute(
             """
-            INSERT INTO warehouse_items (item_name, category, quantity, unit, location, image, remarks, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
+            INSERT INTO warehouse_items (procurement_date, item_name, specification, category, quantity, unit_price, unit, location, image, remarks, created_at, updated_at)
+            VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
             """,
-            (item_name, category, quantity, unit, location, _dump_warehouse_images(images), remarks),
+            (procurement_date, item_name, specification, quantity, unit_price, unit, location, _dump_warehouse_images(images), remarks),
         )
         item_id = cursor.lastrowid
         conn.commit()
         conn.close()
-        return jsonify({'message': '库房物资新增成功', 'id': item_id}), 200
+        return jsonify({'message': '库存物品新增成功', 'id': item_id}), 200
     except sqlite3.Error as e:
         conn.close()
         return jsonify({'error': str(e)}), 500
@@ -240,22 +261,27 @@ def create_warehouse_item(current_user):
 @token_required
 def update_warehouse_item(current_user, item_id):
     data = request.json or {}
-    allowed_fields = ['item_name', 'category', 'quantity', 'unit', 'location', 'image', 'images', 'remarks']
+    allowed_fields = ['procurement_date', 'item_name', 'specification', 'quantity', 'unit_price', 'unit', 'location', 'image', 'images', 'remarks']
     update_data = {k: data.get(k) for k in allowed_fields if k in data}
     if not update_data:
         return jsonify({'error': '没有可更新的字段'}), 400
     if 'item_name' in update_data:
         update_data['item_name'] = (update_data['item_name'] or '').strip()
         if not update_data['item_name']:
-            return jsonify({'error': '物资名称不能为空'}), 400
+            return jsonify({'error': '物品不能为空'}), 400
     if 'quantity' in update_data:
         try:
             update_data['quantity'] = float(update_data['quantity'])
         except (TypeError, ValueError):
-            return jsonify({'error': '库存数量格式不正确'}), 400
+            return jsonify({'error': '数量格式不正确'}), 400
         if update_data['quantity'] < 0:
-            return jsonify({'error': '库存数量不能小于0'}), 400
-    for text_field in ('category', 'unit', 'location', 'remarks'):
+            return jsonify({'error': '数量不能小于0'}), 400
+    if 'unit_price' in update_data:
+        try:
+            update_data['unit_price'] = float(update_data['unit_price'] or 0)
+        except (TypeError, ValueError):
+            return jsonify({'error': '单价格式不正确'}), 400
+    for text_field in ('procurement_date', 'specification', 'unit', 'location', 'remarks'):
         if text_field in update_data:
             update_data[text_field] = (update_data[text_field] or '').strip()
     if 'images' in update_data or 'image' in update_data:
@@ -276,7 +302,7 @@ def update_warehouse_item(current_user, item_id):
         cursor.execute("UPDATE warehouse_items SET updated_at = DATETIME('now') WHERE id = ?", (item_id,))
         conn.commit()
         conn.close()
-        return jsonify({'message': '库房物资更新成功'})
+        return jsonify({'message': '库存物品更新成功'})
     except sqlite3.Error as e:
         conn.close()
         return jsonify({'error': str(e)}), 500

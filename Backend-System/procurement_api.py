@@ -1,5 +1,7 @@
+# 该文件负责处理采购记录的增删改查、分页筛选与图片关联逻辑。
 from flask import Blueprint, request, jsonify
 from common import connect, parse_fields_arg, parse_pagination_args, project_fields
+from inventory_sync_service import ensure_inventory_sync_schema, sync_procurement_create, sync_procurement_delete, sync_procurement_update
 import sqlite3
 import os
 import uuid
@@ -30,6 +32,7 @@ def ensure_procurement_schema():
         cur.execute("ALTER TABLE procurements ADD COLUMN unit_price REAL DEFAULT 0")
     conn.commit()
     conn.close()
+    ensure_inventory_sync_schema()
 
 
 def _ensure_procurement_upload_dir():
@@ -192,8 +195,19 @@ def create_procurement():
                 _dump_procurement_images(procurement_images),
             )
         )
+        procurement_id = cur.lastrowid
+        sync_procurement_create(
+            conn,
+            procurement_id,
+            data['procurement_date'],
+            data['item_name'],
+            data.get('specification', ''),
+            quantity,
+            unit_price,
+            data.get('unit', ''),
+        )
         conn.commit()
-        return jsonify({'message': 'Procurement created successfully', 'id': cur.lastrowid}), 201
+        return jsonify({'message': 'Procurement created successfully', 'id': procurement_id}), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -217,6 +231,17 @@ def update_procurement(id):
     cur = conn.cursor()
     
     try:
+        cur.execute(
+            """
+            SELECT id, procurement_date, item_name, specification, quantity, unit_price, unit, total_amount, remarks, warehouse_item_id
+            FROM procurements
+            WHERE id = ?
+            """,
+            (id,),
+        )
+        existing = cur.fetchone()
+        if not existing:
+            return jsonify({'error': 'Procurement not found'}), 404
         cur.execute(
             """
             UPDATE procurements SET
@@ -245,9 +270,17 @@ def update_procurement(id):
                 id
             )
         )
+        sync_procurement_update(
+            conn,
+            existing,
+            data['procurement_date'],
+            data['item_name'],
+            data.get('specification', ''),
+            quantity,
+            unit_price,
+            data.get('unit', ''),
+        )
         conn.commit()
-        if cur.rowcount == 0:
-            return jsonify({'error': 'Procurement not found'}), 404
         return jsonify({'message': 'Procurement updated successfully'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -310,10 +343,20 @@ def delete_procurement(id):
     cur = conn.cursor()
     
     try:
+        cur.execute(
+            """
+            SELECT id, procurement_date, item_name, specification, quantity, unit_price, unit, total_amount, remarks, warehouse_item_id
+            FROM procurements
+            WHERE id = ?
+            """,
+            (id,),
+        )
+        existing = cur.fetchone()
+        if not existing:
+            return jsonify({'error': 'Procurement not found'}), 404
+        sync_procurement_delete(conn, existing)
         cur.execute("DELETE FROM procurements WHERE id = ?", (id,))
         conn.commit()
-        if cur.rowcount == 0:
-            return jsonify({'error': 'Procurement not found'}), 404
         return jsonify({'message': 'Procurement deleted successfully'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

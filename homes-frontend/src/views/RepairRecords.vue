@@ -6,7 +6,7 @@
         <el-input
           class="search-input"
           v-model="searchQuery"
-          placeholder="鎼滅储鎴块棿鍙?缁翠慨绫诲瀷"
+          placeholder="搜索房间号/维修类型"
           clearable
           @clear="handleSearchClear"
         >
@@ -14,17 +14,18 @@
             <el-icon><Search /></el-icon>
           </template>
         </el-input>
-        <el-button class="toolbar-btn" type="primary" @click="openAddDialog">娣诲姞缁翠慨璁板綍</el-button>
-        <el-button class="toolbar-btn" type="danger" :disabled="multipleSelection.length === 0" @click="confirmBatchDelete">鎵归噺鍒犻櫎</el-button>
+        <el-button class="toolbar-btn" type="primary" @click="openAddDialog">添加维修记录</el-button>
+        <el-button class="toolbar-btn" type="success" @click="linkDialogVisible = true">填写链接</el-button>
+        <el-button class="toolbar-btn" type="danger" :disabled="multipleSelection.length === 0" @click="confirmBatchDelete">批量删除</el-button>
         <el-dropdown trigger="click" @command="handleExportCommand">
           <el-button class="toolbar-btn" type="success">
-            瀵煎嚭 <el-icon style="margin-left:4px"><Filter /></el-icon>
+            导出 <el-icon style="margin-left:4px"><Filter /></el-icon>
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="excel">瀵煎嚭涓?Excel</el-dropdown-item>
-              <el-dropdown-item command="word">瀵煎嚭涓?Word</el-dropdown-item>
-              <el-dropdown-item command="pdf">瀵煎嚭涓?PDF</el-dropdown-item>
+              <el-dropdown-item command="excel">导出为 Excel</el-dropdown-item>
+              <el-dropdown-item command="word">导出为 Word</el-dropdown-item>
+              <el-dropdown-item command="pdf">导出为 PDF</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -35,7 +36,7 @@
           accept=".xlsx, .xls"
           :on-change="handleImportFile"
         >
-          <el-button class="toolbar-btn" type="warning">瀵煎叆</el-button>
+          <el-button class="toolbar-btn" type="warning">导入</el-button>
         </el-upload>
       </div>
     </div>
@@ -57,31 +58,31 @@
       >
       <el-table-column type="selection" width="55"></el-table-column>
       <el-table-column prop="id" label="ID" width="80" sortable="custom"></el-table-column>
-      <el-table-column prop="building" label="妤兼爧" width="100" sortable="custom"></el-table-column>
+      <el-table-column prop="building" label="楼栋" width="100" sortable="custom"></el-table-column>
       <el-table-column prop="room_no" label="房间号" width="100" sortable="custom"></el-table-column>
-      <el-table-column prop="repair_type" label="缁翠慨绫诲瀷" width="120" sortable="custom">
+      <el-table-column prop="repair_type" label="维修类型" width="120" sortable="custom">
         <template #header>
           <div style="display: flex; align-items: center;">
-            <span>缁翠慨绫诲瀷</span>
+            <span>维修类型</span>
             <el-dropdown trigger="click" @command="handleTypeFilter">
               <el-button style="margin-left: 5px; padding: 2px 5px;" size="small">
                 <el-icon><Filter /></el-icon>
               </el-button>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item command="all">鍏ㄩ儴</el-dropdown-item>
-                  <el-dropdown-item command="姘寸數缁翠慨">姘寸數缁翠慨</el-dropdown-item>
-                  <el-dropdown-item command="瀹跺叿缁翠慨">瀹跺叿缁翠慨</el-dropdown-item>
-                  <el-dropdown-item command="鐢靛櫒缁翠慨">鐢靛櫒缁翠慨</el-dropdown-item>
-                  <el-dropdown-item command="鍏朵粬">鍏朵粬</el-dropdown-item>
+                  <el-dropdown-item command="all">全部</el-dropdown-item>
+                  <el-dropdown-item command="水电维修">水电维修</el-dropdown-item>
+                  <el-dropdown-item command="家具维修">家具维修</el-dropdown-item>
+                  <el-dropdown-item command="电器维修">电器维修</el-dropdown-item>
+                  <el-dropdown-item command="其他">其他</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="description" label="闂鎻忚堪" min-width="120" show-overflow-tooltip></el-table-column>
-      <el-table-column label="鍥剧墖" width="100">
+      <el-table-column prop="description" label="问题描述" min-width="120" show-overflow-tooltip></el-table-column>
+      <el-table-column label="图片" width="100">
         <template #default="scope">
           <el-image lazy loading="lazy"
             v-if="getRepairImages(scope.row).length > 0"
@@ -94,7 +95,7 @@
           <span v-else>-</span>
         </template>
       </el-table-column>
-      <el-table-column prop="report_date" label="鎶ヤ慨鏃ユ湡" width="120" sortable="custom"></el-table-column>
+      <el-table-column prop="report_date" label="报修日期" width="120" sortable="custom"></el-table-column>
       <el-table-column prop="report_by" label="报修人" width="100"></el-table-column>
       <el-table-column prop="status" label="状态" width="100" sortable="custom">
         <template #default="scope">
@@ -109,7 +110,7 @@
               </el-button>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item command="all">鍏ㄩ儴</el-dropdown-item>
+                  <el-dropdown-item command="all">全部</el-dropdown-item>
                   <el-dropdown-item command="待处理">待处理</el-dropdown-item>
                   <el-dropdown-item command="处理中">处理中</el-dropdown-item>
                   <el-dropdown-item command="已完成">已完成</el-dropdown-item>
@@ -119,20 +120,39 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="repair_date" label="缁翠慨鏃ユ湡" width="120" sortable="custom"></el-table-column>
-      <el-table-column prop="repair_cost" label="缁翠慨璐圭敤" width="100" sortable="custom">
+      <el-table-column prop="repair_date" label="维修日期" width="120" sortable="custom"></el-table-column>
+      <el-table-column prop="amount" label="金额" width="100" sortable="custom">
         <template #default="scope">
-          {{ scope.row.repair_cost ? `楼${scope.row.repair_cost}` : '-' }}
+          {{ scope.row.amount ? `¥${scope.row.amount}` : '-' }}
         </template>
       </el-table-column>
-      <el-table-column prop="repair_person" label="缁翠慨浜哄憳" width="100"></el-table-column>
-      <el-table-column prop="remarks" label="澶囨敞" min-width="140" show-overflow-tooltip></el-table-column>
-      <el-table-column label="鎿嶄綔" width="220" fixed="right">
+      <el-table-column label="领用库存" min-width="180" show-overflow-tooltip>
+        <template #default="scope">
+          <div v-if="(scope.row.inventory_usages || []).length > 0" class="inventory-usage-summary">
+            <el-tag
+              v-for="(usage, index) in scope.row.inventory_usages.slice(0, 2)"
+              :key="`summary-${scope.row.id}-${index}`"
+              size="small"
+              type="warning"
+              effect="plain"
+            >
+              {{ usage.item_name || '物品' }} x {{ usage.quantity }}{{ usage.unit || '' }}
+            </el-tag>
+            <span v-if="scope.row.inventory_usages.length > 2" class="inventory-more-text">
+              +{{ scope.row.inventory_usages.length - 2 }} 项
+            </span>
+          </div>
+          <span v-else>-</span>
+        </template>
+      </el-table-column>
+      <el-table-column prop="repair_person" label="维修人员" width="100"></el-table-column>
+      <el-table-column prop="remarks" label="备注" min-width="140" show-overflow-tooltip></el-table-column>
+      <el-table-column label="操作" width="220" fixed="right">
         <template #default="scope">
           <div class="operation-buttons">
-            <el-button size="small" type="primary" @click="viewRecord(scope.row)">鏌ョ湅</el-button>
-            <el-button size="small"  @click="editRecord(scope.row)">缂栬緫</el-button>
-            <el-button size="small" type="danger" @click="confirmDelete(scope.row)">鍒犻櫎</el-button>
+            <el-button size="small" type="primary" @click="viewRecord(scope.row)">查看</el-button>
+            <el-button size="small"  @click="editRecord(scope.row)">编辑</el-button>
+            <el-button size="small" type="danger" @click="confirmDelete(scope.row)">删除</el-button>
           </div>
         </template>
       </el-table-column>
@@ -151,15 +171,15 @@
       />
     </div>
 
-    <!-- 濞ｈ濮?缂栬緫缁翠慨璁板綍鐎电鐦藉?-->
+    <!-- 添加/编辑维修记录对话框 -->
     <el-dialog
       v-model="dialogVisible"
-      :title="isEdit ? '缂栬緫缁翠慨璁板綍' : '娣诲姞缁翠慨璁板綍'"
+      :title="isEdit ? '编辑维修记录' : '添加维修记录'"
       width="50%"
     >
       <el-form :model="recordForm" label-width="100px" :rules="rules" ref="recordFormRef">
-        <el-form-item label="妤兼爧" prop="building">
-          <el-select v-model="recordForm.building" placeholder="璇烽€夋嫨妤兼爧" style="width: 100%" @change="handleBuildingChange">
+        <el-form-item label="楼栋" prop="building">
+          <el-select v-model="recordForm.building" placeholder="请选择楼栋" style="width: 100%" @change="handleBuildingChange">
             <el-option 
               v-for="building in buildingOptions" 
               :key="building" 
@@ -178,25 +198,25 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="缁翠慨绫诲瀷" prop="repair_type">
-          <el-select v-model="recordForm.repair_type" placeholder="璇烽€夋嫨缁翠慨绫诲瀷" style="width: 100%">
-            <el-option label="姘寸數缁翠慨" value="姘寸數缁翠慨" />
-            <el-option label="瀹跺叿缁翠慨" value="瀹跺叿缁翠慨" />
-            <el-option label="鐢靛櫒缁翠慨" value="鐢靛櫒缁翠慨" />
-            <el-option label="鍏朵粬" value="鍏朵粬" />
+        <el-form-item label="维修类型" prop="repair_type">
+          <el-select v-model="recordForm.repair_type" placeholder="请选择维修类型" style="width: 100%">
+            <el-option label="水电维修" value="水电维修" />
+            <el-option label="家具维修" value="家具维修" />
+            <el-option label="电器维修" value="电器维修" />
+            <el-option label="其他" value="其他" />
           </el-select>
         </el-form-item>
-        <el-form-item label="闂鎻忚堪" prop="description">
+        <el-form-item label="问题描述" prop="description">
           <el-input v-model="recordForm.description" type="textarea" :rows="3" placeholder="请输入问题描述" />
         </el-form-item>
         <el-form-item label="报修人" prop="report_by">
-          <el-input v-model="recordForm.report_by" placeholder="璇疯緭鍏ユ姤淇汉濮撳悕" />
+          <el-input v-model="recordForm.report_by" placeholder="请输入报修人姓名" />
         </el-form-item>
-        <el-form-item label="鎶ヤ慨鏃ユ湡" prop="report_date">
+        <el-form-item label="报修日期" prop="report_date">
           <el-date-picker
             v-model="recordForm.report_date"
             type="date"
-            placeholder="閫夋嫨鏃ユ湡"
+            placeholder="选择日期"
             format="YYYY-MM-DD"
             value-format="YYYY-MM-DD"
             style="width: 100%"
@@ -204,28 +224,54 @@
         </el-form-item>
         <el-form-item label="状态" prop="status">
           <el-select v-model="recordForm.status" placeholder="请选择状态" style="width: 100%">
-            <el-option label="待处理" value="待处理" />`r`n            <el-option label="处理中" value="处理中" />`r`n            <el-option label="已完成" value="已完成" />
+            <el-option label="待处理" value="待处理" />
+            <el-option label="处理中" value="处理中" />
+            <el-option label="已完成" value="已完成" />
           </el-select>
         </el-form-item>
+        <el-form-item label="金额">
+          <el-input-number v-model="recordForm.amount" :min="0" :precision="2" :step="10" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="支付人员">
+          <el-input v-model="recordForm.payment_person" placeholder="请输入支付人员姓名" />
+        </el-form-item>
         <template v-if="recordForm.status === '已完成' || recordForm.status === '处理中'">
-          <el-form-item label="缁翠慨鏃ユ湡">
+          <el-form-item label="维修日期">
             <el-date-picker
               v-model="recordForm.repair_date"
               type="date"
-              placeholder="閫夋嫨鏃ユ湡"
+              placeholder="选择日期"
               format="YYYY-MM-DD"
               value-format="YYYY-MM-DD"
               style="width: 100%"
             />
           </el-form-item>
-          <el-form-item label="缁翠慨璐圭敤">
-            <el-input-number v-model="recordForm.repair_cost" :min="0" :precision="2" :step="10" style="width: 100%" />
-          </el-form-item>
-          <el-form-item label="缁翠慨浜哄憳">
+          <el-form-item label="维修人员">
             <el-input v-model="recordForm.repair_person" placeholder="请输入维修人员姓名" />
           </el-form-item>
         </template>
-        <el-form-item label="澶囨敞">
+        <el-form-item label="使用库存" class="full-span">
+          <div class="inventory-usage-wrap">
+            <div
+              v-for="(usage, index) in recordForm.inventory_usages"
+              :key="`usage-${index}`"
+              class="inventory-usage-row"
+            >
+              <el-select v-model="usage.warehouse_item_id" placeholder="选择库存物品" style="width: 100%">
+                <el-option
+                  v-for="item in inventoryOptions"
+                  :key="item.id"
+                  :label="`${item.item_name}${item.specification ? ` / ${item.specification}` : ''} / 库存 ${item.quantity}${item.unit || ''}`"
+                  :value="item.id"
+                />
+              </el-select>
+              <el-input-number v-model="usage.quantity" :min="1" :precision="2" style="width: 140px" />
+              <el-button type="danger" plain @click="removeInventoryUsage(index)">删除</el-button>
+            </div>
+            <el-button type="primary" plain @click="addInventoryUsage">添加库存领用</el-button>
+          </div>
+        </el-form-item>
+        <el-form-item label="备注">
           <el-input v-model="recordForm.remarks" type="textarea" :rows="2" placeholder="可选" />
         </el-form-item>
         <el-form-item label="维修前图片">
@@ -235,13 +281,22 @@
             :show-file-list="false"
             accept="image/*"
             multiple
-            :limit="50"
+            :limit="30"
             :on-change="(file) => handleRepairImageChange('before', file)"
           >
-            <el-button type="primary" plain>选择图片(最多50张)</el-button>
+            <el-button type="primary" plain>选择图片(最多30张)</el-button>
           </el-upload>
+          <el-button
+            v-if="recordForm.repair_images_before.length > 0"
+            style="margin-left: 8px"
+            type="danger"
+            plain
+            @click="clearAllFormImages('before')"
+          >
+            全部删除图片
+          </el-button>
           <div class="upload-progress-text" v-if="uploadingRepairImages">上传进度 {{ uploadProgress }}%</div>
-          <div class="upload-progress-text">宸查€?{{ recordForm.repair_images_before.length }} / 50</div>
+          <div class="upload-progress-text">已选 {{ recordForm.repair_images_before.length }} / 30</div>
           <div v-if="recordForm.repair_images_before.length > 0" class="repair-image-preview-wrap">
             <div v-for="(img, index) in recordForm.repair_images_before" :key="`${img}-${index}`" class="repair-image-box">
               <el-image lazy loading="lazy"
@@ -251,7 +306,7 @@
                 fit="cover"
                 preview-teleported
               />
-              <el-button size="small" type="danger" plain @click="removeFormImage('before', index)">鍒犻櫎</el-button>
+              <el-button size="small" type="danger" plain @click="removeFormImage('before', index)">删除</el-button>
             </div>
           </div>
         </el-form-item>
@@ -262,12 +317,21 @@
             :show-file-list="false"
             accept="image/*"
             multiple
-            :limit="50"
+            :limit="30"
             :on-change="(file) => handleRepairImageChange('after', file)"
           >
-            <el-button type="primary" plain>选择图片(最多50张)</el-button>
+            <el-button type="primary" plain>选择图片(最多30张)</el-button>
           </el-upload>
-          <div class="upload-progress-text">宸查€?{{ recordForm.repair_images_after.length }} / 50</div>
+          <el-button
+            v-if="recordForm.repair_images_after.length > 0"
+            style="margin-left: 8px"
+            type="danger"
+            plain
+            @click="clearAllFormImages('after')"
+          >
+            全部删除图片
+          </el-button>
+          <div class="upload-progress-text">已选 {{ recordForm.repair_images_after.length }} / 30</div>
           <div v-if="recordForm.repair_images_after.length > 0" class="repair-image-preview-wrap">
             <div v-for="(img, index) in recordForm.repair_images_after" :key="`${img}-${index}`" class="repair-image-box">
               <el-image lazy loading="lazy"
@@ -277,40 +341,91 @@
                 fit="cover"
                 preview-teleported
               />
-              <el-button size="small" type="danger" plain @click="removeFormImage('after', index)">鍒犻櫎</el-button>
+              <el-button size="small" type="danger" plain @click="removeFormImage('after', index)">删除</el-button>
+            </div>
+          </div>
+        </el-form-item>
+        <el-form-item label="支付截图">
+          <el-upload
+            action=""
+            :auto-upload="false"
+            :show-file-list="false"
+            accept="image/*"
+            multiple
+            :limit="30"
+            :on-change="(file) => handleRepairImageChange('payment', file)"
+          >
+            <el-button type="primary" plain>选择图片(最多30张)</el-button>
+          </el-upload>
+          <el-button
+            v-if="recordForm.payment_images.length > 0"
+            style="margin-left: 8px"
+            type="danger"
+            plain
+            @click="clearAllFormImages('payment')"
+          >
+            全部删除图片
+          </el-button>
+          <div class="upload-progress-text">已选 {{ recordForm.payment_images.length }} / 30</div>
+          <div v-if="recordForm.payment_images.length > 0" class="repair-image-preview-wrap">
+            <div v-for="(img, index) in recordForm.payment_images" :key="`${img}-${index}`" class="repair-image-box">
+              <el-image lazy loading="lazy"
+                class="repair-image-thumb"
+                :src="toImageUrl(img)"
+                :preview-src-list="recordForm.payment_images.map((v) => toImageUrl(v))"
+                fit="cover"
+                preview-teleported
+              />
+              <el-button size="small" type="danger" plain @click="removeFormImage('payment', index)">删除</el-button>
             </div>
           </div>
         </el-form-item>
       </el-form>
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="dialogVisible = false">鍙栨秷</el-button>
-          <el-button type="primary" @click="submitForm">纭</el-button>
+          <el-button @click="dialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="submitForm">确认</el-button>
         </span>
       </template>
     </el-dialog>
 
-    <!-- 鏌ョ湅缁翠慨璁板綍璇︽儏鐎电鐦藉?-->
+    <!-- 查看维修记录详情对话框 -->
     <el-dialog
       v-model="detailDialogVisible"
-      title="缁翠慨璁板綍璇︽儏"
+      title="维修记录详情"
       width="50%"
     >
             <el-descriptions :column="2" border>
         <el-descriptions-item label="ID">{{ currentRecord.id }}</el-descriptions-item>
-        <el-descriptions-item label="妤兼爧">{{ currentRecord.building }}</el-descriptions-item>
+        <el-descriptions-item label="楼栋">{{ currentRecord.building }}</el-descriptions-item>
         <el-descriptions-item label="房间号">{{ currentRecord.room_no }}</el-descriptions-item>
-        <el-descriptions-item label="缁翠慨绫诲瀷">{{ currentRecord.repair_type }}</el-descriptions-item>
-        <el-descriptions-item label="闂鎻忚堪" :span="2">{{ currentRecord.description }}</el-descriptions-item>
-        <el-descriptions-item label="鎶ヤ慨浜哄憳">{{ currentRecord.report_by }}</el-descriptions-item>
-        <el-descriptions-item label="鎶ヤ慨鏃堕棿">{{ currentRecord.report_date }}</el-descriptions-item>
+        <el-descriptions-item label="维修类型">{{ currentRecord.repair_type }}</el-descriptions-item>
+        <el-descriptions-item label="问题描述" :span="2">{{ currentRecord.description }}</el-descriptions-item>
+        <el-descriptions-item label="报修人">{{ currentRecord.report_by }}</el-descriptions-item>
+        <el-descriptions-item label="报修日期">{{ currentRecord.report_date }}</el-descriptions-item>
         <el-descriptions-item label="状态">
           <el-tag :type="getStatusType(currentRecord.status)">{{ currentRecord.status }}</el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="缁翠慨鏃ユ湡">{{ currentRecord.repair_date || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="缁翠慨璐圭敤">{{ currentRecord.repair_cost ? `楼${currentRecord.repair_cost}` : '-' }}</el-descriptions-item>
-        <el-descriptions-item label="缁翠慨浜哄憳">{{ currentRecord.repair_person || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="澶囨敞" :span="2">{{ currentRecord.remarks || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="维修日期">{{ currentRecord.repair_date || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="金额">{{ currentRecord.amount ? `¥${currentRecord.amount}` : '-' }}</el-descriptions-item>
+        <el-descriptions-item label="维修人员">{{ currentRecord.repair_person || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="支付人员">{{ currentRecord.payment_person || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="使用库存" :span="2">
+          <div v-if="(currentRecord.inventory_usages || []).length > 0" class="inventory-usage-detail">
+            <div v-for="(usage, index) in currentRecord.inventory_usages" :key="`detail-usage-${index}`" class="inventory-usage-card">
+              <div class="inventory-usage-name">
+                {{ usage.item_name || '未命名物品' }}
+                <span v-if="usage.specification"> / {{ usage.specification }}</span>
+              </div>
+              <div class="inventory-usage-meta">
+                <el-tag size="small" type="warning" effect="plain">领用 {{ usage.quantity }}{{ usage.unit || '' }}</el-tag>
+                <span v-if="usage.location" class="inventory-location">位置：{{ usage.location }}</span>
+              </div>
+            </div>
+          </div>
+          <span v-else>-</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="备注" :span="2">{{ currentRecord.remarks || '-' }}</el-descriptions-item>
         <el-descriptions-item label="维修前图片" :span="2">
           <div v-if="getRepairImagesBefore(currentRecord).length > 0" class="detail-image-list">
             <el-image lazy loading="lazy"
@@ -339,28 +454,42 @@
           </div>
           <span v-else>-</span>
         </el-descriptions-item>
+        <el-descriptions-item label="支付截图" :span="2">
+          <div v-if="getRepairPaymentImages(currentRecord).length > 0" class="detail-image-list">
+            <el-image lazy loading="lazy"
+              v-for="(img, index) in getRepairPaymentImages(currentRecord)"
+              :key="`payment-${img}-${index}`"
+              class="detail-image-thumb"
+              :src="toImageUrl(img)"
+              :preview-src-list="getRepairPaymentImages(currentRecord).map((v) => toImageUrl(v))"
+              fit="cover"
+              preview-teleported
+            />
+          </div>
+          <span v-else>-</span>
+        </el-descriptions-item>
       </el-descriptions>
     </el-dialog>
   </div>
 
-  <!-- 闂呮劘妫岄幍鎾冲祪閸栧搫鐓欓敍姘辩摣闁鎮楅惃鍕樊娣囶喛顔囪ぐ鏇炲灙鐞涱煉绱濋悽銊ょ艾 PDF 閹搭亜娴樺〒鍙夌厠 -->
+  <!-- 隐藏打印区域：用于 PDF 截图导出 -->
   <div v-if="showPrintArea" ref="printAreaRef" class="print-area">
-    <h2 style="text-align:center; margin-bottom: 12px;">缁翠慨璁板綍</h2>
+    <h2 style="text-align:center; margin-bottom: 12px;">维修记录</h2>
     <table class="print-table">
       <thead>
         <tr>
           <th>ID</th>
-          <th>妤兼爧</th>
+          <th>楼栋</th>
           <th>房间号</th>
-          <th>缁翠慨绫诲瀷</th>
-          <th>闂鎻忚堪</th>
-          <th>鎶ヤ慨鏃ユ湡</th>
+          <th>维修类型</th>
+          <th>问题描述</th>
+          <th>报修日期</th>
           <th>报修人</th>
           <th>状态</th>
-          <th>缁翠慨鏃ユ湡</th>
-          <th>缁翠慨璐圭敤</th>
-          <th>缁翠慨浜哄憳</th>
-          <th>澶囨敞</th>
+          <th>维修日期</th>
+          <th>金额</th>
+          <th>维修人员</th>
+          <th>备注</th>
         </tr>
       </thead>
       <tbody>
@@ -374,7 +503,7 @@
           <td>{{ r.report_by }}</td>
           <td>{{ r.status }}</td>
           <td>{{ r.repair_date }}</td>
-          <td>{{ r.repair_cost }}</td>
+          <td>{{ r.amount }}</td>
           <td>{{ r.repair_person }}</td>
           <td>{{ r.remarks }}</td>
         </tr>
@@ -382,6 +511,13 @@
     </table>
   </div>
   </div>
+
+  <BusinessPublicLinkDialog
+    v-model="linkDialogVisible"
+    business-type="repair"
+    title="维修填写链接"
+    business-label="维修记录"
+  />
 </template>
 
 <script setup>
@@ -396,8 +532,11 @@ import jsPDF from 'jspdf'
 import 'jspdf-autotable'
 import html2canvas from 'html2canvas'
 import { uploadFileByChunks } from '../utils/chunkUploader'
+import { consumeAiDraft } from '../utils/aiDrafts'
+import BusinessPublicLinkDialog from '../components/BusinessPublicLinkDialog.vue'
 
 const loading = ref(false)
+const linkDialogVisible = ref(false)
 
 // 缂佺繝鎱ㄧ拋鏉跨秿閸掓銆?
 const records = ref([])
@@ -427,12 +566,14 @@ const isEdit = ref(false)
 const recordFormRef = ref(null)
 const repairImageFilesBefore = ref([])
 const repairImageFilesAfter = ref([])
+const repairPaymentImageFiles = ref([])
 const uploadingRepairImages = ref(false)
 const uploadProgress = ref(0)
-const MAX_REPAIR_IMAGES = 50
+const MAX_REPAIR_IMAGES = 30
+const inventoryOptions = ref([])
 
 const currentRecord = ref({})
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:5000/api'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 const API_ORIGIN = API_BASE.replace(/\/api\/?$/, '')
 
 const allRooms = ref([])
@@ -449,11 +590,14 @@ const recordForm = ref({
   report_date: new Date().toISOString().split('T')[0],
   status: '待处理',
   repair_date: '',
-  repair_cost: null,
+  amount: null,
   repair_person: '',
+  payment_person: '',
+  inventory_usages: [],
   remarks: '',
   repair_images_before: [],
-  repair_images_after: []
+  repair_images_after: [],
+  payment_images: [],
 })
 
 const toImageUrl = (value) => {
@@ -503,6 +647,7 @@ const parseRepairImagesByType = (record, type = 'before') => {
 
 const getRepairImagesBefore = (record) => parseRepairImagesByType(record, 'before')
 const getRepairImagesAfter = (record) => parseRepairImagesByType(record, 'after')
+const getRepairPaymentImages = (record) => parseRepairImagesByType(record, 'payment')
 const getRepairImages = (record) => {
   const merged = [...getRepairImagesBefore(record), ...getRepairImagesAfter(record)]
   return [...new Set(merged)].slice(0, MAX_REPAIR_IMAGES)
@@ -510,11 +655,11 @@ const getRepairImages = (record) => {
 
 // 鐞涖劌宕熸宀冪槈鐟欏嫬鍨?
 const rules = {
-  building: [{ required: true, message: '璇烽€夋嫨妤兼爧', trigger: 'change' }],
+  building: [{ required: true, message: '请选择楼栋', trigger: 'change' }],
   room_no: [{ required: true, message: '请选择房间号', trigger: 'change' }],
-  repair_type: [{ required: true, message: '璇烽€夋嫨缁翠慨绫诲瀷', trigger: 'change' }],
+  repair_type: [{ required: true, message: '请选择维修类型', trigger: 'change' }],
   description: [{ required: true, message: '请输入问题描述', trigger: 'blur' }],
-  report_by: [{ required: true, message: '璇疯緭鍏ユ姤淇汉濮撳悕', trigger: 'blur' }],
+  report_by: [{ required: true, message: '请输入报修人姓名', trigger: 'blur' }],
   status: [{ required: true, message: '请选择状态', trigger: 'change' }]
 }
 
@@ -539,7 +684,7 @@ const loadRecords = async () => {
     const params = {
       page: currentPage.value,
       page_size: pageSize.value,
-      fields: 'id,building,room_no,repair_type,description,report_date,report_by,status,repair_date,repair_cost,repair_person,remarks,repair_images_before,repair_images_after,repair_image_before,repair_image_after,repair_images,repair_image'
+      fields: 'id,building,room_no,repair_type,description,report_date,report_by,status,repair_date,repair_cost,amount,repair_person,payment_person,remarks,inventory_usages,repair_images_before,repair_images_after,repair_image_before,repair_image_after,repair_images,repair_image,payment_images,payment_image'
     }
     if (searchQuery.value.trim()) params.q = searchQuery.value.trim()
     if (typeFilter.value !== 'all') params.repair_type = typeFilter.value
@@ -554,8 +699,8 @@ const loadRecords = async () => {
     const total = Number(response?.data?.pagination?.total ?? response?.data?.total ?? records.value.length)
     totalRecords.value = Number.isFinite(total) ? total : records.value.length
   } catch (error) {
-    console.error('鍔犺浇缁翠慨璁板綍澶辫触', error)
-    ElMessage.error('鍔犺浇缁翠慨璁板綍澶辫触')
+    console.error('加载维修记录失败', error)
+    ElMessage.error('加载维修记录失败')
   } finally {
     loading.value = false
   }
@@ -623,8 +768,17 @@ const loadRooms = async () => {
     const buildings = new Set(allRooms.value.map(room => room.building).filter(Boolean))
     buildingOptions.value = Array.from(buildings)
   } catch (error) {
-    console.error('鍔犺浇鎴块棿鏁版嵁澶辫触', error)
-    ElMessage.error('鍔犺浇鎴块棿鏁版嵁澶辫触')
+    console.error('加载房间数据失败', error)
+    ElMessage.error('加载房间数据失败')
+  }
+}
+
+const loadInventoryOptions = async () => {
+  try {
+    const response = await repairRecordsApi.listInventoryOptions()
+    inventoryOptions.value = response?.data?.items || []
+  } catch (error) {
+    console.error('加载库存选项失败', error)
   }
 }
 
@@ -641,8 +795,12 @@ const openAddDialog = () => {
   for (const item of repairImageFilesAfter.value) {
     if (String(item?.url || '').startsWith('blob:')) URL.revokeObjectURL(item.url)
   }
+  for (const item of repairPaymentImageFiles.value) {
+    if (String(item?.url || '').startsWith('blob:')) URL.revokeObjectURL(item.url)
+  }
   repairImageFilesBefore.value = []
   repairImageFilesAfter.value = []
+  repairPaymentImageFiles.value = []
   uploadingRepairImages.value = false
   uploadProgress.value = 0
   recordForm.value = {
@@ -654,20 +812,56 @@ const openAddDialog = () => {
     report_date: new Date().toISOString().split('T')[0],
     status: '待处理',
     repair_date: '',
-    repair_cost: null,
+    amount: null,
     repair_person: '',
+    payment_person: '',
+    inventory_usages: [],
     remarks: '',
     repair_images_before: [],
-    repair_images_after: []
+    repair_images_after: [],
+    payment_images: []
   }
   filteredRooms.value = []
   dialogVisible.value = true
 }
 
+const applyRepairDraft = () => {
+  const draft = consumeAiDraft('repair')
+  if (!draft) return
+  openAddDialog()
+  if (draft.building) {
+    recordForm.value.building = String(draft.building)
+    filteredRooms.value = allRooms.value.filter(room => room.building === recordForm.value.building)
+  }
+  if (draft.room_no) recordForm.value.room_no = String(draft.room_no)
+  if (draft.repair_type) recordForm.value.repair_type = String(draft.repair_type)
+  if (draft.description) recordForm.value.description = String(draft.description)
+  if (draft.report_by) recordForm.value.report_by = String(draft.report_by)
+  if (draft.report_date) recordForm.value.report_date = String(draft.report_date)
+  if (draft.status) recordForm.value.status = String(draft.status)
+  if (draft.repair_date) recordForm.value.repair_date = String(draft.repair_date)
+  if (draft.amount !== undefined && draft.amount !== null && draft.amount !== '') {
+    recordForm.value.amount = Number(draft.amount)
+  } else if (draft.repair_cost !== undefined && draft.repair_cost !== null && draft.repair_cost !== '') {
+    recordForm.value.amount = Number(draft.repair_cost)
+  }
+  if (draft.repair_person) recordForm.value.repair_person = String(draft.repair_person)
+  if (draft.payment_person) recordForm.value.payment_person = String(draft.payment_person)
+  if (Array.isArray(draft.inventory_usages)) recordForm.value.inventory_usages = draft.inventory_usages
+  if (draft.remarks) recordForm.value.remarks = String(draft.remarks)
+  ElMessage.success('AI 草稿已带入维修记录表单')
+}
+
 // 鏌ョ湅鐠佹澘缍嶇拠锔藉剰
-const viewRecord = (row) => {
+const viewRecord = async (row) => {
   currentRecord.value = { ...row }
   detailDialogVisible.value = true
+  try {
+    const response = await repairRecordsApi.getRepairRecord(row.id)
+    currentRecord.value = response?.data?.repair_record || { ...row }
+  } catch (error) {
+    console.error('获取维修详情失败', error)
+  }
 }
 
 // 缂栬緫鐠佹澘缍?
@@ -679,14 +873,21 @@ const editRecord = (row) => {
   for (const item of repairImageFilesAfter.value) {
     if (String(item?.url || '').startsWith('blob:')) URL.revokeObjectURL(item.url)
   }
+  for (const item of repairPaymentImageFiles.value) {
+    if (String(item?.url || '').startsWith('blob:')) URL.revokeObjectURL(item.url)
+  }
   repairImageFilesBefore.value = []
   repairImageFilesAfter.value = []
+  repairPaymentImageFiles.value = []
   uploadingRepairImages.value = false
   uploadProgress.value = 0
   recordForm.value = {
     ...row,
+    amount: row.amount ?? row.repair_cost ?? null,
+    inventory_usages: Array.isArray(row.inventory_usages) ? row.inventory_usages : [],
     repair_images_before: getRepairImagesBefore(row),
-    repair_images_after: getRepairImagesAfter(row)
+    repair_images_after: getRepairImagesAfter(row),
+    payment_images: getRepairPaymentImages(row)
   }
 
   if (row.building) {
@@ -696,8 +897,16 @@ const editRecord = (row) => {
   dialogVisible.value = true
 }
 
-const getFormImageField = (type) => (type === 'after' ? 'repair_images_after' : 'repair_images_before')
-const getPendingImageFiles = (type) => (type === 'after' ? repairImageFilesAfter : repairImageFilesBefore)
+const getFormImageField = (type) => {
+  if (type === 'after') return 'repair_images_after'
+  if (type === 'payment') return 'payment_images'
+  return 'repair_images_before'
+}
+const getPendingImageFiles = (type) => {
+  if (type === 'after') return repairImageFilesAfter
+  if (type === 'payment') return repairPaymentImageFiles
+  return repairImageFilesBefore
+}
 
 const safeUploadPart = (value, fallback = 'unknown') => {
   const clean = String(value || '').trim().replace(/[^0-9A-Za-z_-]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '')
@@ -724,12 +933,23 @@ const handleRepairImageChange = (type, file) => {
     return
   }
   if (file.raw.size && file.raw.size > 20 * 1024 * 1024) {
-    ElMessage.warning('鍥剧墖璇锋帶鍒跺湪 20MB 浠ュ唴')
+    ElMessage.warning('图片请控制在 20MB 以内')
     return
   }
   const url = URL.createObjectURL(file.raw)
   getPendingImageFiles(type).value.push({ file: file.raw, url })
   recordForm.value[field] = [...(recordForm.value[field] || []), url]
+}
+
+const addInventoryUsage = () => {
+  recordForm.value.inventory_usages = [...(recordForm.value.inventory_usages || []), { warehouse_item_id: null, quantity: 1 }]
+}
+
+const removeInventoryUsage = (index) => {
+  const list = [...(recordForm.value.inventory_usages || [])]
+  if (index < 0 || index >= list.length) return
+  list.splice(index, 1)
+  recordForm.value.inventory_usages = list
 }
 
 const removeFormImage = (type, index) => {
@@ -745,14 +965,26 @@ const removeFormImage = (type, index) => {
   }
 }
 
+const clearAllFormImages = (type) => {
+  const field = getFormImageField(type)
+  const list = [...(recordForm.value[field] || [])]
+  list.forEach((target) => {
+    if (String(target || '').startsWith('blob:')) {
+      URL.revokeObjectURL(String(target))
+    }
+  })
+  recordForm.value[field] = []
+  getPendingImageFiles(type).value = []
+}
+
 // 纭鍒犻櫎
 const confirmDelete = (row) => {
   ElMessageBox.confirm(
     `确定要删除房间 ${row.room_no} 的维修记录吗？`,
-    '鍒犻櫎纭',
+    '删除确认',
     {
-      confirmButtonText: '纭畾',
-      cancelButtonText: '鍙栨秷',
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
       type: 'warning'
     }
   ).then(() => {
@@ -765,10 +997,10 @@ const confirmBatchDelete = () => {
   if (!multipleSelection.value.length) return
   ElMessageBox.confirm(
     `确定要批量删除选中的 ${multipleSelection.value.length} 条维修记录吗？`,
-    '鎵归噺鍒犻櫎纭',
+    '批量删除确认',
     {
-      confirmButtonText: '纭畾',
-      cancelButtonText: '鍙栨秷',
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
       type: 'warning'
     }
   ).then(() => {
@@ -781,11 +1013,11 @@ const deleteRecord = async (id) => {
   loading.value = true
   try {
     await repairRecordsApi.deleteRepairRecord(id)
-    ElMessage.success('鍒犻櫎鎴愬姛')
+    ElMessage.success('删除成功')
     loadRecords()
   } catch (error) {
-    console.error('鍒犻櫎缁翠慨璁板綍澶辫触', error)
-    ElMessage.error('鍒犻櫎缁翠慨璁板綍澶辫触')
+    console.error('删除维修记录失败', error)
+    ElMessage.error('删除维修记录失败')
   } finally {
     loading.value = false
   }
@@ -804,7 +1036,7 @@ const batchDeleteRecords = async () => {
       // 鏉炶浜曞鑸垫娴犮儱鍣虹亸鎴濊嫙閸欐垵鍟撻崗銉ヮ嚠SQLite閻ㄥ嫰鏀ｇ粩鐐扮挨
       await new Promise(r => setTimeout(r, 50))
     } catch (error) {
-      const msg = error?.response?.data?.message || error?.message || '鍒犻櫎澶辫触'
+      const msg = error?.response?.data?.message || error?.message || '删除失败'
       failures.push(`${row.room_no || ""}(ID:${row.id})：${msg}`)
       await new Promise(r => setTimeout(r, 50))
     }
@@ -821,7 +1053,7 @@ const batchDeleteRecords = async () => {
     ElMessage.success(`批量删除完成：成功 ${successCount} 条`)
   } else {
     ElMessage.error(`批量删除完成：成功 ${successCount} 条，失败 ${failures.length} 条`)
-    console.warn('鎵归噺鍒犻櫎澶辫触璇︽儏锛歕n' + failures.join('\n'))
+    console.warn('批量删除失败详情:\n' + failures.join('\n'))
   }
 }
 
@@ -834,10 +1066,15 @@ const submitForm = async () => {
       loading.value = true
       try {
         const formData = { ...recordForm.value }
+        formData.amount = formData.amount === '' ? null : formData.amount
+        formData.repair_cost = formData.amount
+        formData.inventory_usages = (formData.inventory_usages || []).filter(item => item?.warehouse_item_id && Number(item?.quantity) > 0)
         const existingBeforeImages = (formData.repair_images_before || []).filter(v => typeof v === 'string' && !v.startsWith('blob:')).slice(0, MAX_REPAIR_IMAGES)
         const existingAfterImages = (formData.repair_images_after || []).filter(v => typeof v === 'string' && !v.startsWith('blob:')).slice(0, MAX_REPAIR_IMAGES)
+        const existingPaymentImages = (formData.payment_images || []).filter(v => typeof v === 'string' && !v.startsWith('blob:')).slice(0, MAX_REPAIR_IMAGES)
         formData.repair_images_before = existingBeforeImages
         formData.repair_images_after = existingAfterImages
+        formData.payment_images = existingPaymentImages
         delete formData.repair_images
         delete formData.repair_image
         delete formData.repair_image_before
@@ -846,16 +1083,17 @@ const submitForm = async () => {
         let targetId = formData.id
         if (isEdit.value) {
           await repairRecordsApi.updateRepairRecord(formData.id, formData)
-          ElMessage.success(isEdit.value ? '鏇存柊鎴愬姛' : '鏂板鎴愬姛')
+          ElMessage.success(isEdit.value ? '更新成功' : '新增成功')
         } else {
           const created = await repairRecordsApi.addRepairRecord(formData)
           targetId = created?.data?.id
-          ElMessage.success(isEdit.value ? '鏇存柊鎴愬姛' : '鏂板鎴愬姛')
+          ElMessage.success(isEdit.value ? '更新成功' : '新增成功')
         }
 
         const pendingUploads = [
           ...repairImageFilesBefore.value.map(item => ({ ...item, imageType: 'before' })),
-          ...repairImageFilesAfter.value.map(item => ({ ...item, imageType: 'after' }))
+          ...repairImageFilesAfter.value.map(item => ({ ...item, imageType: 'after' })),
+          ...repairPaymentImageFiles.value.map(item => ({ ...item, imageType: 'payment' }))
         ]
 
         if (targetId && pendingUploads.length > 0) {
@@ -863,6 +1101,7 @@ const submitForm = async () => {
           uploadProgress.value = 0
           const uploadedBefore = []
           const uploadedAfter = []
+          const uploadedPayment = []
           const total = pendingUploads.length
 
           for (let i = 0; i < total; i++) {
@@ -880,9 +1119,10 @@ const submitForm = async () => {
             })
             const fileUrl = String(result?.file_url || '')
             if (!fileUrl) {
-              throw new Error('涓婁紶鎴愬姛浣嗘湭杩斿洖鍥剧墖鍦板潃')
+              throw new Error('上传成功但未返回图片地址')
             }
             if (item.imageType === 'after') uploadedAfter.push(fileUrl)
+            else if (item.imageType === 'payment') uploadedPayment.push(fileUrl)
             else uploadedBefore.push(fileUrl)
             if (String(item.url || '').startsWith('blob:')) {
               URL.revokeObjectURL(item.url)
@@ -891,24 +1131,28 @@ const submitForm = async () => {
 
           const finalBefore = [...existingBeforeImages, ...uploadedBefore].slice(0, MAX_REPAIR_IMAGES)
           const finalAfter = [...existingAfterImages, ...uploadedAfter].slice(0, MAX_REPAIR_IMAGES)
+          const finalPayment = [...existingPaymentImages, ...uploadedPayment].slice(0, MAX_REPAIR_IMAGES)
           await repairRecordsApi.updateRepairRecord(targetId, {
             repair_images_before: finalBefore,
             repair_images_after: finalAfter,
+            payment_images: finalPayment,
           })
           recordForm.value.repair_images_before = finalBefore
           recordForm.value.repair_images_after = finalAfter
+          recordForm.value.payment_images = finalPayment
           uploadProgress.value = 100
         }
 
         dialogVisible.value = false
         repairImageFilesBefore.value = []
         repairImageFilesAfter.value = []
+        repairPaymentImageFiles.value = []
         uploadingRepairImages.value = false
         uploadProgress.value = 0
         loadRecords()
       } catch (error) {
-        console.error('淇濆瓨缁翠慨璁板綍澶辫触', error)
-        ElMessage.error('淇濆瓨缁翠慨璁板綍澶辫触')
+        console.error('保存维修记录失败', error)
+        ElMessage.error('保存维修记录失败')
       } finally {
         loading.value = false
       }
@@ -919,6 +1163,8 @@ const submitForm = async () => {
 // 妞ょ敻娼伴崝鐘烘祰閺冩儼骞忛崣鏍ㄦ殶閹?& 閻╂垵鎯夌粣妤€褰涢崣妯哄
 onMounted(async () => {
   await loadRooms()
+  await loadInventoryOptions()
+  applyRepairDraft()
   await loadRecords()
   window.addEventListener('resize', handleResize)
 })
@@ -945,7 +1191,7 @@ const getExportRows = () => {
     '报修人': r.report_by,
     '状态': r.status,
     '维修日期': r.repair_date,
-    '维修费用': r.repair_cost,
+    '金额': r.amount,
     '维修人员': r.repair_person,
     '备注': r.remarks
   }))
@@ -956,19 +1202,19 @@ const exportToExcel = () => {
     const rows = getExportRows()
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, '缁翠慨璁板綍')
-    XLSX.writeFile(wb, `缁翠慨璁板綍_${new Date().toLocaleDateString()}.xlsx`)
-    ElMessage.success('Excel 瀵煎嚭瀹屾垚')
+    XLSX.utils.book_append_sheet(wb, ws, '维修记录')
+    XLSX.writeFile(wb, `维修记录_${new Date().toLocaleDateString()}.xlsx`)
+    ElMessage.success('Excel 导出完成')
   } catch (e) {
-    console.error('瀵煎嚭 Excel 澶辫触', e)
-    ElMessage.error('瀵煎嚭 Excel 澶辫触')
+    console.error('导出 Excel 失败', e)
+    ElMessage.error('导出 Excel 失败')
   }
 }
 
 const exportToWord = async () => {
   try {
     const rows = getExportRows()
-    const headerCells = ['ID','楼栋','房间号','维修类型','问题描述','报修日期','报修人','状态','维修日期','维修费用','维修人员','备注'].map(text =>
+    const headerCells = ['ID','楼栋','房间号','维修类型','问题描述','报修日期','报修人','状态','维修日期','金额','维修人员','备注'].map(text =>
       new TableCell({ children: [new Paragraph({ children: [new TextRun(String(text))] })] })
     )
     const tableRows = [
@@ -976,27 +1222,27 @@ const exportToWord = async () => {
       ...rows.map(r => new TableRow({
         children: [
           new TableCell({ children: [new Paragraph(String(r.ID))] }),
-          new TableCell({ children: [new Paragraph(String(r['妤兼爧']))] }),
+          new TableCell({ children: [new Paragraph(String(r['楼栋']))] }),
           new TableCell({ children: [new Paragraph(String(r['房间号']))] }),
-          new TableCell({ children: [new Paragraph(String(r['缁翠慨绫诲瀷']))] }),
-          new TableCell({ children: [new Paragraph(String(r['闂鎻忚堪']))] }),
-          new TableCell({ children: [new Paragraph(String(r['鎶ヤ慨鏃ユ湡']))] }),
+          new TableCell({ children: [new Paragraph(String(r['维修类型']))] }),
+          new TableCell({ children: [new Paragraph(String(r['问题描述']))] }),
+          new TableCell({ children: [new Paragraph(String(r['报修日期']))] }),
           new TableCell({ children: [new Paragraph(String(r['报修人']))] }),
           new TableCell({ children: [new Paragraph(String(r['状态']))] }),
-          new TableCell({ children: [new Paragraph(String(r['缁翠慨鏃ユ湡']))] }),
-          new TableCell({ children: [new Paragraph(String(r['缁翠慨璐圭敤']))] }),
-          new TableCell({ children: [new Paragraph(String(r['缁翠慨浜哄憳']))] }),
-          new TableCell({ children: [new Paragraph(String(r['澶囨敞']))] })
+          new TableCell({ children: [new Paragraph(String(r['维修日期']))] }),
+          new TableCell({ children: [new Paragraph(String(r['金额']))] }),
+          new TableCell({ children: [new Paragraph(String(r['维修人员']))] }),
+          new TableCell({ children: [new Paragraph(String(r['备注']))] })
         ]
       }))
     ]
     const doc = new Document({ sections: [{ children: [ new DocxTable({ rows: tableRows }) ] }] })
     const blob = await Packer.toBlob(doc)
-    saveAs(blob, `缁翠慨璁板綍_${new Date().toLocaleDateString()}.docx`)
-    ElMessage.success('Word 瀵煎嚭瀹屾垚')
+    saveAs(blob, `维修记录_${new Date().toLocaleDateString()}.docx`)
+    ElMessage.success('Word 导出完成')
   } catch (e) {
-    console.error('瀵煎嚭 Word 澶辫触', e)
-    ElMessage.error('瀵煎嚭 Word 澶辫触')
+    console.error('导出 Word 失败', e)
+    ElMessage.error('导出 Word 失败')
   }
 }
 
@@ -1023,11 +1269,11 @@ const exportToPDF = async () => {
       pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
       heightLeft -= pageHeight
     }
-    pdf.save(`缁翠慨璁板綍_${new Date().toLocaleDateString()}.pdf`)
+    pdf.save(`维修记录_${new Date().toLocaleDateString()}.pdf`)
     ElMessage.success('PDF 导出完成（中文已正常显示）')
   } catch (e) {
-    console.error('瀵煎嚭 PDF 澶辫触', e)
-    ElMessage.error('瀵煎嚭 PDF 澶辫触')
+    console.error('导出 PDF 失败', e)
+    ElMessage.error('导出 PDF 失败')
   } finally {
     showPrintArea.value = false
   }
@@ -1050,14 +1296,14 @@ const handleImportFile = async (file) => {
         const payload = {
           building: '',
           room_no: row['房间号'],
-          repair_type: row['缁翠慨绫诲瀷'] || '鍏朵粬',
-          description: row['闂鎻忚堪'] || '',
+          repair_type: row['维修类型'] || '其他',
+          description: row['问题描述'] || '',
           report_by: row['报修人'] || 'Excel导入',
-          report_date: row['鎶ヤ慨鏃ユ湡'] || new Date().toISOString().split('T')[0],
+          report_date: row['报修日期'] || new Date().toISOString().split('T')[0],
           status: row['状态'] || '待处理',
-          repair_cost: row['缁翠慨璐圭敤'] || null,
-          repair_person: row['缁翠慨浜哄憳'] || '',
-          remarks: row['澶囨敞'] || ''
+          amount: row['金额'] || row['维修费用'] || null,
+          repair_person: row['维修人员'] || '',
+          remarks: row['备注'] || ''
         }
         if (payload.room_no) {
            const room = allRooms.value.find(r => r.room_no == payload.room_no)
@@ -1073,7 +1319,7 @@ const handleImportFile = async (file) => {
       ElMessage.success(`成功导入 ${successCount} 条记录`)
       loadRecords()
     } catch (error) {
-      console.error('瀵煎叆澶辫触', error)
+      console.error('导入失败', error)
       ElMessage.error('导入失败，请检查文件格式')
     }
   }
@@ -1124,12 +1370,70 @@ const handleImportFile = async (file) => {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  width: 100%;
 }
 
 .repair-image-box {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.inventory-usage-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.inventory-usage-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.inventory-usage-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.inventory-usage-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.inventory-more-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.inventory-usage-card {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-muted);
+  border: 1px solid var(--surface-border);
+}
+
+.inventory-usage-name {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.inventory-usage-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.inventory-location {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .upload-progress-text {
@@ -1233,28 +1537,6 @@ const handleImportFile = async (file) => {
   background: #f5f7fa;
 }
 </style>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

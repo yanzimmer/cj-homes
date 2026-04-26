@@ -1,3 +1,4 @@
+# 该文件负责验证房间信息更新接口及数据库写入结果是否正确。
 import requests
 import json
 import sqlite3

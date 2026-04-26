@@ -3,6 +3,9 @@ venv/
 homes-frontend/node_modules/
 Backend-System/__pycache__/
 Backend-System/.env
+Backend-System/config/ai_settings.json
+Backend-System/config/ocr_settings.json
+Backend-System/config/room_feature_options.json
 __pycache__/
 *.pyc
 *.pyo
@@ -18,3 +21,5 @@ env/
 .vscode/
 dist/
 build/
+shot-*.png
+tmp-home.png

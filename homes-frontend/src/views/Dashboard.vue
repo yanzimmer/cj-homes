@@ -83,6 +83,12 @@
                 <span>系统维护</span>
               </template>
             </el-menu-item>
+            <el-menu-item index="/dashboard/ai-settings" class="menu-item">
+              <el-icon><Setting /></el-icon>
+              <template #title>
+                <span>AI 设置</span>
+              </template>
+            </el-menu-item>
           </el-menu>
           
         </el-scrollbar>
@@ -151,6 +157,11 @@
       </el-container>
     </el-container>
 
+    <button class="global-ai-fab" type="button" @click="openAiAssistant" title="打开 AI 录入助手">
+      <span class="global-ai-fab-icon">AI</span>
+      <span class="global-ai-fab-text">语音填表</span>
+    </button>
+
     <!-- 修改密码对话框 -->
     <el-dialog
       v-model="changePasswordDialogVisible"
@@ -204,6 +215,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { authApi } from '../api/index.js'
+import { mapRouteToAssistantType } from '../utils/aiDrafts'
 import {
   House, 
   User, 
@@ -342,7 +354,8 @@ const submitChangePassword = async () => {
   await passwordFormRef.value.validate(async (valid) => {
     if (valid) {
       try {
-        const response = await fetch('http://192.168.0.163:5000/api/change-password', {
+        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
+        const response = await fetch(`${apiBaseUrl}/change-password`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -380,6 +393,11 @@ const handleMenuSelect = (index) => {
   router.push(index).catch(() => {})
 }
 
+const openAiAssistant = () => {
+  const type = mapRouteToAssistantType(route.path)
+  router.push({ path: '/dashboard/ai-assistant', query: { type } }).catch(() => {})
+}
+
 const handleLogout = () => {
   authStore.logout()
   router.push('/login')
@@ -400,7 +418,9 @@ const getMenuTitle = (path) => {
     '/dashboard/notify': '通知配置',
     '/dashboard/repair-records': '维修记录',
     '/dashboard/contract-templates': '合同模板',
-    '/dashboard/system': '系统维护'
+    '/dashboard/system': '系统维护',
+    '/dashboard/ai-assistant': 'AI 助手',
+    '/dashboard/ai-settings': 'AI 设置'
   }
   return menuMap[path] || '首页'
 }
@@ -700,5 +720,44 @@ html.dark .user-info:hover {
   padding: 24px;
   overflow-y: auto;
   background: var(--bg-color);
+}
+
+.global-ai-fab {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 2000;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #1d4ed8 0%, #0f766e 100%);
+  color: #fff;
+  box-shadow: 0 18px 34px rgba(29, 78, 216, 0.3);
+  cursor: pointer;
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+
+.global-ai-fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 40px rgba(29, 78, 216, 0.34);
+}
+
+.global-ai-fab-icon {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+  font-weight: 800;
+}
+
+.global-ai-fab-text {
+  font-size: 14px;
+  font-weight: 700;
 }
 </style>

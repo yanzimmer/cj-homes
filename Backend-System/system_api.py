@@ -1,3 +1,4 @@
+# 该文件负责处理系统备份恢复、重置、导入导出与演示数据维护接口。
 import os
 import json
 import sqlite3
@@ -10,10 +11,13 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, send_file, current_app
 from auth_api import token_required
 from common import connect, DB_NAME, BASE_DIR
+from room_feature_config import get_room_feature_options, save_room_feature_options
+from ocr_settings import build_ocr_status, load_ocr_settings, save_ocr_settings
 
 system_bp = Blueprint('system', __name__, url_prefix='/api/system')
 
 # Define paths
+PROJECT_ROOT = os.path.dirname(BASE_DIR)
 CONFIG_DIR = os.path.join(BASE_DIR, 'config')
 UPLOADS_DIR = os.path.join(BASE_DIR, 'static', 'uploads')
 SQL_DIR = os.path.join(BASE_DIR, 'sql')
@@ -21,40 +25,73 @@ EXPORT_INTERVAL_SECONDS = 120
 _export_lock = Lock()
 _last_export_ts = 0.0
 
-# Tables to export in order
-TABLE_ORDER = [
-    "rooms",
-    "contract_templates",
-    "admins",
-    "tenants",
-    "tenant_moves",
-    "repair_records",
-    "contracts",
-    "procurements",
-    "warehouse_items",
+EXCLUDED_SQLITE_TABLES = {"sqlite_sequence"}
+ENV_EXPORT_DIRS = [
+    PROJECT_ROOT,
+    BASE_DIR,
+    os.path.join(PROJECT_ROOT, 'homes-frontend'),
 ]
+ENV_EXPORT_SKIP_DIRS = {'venv', 'node_modules', '.git', '__pycache__'}
+
+
+@system_bp.route('/room-feature-options', methods=['GET'])
+@token_required
+def get_room_feature_options_api(current_user):
+    return jsonify({'options': get_room_feature_options()})
+
+
+@system_bp.route('/room-feature-options', methods=['PUT'])
+@token_required
+def update_room_feature_options_api(current_user):
+    data = request.json or {}
+    options = data.get('options')
+    if not isinstance(options, list):
+        return jsonify({'error': 'options 必须是数组'}), 400
+    saved = save_room_feature_options(options)
+    return jsonify({'options': saved})
+
+
+@system_bp.route('/ocr-settings', methods=['GET'])
+@token_required
+def get_ocr_settings_api(current_user):
+    settings = load_ocr_settings()
+    status = build_ocr_status()
+    payload = dict(settings)
+    payload.update(status)
+    return jsonify(payload)
+
+
+@system_bp.route('/ocr-settings', methods=['PUT'])
+@token_required
+def update_ocr_settings_api(current_user):
+    data = request.json or {}
+    saved = save_ocr_settings(data)
+    status = build_ocr_status()
+    payload = dict(saved)
+    payload.update(status)
+    return jsonify(payload)
 
 def _resolve_upload_url_to_path(file_url):
     raw = str(file_url or '').strip()
     if raw == '':
-        raise ValueError('file_url is required')
+        raise ValueError('缺少 file_url')
 
     normalized = raw.split('?', 1)[0].replace('\\', '/')
     if normalized.startswith('http://') or normalized.startswith('https://'):
-        raise ValueError('file_url must be a local path under /static/uploads/')
+        raise ValueError('file_url 必须是 /static/uploads/ 下的本地路径')
     if not normalized.startswith('/static/uploads/'):
-        raise ValueError('file_url must start with /static/uploads/')
+        raise ValueError('file_url 必须以 /static/uploads/ 开头')
 
     local_rel = normalized.lstrip('/').replace('/', os.sep)
     abs_path = os.path.normpath(os.path.join(BASE_DIR, local_rel))
     upload_root = os.path.normpath(UPLOADS_DIR)
 
     if abs_path != upload_root and not abs_path.startswith(upload_root + os.sep):
-        raise ValueError('invalid file_url path')
+        raise ValueError('file_url 路径不合法')
     if not os.path.isfile(abs_path):
-        raise FileNotFoundError('uploaded file not found')
+        raise FileNotFoundError('上传文件不存在')
     if not abs_path.lower().endswith('.zip'):
-        raise ValueError('invalid file format. Please upload a ZIP file.')
+        raise ValueError('文件格式错误，请上传 ZIP 备份文件')
     return abs_path
 
 def _ensure_rooms_meter_columns(conn):
@@ -67,6 +104,40 @@ def _ensure_rooms_meter_columns(conn):
     if "electricity_meter_img" not in existing_columns:
         cursor.execute("ALTER TABLE rooms ADD COLUMN electricity_meter_img TEXT")
 
+
+def _is_exportable_env_file(filename):
+    name = str(filename or '')
+    if not name.startswith('.env'):
+        return False
+    lower = name.lower()
+    if lower.endswith('.example') or lower.endswith('.sample'):
+        return False
+    return True
+
+
+def _collect_env_files():
+    files = []
+    seen = set()
+    for root_dir in ENV_EXPORT_DIRS:
+        if not os.path.isdir(root_dir):
+            continue
+        for current_root, dirnames, filenames in os.walk(root_dir):
+            rel_depth = os.path.relpath(current_root, root_dir).count(os.sep)
+            dirnames[:] = [d for d in dirnames if d not in ENV_EXPORT_SKIP_DIRS]
+            if rel_depth > 1:
+                dirnames[:] = []
+            for filename in filenames:
+                if not _is_exportable_env_file(filename):
+                    continue
+                abs_path = os.path.join(current_root, filename)
+                rel_path = os.path.relpath(abs_path, PROJECT_ROOT)
+                if rel_path in seen:
+                    continue
+                seen.add(rel_path)
+                files.append((abs_path, rel_path))
+    files.sort(key=lambda item: item[1])
+    return files
+
 def _dump_db_to_dict():
     """Dump entire database to a dictionary."""
     conn = connect()
@@ -74,11 +145,24 @@ def _dump_db_to_dict():
     cursor = conn.cursor()
     
     data = {}
+    schemas = {}
+    table_order = []
     try:
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-        tables = [row['name'] for row in cursor.fetchall()]
+        cursor.execute(
+            """
+            SELECT name, sql
+            FROM sqlite_master
+            WHERE type='table' AND name NOT LIKE 'sqlite_%'
+            ORDER BY name
+            """
+        )
+        table_defs = cursor.fetchall()
+        tables = [row['name'] for row in table_defs]
         
-        for table in tables:
+        for row in table_defs:
+            table = row['name']
+            table_order.append(table)
+            schemas[table] = row['sql']
             cursor.execute(f"SELECT * FROM {table}")
             rows = [dict(row) for row in cursor.fetchall()]
             data[table] = rows
@@ -88,6 +172,8 @@ def _dump_db_to_dict():
                 "timestamp": datetime.now().isoformat(),
                 "version": "1.0"
             },
+            "schemas": schemas,
+            "table_order": table_order,
             "tables": data
         }
     finally:
@@ -95,7 +181,11 @@ def _dump_db_to_dict():
 
 def _restore_db_from_dict(data, force=True):
     """Restore database from dictionary."""
-    tables_data = data.get("tables", {})
+    tables_data = data.get("tables", {}) if isinstance(data, dict) else {}
+    schemas = data.get("schemas", {}) if isinstance(data, dict) else {}
+    table_order = data.get("table_order", []) if isinstance(data, dict) else []
+    if not isinstance(tables_data, dict):
+        return False, "备份文件中的 tables 数据格式不正确"
     conn = connect()
     cursor = conn.cursor()
     
@@ -103,38 +193,55 @@ def _restore_db_from_dict(data, force=True):
     cursor.execute("BEGIN TRANSACTION")
     
     try:
-        # Clear existing data
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        )
+        existing_tables = [row[0] for row in cursor.fetchall() if row[0] not in EXCLUDED_SQLITE_TABLES]
+        tables_to_restore = list(table_order) if table_order else list(tables_data.keys())
+
+        for table in tables_to_restore:
+            if table in EXCLUDED_SQLITE_TABLES:
+                continue
+            if table not in existing_tables:
+                create_sql = schemas.get(table)
+                if create_sql:
+                    cursor.execute(create_sql)
+                    existing_tables.append(table)
+
         if force:
-            for table in reversed(TABLE_ORDER):
-                if table in tables_data:
-                    try:
-                        cursor.execute(f"DELETE FROM {table}")
-                    except sqlite3.OperationalError:
-                        pass # Table might not exist yet, which is fine
+            for table in existing_tables:
+                try:
+                    cursor.execute(f'DELETE FROM "{table}"')
+                except sqlite3.OperationalError:
+                    pass
+            try:
+                cursor.execute("DELETE FROM sqlite_sequence")
+            except sqlite3.OperationalError:
+                pass
         
-        # Insert new data
-        for table in TABLE_ORDER:
+        for table in tables_to_restore:
             if table not in tables_data:
                 continue
-            
+            if table in EXCLUDED_SQLITE_TABLES:
+                continue
             rows = tables_data[table]
+            if not isinstance(rows, list):
+                continue
             if not rows:
                 continue
-            
-            # Ensure table exists (rudimentary check, assumes schema is initialized)
-            # Ideally schema should be initialized by init scripts, but we can assume it exists here
-            
-            columns = rows[0].keys()
+            if table not in existing_tables:
+                return False, f"导入失败，缺少表：{table}"
+
+            columns = list(rows[0].keys())
             placeholders = ", ".join(["?"] * len(columns))
-            column_names = ", ".join(columns)
-            
-            sql = f"INSERT OR REPLACE INTO {table} ({column_names}) VALUES ({placeholders})"
-            
+            column_names = ", ".join([f'"{col}"' for col in columns])
+            sql = f'INSERT OR REPLACE INTO "{table}" ({column_names}) VALUES ({placeholders})'
+
             for row in rows:
-                cursor.execute(sql, list(row.values()))
+                cursor.execute(sql, [row.get(col) for col in columns])
         
         conn.commit()
-        return True, "Database restored successfully"
+        return True, "数据库恢复成功"
     except Exception as e:
         conn.rollback()
         return False, str(e)
@@ -159,9 +266,9 @@ def export_system_data(current_user):
     now = time.time()
     if now - _last_export_ts < EXPORT_INTERVAL_SECONDS:
         wait_seconds = int(EXPORT_INTERVAL_SECONDS - (now - _last_export_ts))
-        return jsonify({"error": f"????????? {wait_seconds} ????"}), 429
+        return jsonify({"error": f"导出过于频繁，请 {wait_seconds} 秒后再试"}), 429
     if not _export_lock.acquire(blocking=False):
-        return jsonify({"error": "????????????????"}), 429
+        return jsonify({"error": "系统正在执行导出，请稍后再试"}), 429
     _last_export_ts = now
     try:
         # 1. Prepare DB Dump
@@ -189,6 +296,15 @@ def export_system_data(current_user):
                         file_path = os.path.join(root, file)
                         arcname = os.path.join('uploads', os.path.relpath(file_path, UPLOADS_DIR))
                         zf.write(file_path, arcname)
+
+            env_files = _collect_env_files()
+            if env_files:
+                zf.writestr(
+                    'env_files_manifest.json',
+                    json.dumps([rel_path for _, rel_path in env_files], ensure_ascii=False, indent=2),
+                )
+                for file_path, rel_path in env_files:
+                    zf.write(file_path, os.path.join('env_files', rel_path))
                         
         memory_file.seek(0)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -201,7 +317,7 @@ def export_system_data(current_user):
         
     except Exception as e:
         current_app.logger.error(f"Export failed: {e}")
-        return jsonify({"error": f"闂佽娴烽弫鎼佸储瑜斿畷鐢割敇閻旈绐為柡澶婄墱閸嬪顤? {str(e)}"}), 500
+        return jsonify({"error": f"导出系统数据失败: {str(e)}"}), 500
     finally:
         _export_lock.release()
 
@@ -241,13 +357,13 @@ def import_system_data(current_user):
         if 'file' in request.files:
             file = request.files['file']
             if not file.filename.lower().endswith('.zip'):
-                return jsonify({'error': 'Invalid file format. Please upload a ZIP file.'}), 400
+                return jsonify({'error': '文件格式错误，请上传 ZIP 备份文件'}), 400
             file.save(temp_zip_path)
         else:
             data = request.get_json(silent=True) or {}
             file_url = data.get('file_url')
             if not file_url:
-                return jsonify({'error': 'No file uploaded'}), 400
+                return jsonify({'error': '未找到备份文件'}), 400
             source_zip_path = _resolve_upload_url_to_path(file_url)
             shutil.copyfile(source_zip_path, temp_zip_path)
 
@@ -258,7 +374,7 @@ def import_system_data(current_user):
                     db_data = json.load(f)
                     success, msg = _restore_db_from_dict(db_data)
                     if not success:
-                        raise Exception(f"Database restore failed: {msg}")
+                        raise Exception(f"数据库恢复失败: {msg}")
 
             # 2. Restore Configs
             for member in zf.namelist():
@@ -284,7 +400,19 @@ def import_system_data(current_user):
                     with zf.open(member) as source, open(target_path, 'wb') as target:
                         shutil.copyfileobj(source, target)
 
-        return jsonify({"message": "????????"}), 200
+            for member in zf.namelist():
+                if member.startswith('env_files/'):
+                    if member.endswith('/'):
+                        continue
+                    relative_path = os.path.relpath(member, 'env_files')
+                    target_path = os.path.normpath(os.path.join(PROJECT_ROOT, relative_path))
+                    if not target_path.startswith(PROJECT_ROOT):
+                        raise ValueError('环境配置文件路径不合法')
+                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    with zf.open(member) as source, open(target_path, 'wb') as target:
+                        shutil.copyfileobj(source, target)
+
+        return jsonify({"message": "系统数据导入成功"}), 200
 
 
     except FileNotFoundError as e:
@@ -293,7 +421,7 @@ def import_system_data(current_user):
         return jsonify({'error': str(e)}), 400
     except Exception as e:
         current_app.logger.error(f"Import failed: {e}")
-        return jsonify({"error": f"闁诲海鏁搁崢褔宕ｉ崱妯虹窞閺夊牜鍋夎: {str(e)}"}), 500
+        return jsonify({"error": f"导入系统数据失败: {str(e)}"}), 500
     finally:
         if os.path.exists(temp_zip_path):
             os.remove(temp_zip_path)
@@ -336,13 +464,13 @@ def seed_system_data(current_user):
         conn.close()
         
         if count > 0:
-             return jsonify({"message": "????????????????"}), 400
+             return jsonify({"message": "系统已有数据，请先重置后再生成演示数据"}), 400
 
         seed_demo_data()
-        return jsonify({"message": "????????"}), 200
+        return jsonify({"message": "演示数据生成成功"}), 200
     except Exception as e:
         current_app.logger.error(f"Seeding failed: {e}")
-        return jsonify({"error": f"????????: {str(e)}"}), 500
+        return jsonify({"error": f"生成演示数据失败: {str(e)}"}), 500
 
 @system_bp.route('/reset', methods=['POST'])
 @token_required
@@ -365,16 +493,13 @@ def reset_system(current_user):
     
     try:
         _ensure_rooms_meter_columns(conn)
-        # Tables to clear (excluding admins)
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        )
         tables_to_clear = [
-            "rooms",
-            "contract_templates",
-            "tenants",
-            "tenant_moves",
-            "repair_records",
-            "contracts",
-            "procurements",
-            "warehouse_items",
+            row[0]
+            for row in cursor.fetchall()
+            if row[0] not in EXCLUDED_SQLITE_TABLES and row[0] != "admins"
         ]
         
         for table in tables_to_clear:
@@ -404,14 +529,12 @@ def reset_system(current_user):
                 except Exception as e:
                     current_app.logger.warning(f"Failed to delete {file_path}. Reason: {e}")
                     
-        return jsonify({"message": "???????????????"}), 200
-        
+        return jsonify({"message": "系统已重置，所有业务数据已清空"}), 200
+
     except Exception as e:
         conn.rollback()
         current_app.logger.error(f"Reset failed: {e}")
-        return jsonify({"error": f"闂傚倷鐒﹁ぐ鍐矓閸洘鍋柛鈩兠欢鐐哄级閸偄浜悮? {str(e)}"}), 500
+        return jsonify({"error": f"重置系统失败: {str(e)}"}), 500
     finally:
         cursor.execute("PRAGMA foreign_keys = ON")
         conn.close()
-
-

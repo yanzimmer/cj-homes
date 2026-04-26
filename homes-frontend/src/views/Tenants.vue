@@ -32,6 +32,13 @@
         <el-button class="toolbar-btn" type="primary" @click="openAddDialog">添加租户</el-button>
         <el-button
           class="toolbar-btn"
+          type="warning"
+          :disabled="selectedTenants.length === 0"
+          :loading="batchCheckoutLoading"
+          @click="handleBatchCheckout"
+        >批量退租</el-button>
+        <el-button
+          class="toolbar-btn"
           type="danger"
           :disabled="selectedTenants.length === 0"
           :loading="batchDeleting"
@@ -73,9 +80,6 @@
       <el-table-column prop="birth_date" label="出生日期" width="120" sortable="custom"></el-table-column>
       <el-table-column prop="id_card" label="公民身份证号" width="180" sortable="custom"></el-table-column>
       <el-table-column prop="address" label="住址" width="180" sortable="custom"></el-table-column>
-      <el-table-column prop="issuing_authority" label="签发机关" width="150" sortable="custom"></el-table-column>
-      <el-table-column prop="valid_from" label="有效期开始" width="120" sortable="custom"></el-table-column>
-      <el-table-column prop="valid_to" label="有效期结束" width="120" sortable="custom"></el-table-column>
       <el-table-column prop="phone" label="联系电话" width="130" sortable="custom"></el-table-column>
       <el-table-column prop="emergency_contact_name" label="紧急联系人" width="120" sortable="custom"></el-table-column>
       <el-table-column prop="emergency_contact_phone" label="紧急电话" width="130" sortable="custom"></el-table-column>
@@ -107,28 +111,6 @@
       </el-table-column>
       <el-table-column prop="check_in_date" label="入住日期" width="120" sortable="custom"></el-table-column>
       <el-table-column prop="check_out_date" label="退房日期" width="120" sortable="custom"></el-table-column>
-      <el-table-column label="身份证正面" width="120">
-        <template #default="scope">
-          <el-image lazy loading="lazy" 
-            v-if="scope.row.front_img" 
-            :src="scope.row.front_img" 
-            :preview-src-list="[scope.row.front_img]"
-            style="width: 80px; height: 50px;"
-          ></el-image>
-          <span v-else>无图片</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="身份证反面" width="120">
-        <template #default="scope">
-          <el-image lazy loading="lazy" 
-            v-if="scope.row.back_img" 
-            :src="scope.row.back_img" 
-            :preview-src-list="[scope.row.back_img]"
-            style="width: 80px; height: 50px;"
-          ></el-image>
-          <span v-else>无图片</span>
-        </template>
-      </el-table-column>
       <el-table-column prop="remarks" label="备注" width="150"></el-table-column>
       <el-table-column label="操作" width="300" fixed="right">
         <template #default="scope">
@@ -281,8 +263,6 @@
               <el-descriptions-item label="联系电话">{{ currentTenant.phone }}</el-descriptions-item>
               <el-descriptions-item label="身份证号">{{ currentTenant.id_card }}</el-descriptions-item>
               <el-descriptions-item label="户籍地址" :span="2">{{ currentTenant.address }}</el-descriptions-item>
-              <el-descriptions-item label="签发机关">{{ currentTenant.issuing_authority }}</el-descriptions-item>
-              <el-descriptions-item label="有效期限">{{ currentTenant.valid_period || (currentTenant.valid_from + ' - ' + currentTenant.valid_to) }}</el-descriptions-item>
             </el-descriptions>
           </el-tab-pane>
           
@@ -328,18 +308,43 @@
 
     <!-- 添加/编辑租户对话框 -->
     <el-dialog :title="dialogTitle" v-model="dialogVisible" width="700px" top="5vh">
-      <div class="ocr-actions">
-        <el-button size="large" type="primary" :loading="ocrLoadingFront" @click="triggerFrontUpload">识别身份证(正面)</el-button>
-        <el-button size="large" type="success" :loading="ocrLoadingBack" @click="triggerBackUpload">识别身份证(反面)</el-button>
-        <input ref="frontFileInput" type="file" accept="image/*" style="display:none" @change="onFrontFileChange" />
-        <input ref="backFileInput" type="file" accept="image/*" style="display:none" @change="onBackFileChange" />
-        <div class="ocr-progress" v-if="ocrLoadingFront || ocrLoadingBack">
-          <el-progress v-if="ocrLoadingFront" :percentage="ocrProgressFront" :stroke-width="6" />
-          <el-progress v-if="ocrLoadingBack" :percentage="ocrProgressBack" :stroke-width="6" status="success" />
-        </div>
-      </div>
       <div class="narrow-fields">
         <el-form :model="tenantForm" :rules="rules" ref="tenantFormRef" label-width="120px">
+        <el-form-item label="身份证 OCR">
+          <div class="tenant-ocr-row">
+            <input
+              ref="tenantIdCardFileInputRef"
+              type="file"
+              accept="image/*"
+              capture="environment"
+              class="hidden-file-input"
+              @change="handleTenantIdCardFileChange"
+            />
+            <el-button
+              type="primary"
+              plain
+              :loading="tenantOcrRecognizing"
+              :disabled="!tenantOcrStatus.enabled"
+              @click="openTenantIdCardFileDialog"
+            >
+              拍照/上传身份证正面识别
+            </el-button>
+            <span class="tenant-ocr-tip">
+              <template v-if="tenantOcrStatus.configuredTotal > 0">
+                剩余 {{ tenantOcrStatus.remainingCount ?? 0 }} / {{ tenantOcrStatus.configuredTotal }} 次
+              </template>
+              <template v-else>
+                可直接识别并自动回填
+              </template>
+            </span>
+          </div>
+          <div v-if="tenantOcrStatus.reason && !tenantOcrStatus.enabled" class="tenant-ocr-message tenant-ocr-warning">
+            {{ tenantOcrStatus.reason }}
+          </div>
+          <div v-if="tenantOcrMessage" class="tenant-ocr-message">
+            {{ tenantOcrMessage }}
+          </div>
+        </el-form-item>
         <el-form-item label="姓名" prop="name">
           <el-input v-model="tenantForm.name"></el-input>
         </el-form-item>
@@ -360,12 +365,6 @@
         </el-form-item>
         <el-form-item label="住址" prop="address">
           <el-input v-model="tenantForm.address"></el-input>
-        </el-form-item>
-        <el-form-item label="签发机关" prop="issuing_authority">
-          <el-input v-model="tenantForm.issuing_authority"></el-input>
-        </el-form-item>
-        <el-form-item label="有效期限" prop="valid_period">
-          <el-input v-model="tenantForm.valid_period"></el-input>
         </el-form-item>
         <el-form-item label="联系电话" prop="phone">
           <el-input v-model="tenantForm.phone"></el-input>
@@ -468,7 +467,7 @@
 
 <script setup>
 import { ref, reactive, onMounted, computed, nextTick } from 'vue'
-import { tenantsApi, roomsApi, ocrApi, repairRecordsApi } from '../api'
+import { tenantsApi, roomsApi, repairRecordsApi, systemApi } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Filter, UserFilled, List, Grid, Operation, Iphone, Timer } from '@element-plus/icons-vue'
 import * as XLSX from 'xlsx'
@@ -476,7 +475,7 @@ import { jsPDF } from 'jspdf'
 import { Document, Packer, Paragraph, Table as DocxTable, TableRow, TableCell, TextRun } from 'docx'
 import { saveAs } from 'file-saver'
 import html2canvas from 'html2canvas'
-import { uploadFileByChunks } from '../utils/chunkUploader'
+import { consumeAiDraft } from '../utils/aiDrafts'
 
 // 视图切换
 const currentView = ref('table') // 'table', 'card', 'group'
@@ -490,6 +489,16 @@ const dialogVisible = ref(false)
 const dialogTitle = ref('添加租户')
 const isEdit = ref(false)
 const tenantFormRef = ref(null)
+const batchCheckoutLoading = ref(false)
+const tenantIdCardFileInputRef = ref(null)
+const tenantOcrRecognizing = ref(false)
+const tenantOcrMessage = ref('')
+const tenantOcrStatus = reactive({
+  enabled: false,
+  configuredTotal: 0,
+  remainingCount: null,
+  reason: '',
+})
 
 // 搜索、排序和筛选
 const searchQuery = ref('')
@@ -667,7 +676,14 @@ const confirmCheckout = async () => {
     
     ElMessage.success(response.data.message || '退租成功')
     checkoutDialogVisible.value = false
-    fetchTenants() // 刷新租户列表
+    await fetchTenants()
+    if (currentTenant.value?.id_card === checkoutTenant.value?.id_card) {
+      currentTenant.value = {
+        ...currentTenant.value,
+        status: '已退租',
+        check_out_date: response?.data?.checkout_date || currentTenant.value.check_out_date,
+      }
+    }
   } catch (error) {
     ElMessage.error('退租失败: ' + (error.response?.data?.error || error.message))
   } finally {
@@ -683,11 +699,6 @@ const tenantForm = reactive({
   birth_date: '',
   id_card: '',
   address: '',
-  issuing_authority: '',
-  valid_period: '',
-  id_card_image: '',
-  front_img: '',
-  back_img: '',
   phone: '',
   emergency_contact: '',
   emergency_phone: '',
@@ -697,6 +708,22 @@ const tenantForm = reactive({
   check_out_date: '',
   notes: ''
 })
+
+const applyTenantOcrStatus = (ocr = {}) => {
+  tenantOcrStatus.enabled = Boolean(ocr.enabled)
+  tenantOcrStatus.configuredTotal = Number(ocr.max_recognitions || ocr.configuredTotal || 0)
+  tenantOcrStatus.remainingCount = ocr.remaining_count ?? ocr.remainingCount ?? null
+  tenantOcrStatus.reason = ocr.reason || ''
+}
+
+const applyTenantRecognizedFields = (fields = {}) => {
+  if (fields.name) tenantForm.name = fields.name
+  if (fields.gender === '男' || fields.gender === '女') tenantForm.gender = fields.gender
+  if (fields.nation) tenantForm.nation = fields.nation
+  if (fields.birth_date) tenantForm.birth_date = fields.birth_date
+  if (fields.id_card) tenantForm.id_card = fields.id_card
+  if (fields.address) tenantForm.address = fields.address
+}
 
 const rules = {
   name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
@@ -709,9 +736,10 @@ const rules = {
 }
 
 // 生命周期
-onMounted(() => {
+onMounted(async () => {
   fetchTenants()
-  fetchAvailableRooms()
+  await fetchAvailableRooms()
+  applyTenantDraft()
 })
 
 // 方法
@@ -721,16 +749,63 @@ const handleSortChange = (column) => {
   sortOrder.value = column.order
 }
 
-// 仅允许“已退租”的租户可被选中进行批量删除
-const rowSelectable = (row) => {
-  const s = String(row.status || '').trim()
-  return s === '已退租'
-}
+const rowSelectable = () => true
 
 // 监听选择变化
 const handleSelectionChange = (selection) => {
   console.log('[Tenants] selection changed:', selection.map(s => s.id_card))
   selectedTenants.value = selection
+}
+
+const handleBatchCheckout = async () => {
+  if (!selectedTenants.value.length) return
+  const activeTenants = selectedTenants.value.filter(t => String(t.status || '').trim() === '在住')
+  if (!activeTenants.length) {
+    ElMessage.warning('当前选中项里没有可退租的在住租户')
+    return
+  }
+
+  const names = activeTenants.map(t => t.name).join('、')
+  try {
+    await ElMessageBox.confirm(
+      `确认批量办理以下 ${activeTenants.length} 名租户退租吗？\n${names}`,
+      '批量退租确认',
+      {
+        confirmButtonText: '确认退租',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    batchCheckoutLoading.value = true
+    const failures = []
+    let successCount = 0
+    for (const tenant of activeTenants) {
+      try {
+        await tenantsApi.checkoutTenant(tenant.id_card)
+        successCount++
+        await new Promise(resolve => setTimeout(resolve, 50))
+      } catch (error) {
+        const msg = error?.response?.data?.error || error?.message || '退租失败'
+        failures.push(`${tenant.name}(${tenant.id_card})：${msg}`)
+      }
+    }
+    await fetchTenants()
+    tenantsTableRef.value?.clearSelection()
+    selectedTenants.value = []
+
+    if (successCount > 0) {
+      ElMessage.success(`批量退租完成：成功 ${successCount} 人`)
+    }
+    if (failures.length > 0) {
+      ElMessage.error(`有 ${failures.length} 人退租失败：${failures.join('；')}`)
+    }
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error?.message || '批量退租失败')
+    }
+  } finally {
+    batchCheckoutLoading.value = false
+  }
 }
 
 // 处理状态筛选
@@ -746,7 +821,7 @@ const handleSearchClear = () => {
 const fetchTenants = async () => {
   loading.value = true
   try {
-    const response = await tenantsApi.listTenants({ fields: 'id,name,gender,nation,birth_date,id_card,address,issuing_authority,valid_from,valid_to,phone,emergency_contact_name,emergency_contact_phone,check_in_date,check_out_date,room_no,building,remarks,status,front_img,back_img' })
+    const response = await tenantsApi.listTenants({ fields: 'id,name,gender,nation,birth_date,id_card,address,phone,emergency_contact_name,emergency_contact_phone,check_in_date,check_out_date,room_no,building,remarks,status' })
     // 确保tenants.value是一个数组
     tenants.value = response.data.tenants || []
     console.log('租户数据:', tenants.value)
@@ -784,11 +859,6 @@ const resetForm = () => {
   tenantForm.birth_date = ''
   tenantForm.id_card = ''
   tenantForm.address = ''
-  tenantForm.issuing_authority = ''
-  tenantForm.valid_period = ''
-  tenantForm.id_card_image = ''
-  tenantForm.front_img = ''
-  tenantForm.back_img = ''
   tenantForm.phone = ''
   tenantForm.emergency_contact = ''
   tenantForm.emergency_phone = ''
@@ -797,10 +867,11 @@ const resetForm = () => {
   tenantForm.check_in_date = new Date()
   tenantForm.check_out_date = ''
   tenantForm.notes = ''
-  ocrLoadingFront.value = false
-  ocrLoadingBack.value = false
-  ocrProgressFront.value = 0
-  ocrProgressBack.value = 0
+  tenantOcrMessage.value = ''
+  tenantOcrStatus.enabled = false
+  tenantOcrStatus.configuredTotal = 0
+  tenantOcrStatus.remainingCount = null
+  tenantOcrStatus.reason = ''
 }
 
 const openAddDialog = () => {
@@ -809,6 +880,7 @@ const openAddDialog = () => {
   dialogTitle.value = '添加租户'
   fetchAvailableRooms()
   dialogVisible.value = true
+  fetchTenantOcrStatus()
 }
 
 const openEditDialog = (tenant) => {
@@ -818,214 +890,47 @@ const openEditDialog = (tenant) => {
   Object.assign(tenantForm, tenant)
   fetchAvailableRooms()
   dialogVisible.value = true
+  fetchTenantOcrStatus()
 }
 
-// OCR 相关
-const ocrLoadingFront = ref(false)
-const ocrLoadingBack = ref(false)
-const ocrProgressFront = ref(0)
-const ocrProgressBack = ref(0)
-const frontFileInput = ref(null)
-const backFileInput = ref(null)
-
-const triggerFrontUpload = () => frontFileInput.value && frontFileInput.value.click()
-const triggerBackUpload = () => backFileInput.value && backFileInput.value.click()
-
-// 解析 OCR 文本，尽量提取身份证字段
-const parseIdCardText = (text) => {
-  if (!text || typeof text !== 'string') return {}
-  // 规范化空格：
-  // 1) 将连续空格压缩为单个空格（便于阅读）
-  const t = text.replace(/\s+/g, ' ').trim()
-  // 2) 移除“中文字符之间”的空格，修复如“姓 名”“住 址”“性 别”等现象
-  let ts = t.replace(/(?<=[\u4e00-\u9fa5])\s+(?=[\u4e00-\u9fa5])/g, '')
-  // 3) 常见 OCR 误识别纠正
-  const fixes = [
-    ['牲别', '性别'],
-    ['氓族', '民族'],
-    ['闵族', '民族'],
-    ['民蔟', '民族'],
-    ['签发机 关', '签发机关'],
-    ['签 发 机 关', '签发机关'],
-    ['有 效 期', '有效期'],
-    ['有 效 期 限', '有效期限']
-  ]
-  for (const [from, to] of fixes) {
-    ts = ts.replace(new RegExp(from, 'g'), to)
-  }
-
-  const out = {}
-
-  // 姓名/性别/民族：在 ts（去除中文间空格）上匹配
-  const nameMatch = ts.match(/姓名[:：]?\s*([\u4e00-\u9fa5·]{2,20})/)
-  if (nameMatch) out.name = nameMatch[1]
-
-  const genderMatch = ts.match(/性别[:：]?\s*(男|女)/)
-  if (genderMatch) out.gender = genderMatch[1]
-
-  const nationMatch = ts.match(/民族[:：]?\s*([\u4e00-\u9fa5]{1,10})/)
-  if (nationMatch) out.nation = nationMatch[1]
-
-  // 出生日期：允许数字与“年/月/日”之间存在空格
-  const birthMatch = t.match(/出生[:：]?\s*(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?/)
-  if (birthMatch) {
-    const y = birthMatch[1]
-    const m = String(birthMatch[2]).padStart(2, '0')
-    const d = String(birthMatch[3]).padStart(2, '0')
-    out.birth_date = `${y}-${m}-${d}`
-  }
-
-  // 住址：允许“住址”和“公民身份号码”之间有内容，且 key 允许中文间空格（通过 ts）
-  const addrMatch = ts.match(/住址[:：]?\s*(.+?)\s*公民身份号码/)
-  if (addrMatch) out.address = addrMatch[1].trim()
-
-  // 身份证号：允许 key 拆分，如“公民 身份 号码”或“身 份 证 号”（通过 ts）
-  const idMatch = ts.match(/(公民身份号码|身份证号)[:：]?\s*([0-9]{15,18}[0-9Xx]?)/)
-  if (idMatch) out.id_card = idMatch[2].toUpperCase()
-
-  // 签发机关：同理在 ts 上匹配
-  const issuerMatch = ts.match(/签发机关[:：]?\s*([\u4e00-\u9fa5A-Za-z()（）\-·\s]{3,})/)
-  if (issuerMatch) out.issuing_authority = issuerMatch[1].trim()
-
-  // 有效期：允许存在空格/多种连接符
-  const validMatch = t.match(/有\s*效\s*期(?:限)?[:：]?\s*([\d\.\-\s年月日]+)\s*(?:至|\-|—|~|到|—{1,2}|一)\s*([\d\.\-\s年月日]+)/)
-  if (validMatch) {
-    const norm = (s) => s
-      .replace(/年|\.|\s/g, '-')
-      .replace(/月/g, '-')
-      .replace(/日/g, '')
-      .replace(/-+/g, '-')
-      .replace(/^-/,'')
-      .replace(/-$/,'')
-    out.valid_period = `${norm(validMatch[1])} - ${norm(validMatch[2])}`
-  }
-
-  return out
+const fetchTenantOcrStatus = async () => {
+  try {
+    const response = await systemApi.getOcrSettings()
+    applyTenantOcrStatus(response?.data || {})
+  } catch (_) {}
 }
 
-// 应用 OCR 响应到表单并返回填充字段数量（支持 raw_text 与 data）
-const applyOcrResponse = (payload) => {
-  if (!payload) return 0
-  let applied = 0
-
-  // 解析原始文本（后端返回为 raw_text；容错 text）
-  const raw = payload.raw_text || payload.text
-  if (raw) {
-    const parsed = parseIdCardText(raw)
-    for (const [k, v] of Object.entries(parsed)) {
-      if (v) {
-        tenantForm[k] = v
-        applied++
-      }
-    }
-  }
-
-  // 结构化字段（后端返回在 data；容错直接在 payload）
-  const data = payload.data || payload
-  const keys = ['name','gender','nation','birth_date','id_card','address','issuing_authority','valid_period']
-  for (const k of keys) {
-    if (data && data[k]) {
-      tenantForm[k] = data[k]
-      applied++
-    }
-  }
-
-  // 兼容 issuer 字段映射到 issuing_authority
-  if (data && data.issuer && !tenantForm.issuing_authority) {
-    tenantForm.issuing_authority = data.issuer
-    applied++
-  }
-
-  // 若只提供起止日期，拼成 valid_period
-  if (data && !tenantForm.valid_period && data.valid_start && data.valid_end) {
-    tenantForm.valid_period = `${data.valid_start} - ${data.valid_end}`
-    applied++
-  }
-
-  // 图片 URL
-  if (data && data.front_img) tenantForm.front_img = data.front_img
-  if (data && data.back_img) tenantForm.back_img = data.back_img
-
-  return applied
+const openTenantIdCardFileDialog = () => {
+  if (tenantOcrRecognizing.value) return
+  tenantIdCardFileInputRef.value?.click()
 }
 
-const runOcrWithChunkUpload = async (file, side, onProgress) => {
-  const uploadResult = await uploadFileByChunks(file, {
-    category: 'idcards',
-    subDir: 'ocr',
-    chunkSize: 1024 * 1024,
-    maxRetries: 3,
-    retryDelay: 800,
-    onProgress
-  })
-  const imageUrl = String(uploadResult?.file_url || '')
-  if (!imageUrl) {
-    throw new Error('Upload succeeded but no image URL was returned')
-  }
-  return ocrApi.ocrIdCardByUrl(imageUrl, side)
-}
-
-const onFrontFileChange = async (e) => {
-  const file = e.target.files && e.target.files[0]
+const handleTenantIdCardFileChange = async (event) => {
+  const file = event?.target?.files?.[0]
+  event.target.value = ''
   if (!file) return
-  if (!String(file.type || '').startsWith('image/')) {
-    ElMessage.warning('Please upload an image file')
-    e.target.value = ''
+  if (!file.type.startsWith('image/')) {
+    ElMessage.error('请上传图片文件')
     return
   }
-
-  ocrLoadingFront.value = true
-  ocrProgressFront.value = 0
-  try {
-    const resp = await runOcrWithChunkUpload(file, 'front', (percent) => {
-      ocrProgressFront.value = percent
-    })
-    const applied = applyOcrResponse(resp.data)
-    ElMessage.success(applied > 0 ? 'Front side OCR completed and fields were filled' : 'Front side OCR completed')
-  } catch (err) {
-    if (err.response?.data) {
-      const applied = applyOcrResponse(err.response.data)
-      if (applied > 0) {
-        ElMessage.success('Front side OCR partially succeeded')
-      }
-    }
-    const baseMsg = err.response?.data?.error || err?.message || 'Front side OCR failed'
-    ElMessage.error(baseMsg)
-  } finally {
-    ocrLoadingFront.value = false
-    e.target.value = ''
-  }
-}
-
-const onBackFileChange = async (e) => {
-  const file = e.target.files && e.target.files[0]
-  if (!file) return
-  if (!String(file.type || '').startsWith('image/')) {
-    ElMessage.warning('Please upload an image file')
-    e.target.value = ''
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.error('身份证图片不能超过 10MB')
     return
   }
-
-  ocrLoadingBack.value = true
-  ocrProgressBack.value = 0
+  tenantOcrRecognizing.value = true
+  tenantOcrMessage.value = ''
   try {
-    const resp = await runOcrWithChunkUpload(file, 'back', (percent) => {
-      ocrProgressBack.value = percent
-    })
-    const applied = applyOcrResponse(resp.data)
-    ElMessage.success(applied > 0 ? 'Back side OCR completed and fields were filled' : 'Back side OCR completed')
-  } catch (err) {
-    if (err.response?.data) {
-      const applied = applyOcrResponse(err.response.data)
-      if (applied > 0) {
-        ElMessage.success('Back side OCR partially succeeded')
-      }
-    }
-    const baseMsg = err.response?.data?.error || err?.message || 'Back side OCR failed'
-    ElMessage.error(baseMsg)
+    const response = await tenantsApi.recognizeIdCard(file)
+    const result = response?.data || {}
+    applyTenantRecognizedFields(result.fields || {})
+    applyTenantOcrStatus(result.ocr || {})
+    tenantOcrMessage.value = '识别成功，已自动回填身份证信息。'
+    ElMessage.success('身份证识别成功')
+  } catch (error) {
+    tenantOcrMessage.value = error?.response?.data?.error || '身份证识别失败'
+    ElMessage.error(tenantOcrMessage.value)
   } finally {
-    ocrLoadingBack.value = false
-    e.target.value = ''
+    tenantOcrRecognizing.value = false
   }
 }
 
@@ -1049,14 +954,6 @@ const handleSubmit = async () => {
         }
 
         // 字段映射以匹配后端
-        if (formData.issuing_authority) formData.issuer = formData.issuing_authority
-        if (formData.valid_period) {
-          const m = formData.valid_period.match(/(\d{4}-\d{1,2}-\d{1,2}).*?(\d{4}-\d{1,2}-\d{1,2})/)
-          if (m) {
-            formData.valid_start = m[1]
-            formData.valid_end = m[2]
-          }
-        }
         if (formData.emergency_contact) formData.emergency_contact_name = formData.emergency_contact
         if (formData.emergency_phone) formData.emergency_contact_phone = formData.emergency_phone
         
@@ -1130,6 +1027,10 @@ const handleBatchDelete = async () => {
     const failures = []
     // 顺序执行，避免 SQLite 并发写导致 database is locked
     for (const t of selectedTenants.value) {
+      if (String(t.status || '').trim() === '在住') {
+        failures.push({ tenant: t, msg: '在住状态不可删除，请先办理退租' })
+        continue
+      }
       try {
         await tenantsApi.deleteTenant(t.id_card)
         successes.push(t)
@@ -1167,6 +1068,38 @@ const formatDate = (date) => {
   const month = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+const applyTenantDraft = () => {
+  const draft = consumeAiDraft('tenant')
+  if (!draft) return
+  openAddDialog()
+  if (draft.name) tenantForm.name = draft.name
+  if (draft.gender) tenantForm.gender = draft.gender
+  if (draft.nation) tenantForm.nation = draft.nation
+  if (draft.birth_date) tenantForm.birth_date = draft.birth_date
+  if (draft.id_card) tenantForm.id_card = draft.id_card
+  if (draft.address) tenantForm.address = draft.address
+  if (draft.phone) tenantForm.phone = draft.phone
+  if (draft.emergency_contact) tenantForm.emergency_contact = draft.emergency_contact
+  if (draft.emergency_phone) tenantForm.emergency_phone = draft.emergency_phone
+  if (draft.check_in_date) tenantForm.check_in_date = draft.check_in_date
+  if (draft.check_out_date) tenantForm.check_out_date = draft.check_out_date
+  if (draft.status) tenantForm.status = draft.status
+  if (draft.notes) tenantForm.notes = draft.notes
+
+  const draftBuilding = String(draft.building || '').trim().toUpperCase()
+  const draftRoomNo = String(draft.room_no || '').trim().toUpperCase()
+  if (draftRoomNo) {
+    const matchedRoom = (availableRooms.value || []).find(room => {
+      const roomBuilding = String(room.building || '').trim().toUpperCase()
+      const roomNo = String(room.room_no || '').trim().toUpperCase()
+      return roomNo === draftRoomNo || `${roomBuilding}${roomNo}` === `${draftBuilding}${draftRoomNo}`
+    })
+    tenantForm.room_no = matchedRoom?.room_no || draftRoomNo
+  }
+
+  ElMessage.success('AI 草稿已带入租户表单')
 }
 
 // 导出相关
@@ -1280,25 +1213,6 @@ const exportToPDF = async () => {
 
 <style scoped>
 /* 统一收窄添加/编辑租户表单中的控件宽度 */
-.ocr-actions {
-  width: 100%;
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-.ocr-actions :deep(.el-button) {
-  font-size: 14px;
-  padding: 10px 16px;
-}
-
-.ocr-progress {
-  width: 100%;
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
 .narrow-fields {
   max-width: 640px;
   margin: 0 auto;
@@ -1666,5 +1580,31 @@ const exportToPDF = async () => {
 .mini-tenant-chip.status-inactive {
   border-left: 3px solid #909399;
   opacity: 0.7;
+}
+
+.hidden-file-input {
+  display: none;
+}
+
+.tenant-ocr-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tenant-ocr-tip {
+  font-size: 12px;
+  color: #909399;
+}
+
+.tenant-ocr-message {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #409eff;
+}
+
+.tenant-ocr-warning {
+  color: #e6a23c;
 }
 </style>

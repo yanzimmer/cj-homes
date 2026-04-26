@@ -3,7 +3,7 @@
     <div class="system-hero">
       <div>
         <h2 class="hero-title">系统维护中心</h2>
-        <p class="hero-subtitle">统一管理备份恢复、系统重置和演示数据生成</p>
+        <p class="hero-subtitle">统一管理备份恢复、OCR 配置、系统重置和演示数据生成</p>
       </div>
       <el-tag class="hero-tag" effect="dark">高安全操作区</el-tag>
     </div>
@@ -21,8 +21,8 @@
               导出系统完整数据，包含：
               <ul>
                 <li>数据库所有记录（房间、租户、合同等）</li>
-                <li>系统配置文件（通知设置、OCR设置）</li>
-                <li>所有上传的文件（身份证图片等）</li>
+                <li>系统配置文件（通知设置等）</li>
+                <li>所有上传的文件（身份证图片、维修图片等）</li>
               </ul>
             </div>
             <div class="action-area">
@@ -78,7 +78,7 @@
               <div class="action-area" v-if="selectedFile">
                 <el-button type="warning" size="large" :loading="importing" @click="handleImport">
                   <el-icon class="el-icon--left"><Refresh /></el-icon>
-                  ??????
+                  立即导入备份
                 </el-button>
               </div>
 
@@ -89,7 +89,99 @@
           </div>
         </div>
       </div>
+    </div>
 
+    <div class="system-feature-section">
+      <div class="system-grid-item">
+        <div class="card-box h-100 system-card">
+          <div class="card-header">
+            <el-icon class="icon"><Setting /></el-icon>
+            <h3>房间设施配置</h3>
+          </div>
+          <div class="card-content">
+            <div class="description">
+              在这里维护房间管理页可勾选的设施项，例如冰箱、热水器、沙发。保存后房间管理页会自动使用最新选项。
+            </div>
+
+            <div class="feature-editor">
+              <div class="feature-input-wrap">
+                <el-input
+                  v-model="newRoomFeature"
+                  placeholder="输入新设施项，例如：沙发"
+                  @keyup.enter="addRoomFeature"
+                />
+                <el-button type="primary" :loading="savingRoomFeatures" @click="addRoomFeature">添加设施项</el-button>
+              </div>
+              <div class="feature-hint">新增或删除后会自动保存，不需要再额外点保存按钮。</div>
+            </div>
+
+            <div class="feature-tags">
+              <el-tag
+                v-for="item in roomFeatureOptions"
+                :key="item"
+                closable
+                @close="removeRoomFeature(item)"
+              >
+                {{ item }}
+              </el-tag>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="system-grid-item">
+        <div class="card-box h-100 system-card">
+          <div class="card-header">
+            <el-icon class="icon"><Key /></el-icon>
+            <h3>阿里云 OCR 配置</h3>
+          </div>
+          <div class="card-content">
+            <div class="description">
+              在这里填写阿里云 OCR 的 AccessKey，并设置身份证识别总次数上限。达到上限后，自助入住页的身份证识别按钮会自动禁用。
+            </div>
+
+            <el-form label-position="top" class="ocr-settings-form">
+              <el-form-item label="AccessKey ID">
+                <el-input v-model="ocrSettings.access_key_id" placeholder="请输入 ALIBABA_CLOUD_ACCESS_KEY_ID" />
+              </el-form-item>
+              <el-form-item label="AccessKey Secret">
+                <el-input
+                  v-model="ocrSettings.access_key_secret"
+                  type="password"
+                  show-password
+                  placeholder="请输入 ALIBABA_CLOUD_ACCESS_KEY_SECRET"
+                />
+              </el-form-item>
+              <el-form-item label="OCR Endpoint">
+                <el-input v-model="ocrSettings.endpoint" placeholder="默认：ocr-api.cn-hangzhou.aliyuncs.com" />
+              </el-form-item>
+              <el-form-item label="身份证识别总次数上限">
+                <el-input-number v-model="ocrSettings.max_recognitions" :min="0" :step="1" style="width: 100%" />
+              </el-form-item>
+              <div class="feature-hint">填 `0` 表示不限制次数；比如填 `10`，累计识别 10 次后按钮会自动禁用。</div>
+
+              <div class="ocr-status-row">
+                <el-tag :type="ocrSettings.enabled ? 'success' : 'warning'">
+                  {{ ocrSettings.enabled ? '当前可用' : '当前不可用' }}
+                </el-tag>
+                <span class="ocr-status-text">
+                  已使用 {{ ocrSettings.used_count || 0 }} 次
+                  <template v-if="ocrSettings.max_recognitions > 0">
+                    ，剩余 {{ ocrSettings.remaining_count ?? 0 }} / {{ ocrSettings.max_recognitions }} 次
+                  </template>
+                </span>
+              </div>
+              <div v-if="ocrSettings.reason" class="feature-hint">{{ ocrSettings.reason }}</div>
+
+              <div class="action-area">
+                <el-button type="primary" :loading="savingOcrSettings" @click="saveOcrSettings">
+                  保存 OCR 配置
+                </el-button>
+              </div>
+            </el-form>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="system-danger-section">
@@ -128,8 +220,8 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { Download, Upload, UploadFilled, Document, Refresh, Delete, MagicStick } from '@element-plus/icons-vue'
+import { onMounted, ref } from 'vue'
+import { Download, Upload, UploadFilled, Document, Refresh, Delete, MagicStick, Setting, Key } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { systemApi } from '../api'
 import { uploadFileByChunks } from '../utils/chunkUploader'
@@ -140,6 +232,102 @@ const resetting = ref(false)
 const seeding = ref(false)
 const selectedFile = ref(null)
 const importUploadProgress = ref(0)
+const roomFeatureOptions = ref([])
+const newRoomFeature = ref('')
+const savingRoomFeatures = ref(false)
+const savingOcrSettings = ref(false)
+const ocrSettings = ref({
+  access_key_id: '',
+  access_key_secret: '',
+  endpoint: 'ocr-api.cn-hangzhou.aliyuncs.com',
+  max_recognitions: 0,
+  used_count: 0,
+  remaining_count: null,
+  enabled: false,
+  reason: '',
+})
+
+const fetchRoomFeatureOptions = async () => {
+  try {
+    const response = await systemApi.getRoomFeatureOptions()
+    roomFeatureOptions.value = response?.data?.options || []
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '加载房间设施配置失败')
+  }
+}
+
+const fetchOcrSettings = async () => {
+  try {
+    const response = await systemApi.getOcrSettings()
+    ocrSettings.value = {
+      access_key_id: response?.data?.access_key_id || '',
+      access_key_secret: response?.data?.access_key_secret || '',
+      endpoint: response?.data?.endpoint || 'ocr-api.cn-hangzhou.aliyuncs.com',
+      max_recognitions: Number(response?.data?.max_recognitions || 0),
+      used_count: Number(response?.data?.used_count || 0),
+      remaining_count: response?.data?.remaining_count ?? null,
+      enabled: Boolean(response?.data?.enabled),
+      reason: response?.data?.reason || '',
+    }
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '加载 OCR 配置失败')
+  }
+}
+
+const saveOcrSettings = async () => {
+  savingOcrSettings.value = true
+  try {
+    const response = await systemApi.updateOcrSettings({
+      access_key_id: ocrSettings.value.access_key_id,
+      access_key_secret: ocrSettings.value.access_key_secret,
+      endpoint: ocrSettings.value.endpoint,
+      max_recognitions: Number(ocrSettings.value.max_recognitions || 0),
+    })
+    ocrSettings.value = {
+      access_key_id: response?.data?.access_key_id || '',
+      access_key_secret: response?.data?.access_key_secret || '',
+      endpoint: response?.data?.endpoint || 'ocr-api.cn-hangzhou.aliyuncs.com',
+      max_recognitions: Number(response?.data?.max_recognitions || 0),
+      used_count: Number(response?.data?.used_count || 0),
+      remaining_count: response?.data?.remaining_count ?? null,
+      enabled: Boolean(response?.data?.enabled),
+      reason: response?.data?.reason || '',
+    }
+    ElMessage.success('OCR 配置已保存')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '保存 OCR 配置失败')
+  } finally {
+    savingOcrSettings.value = false
+  }
+}
+
+const addRoomFeature = () => {
+  const text = String(newRoomFeature.value || '').trim()
+  if (!text) return
+  if (!roomFeatureOptions.value.includes(text)) {
+    roomFeatureOptions.value = [...roomFeatureOptions.value, text]
+  }
+  newRoomFeature.value = ''
+  saveRoomFeatures()
+}
+
+const removeRoomFeature = (item) => {
+  roomFeatureOptions.value = roomFeatureOptions.value.filter(v => v !== item)
+  saveRoomFeatures()
+}
+
+const saveRoomFeatures = async () => {
+  savingRoomFeatures.value = true
+  try {
+    const response = await systemApi.updateRoomFeatureOptions({ options: roomFeatureOptions.value })
+    roomFeatureOptions.value = response?.data?.options || roomFeatureOptions.value
+    ElMessage.success('房间设施配置已保存')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '保存房间设施配置失败')
+  } finally {
+    savingRoomFeatures.value = false
+  }
+}
 
 const handleExport = async () => {
   try {
@@ -184,7 +372,7 @@ const handleFileChange = (file) => {
   const raw = file?.raw
   if (!raw) return
   if (raw.type !== 'application/x-zip-compressed' && !String(raw.name || '').toLowerCase().endsWith('.zip')) {
-    ElMessage.warning('??? .zip ???????')
+    ElMessage.warning('只能上传 .zip 格式的备份文件')
     return
   }
   selectedFile.value = raw
@@ -223,11 +411,11 @@ const handleImport = () => {
       })
       const fileUrl = uploadResult?.file_url
       if (!fileUrl) {
-        throw new Error('?????? file_url')
+        throw new Error('上传成功但未返回 file_url')
       }
       await systemApi.importData(fileUrl)
       importUploadProgress.value = 100
-      ElMessage.success('??????')
+      ElMessage.success('系统数据导入成功')
       selectedFile.value = null
       // Optional: Refresh page or logout
       setTimeout(() => {
@@ -307,6 +495,11 @@ const handleSeed = () => {
     }
   }).catch(() => {})
 }
+
+onMounted(() => {
+  fetchRoomFeatureOptions()
+  fetchOcrSettings()
+})
 </script>
 
 <style scoped>
@@ -329,7 +522,7 @@ const handleSeed = () => {
 .system-container {
   display: flex;
   flex-direction: column;
-  gap: clamp(18px, 2.6vw, 28px);
+  gap: 20px;
 }
 
 .system-hero {
@@ -365,10 +558,14 @@ const handleSeed = () => {
   display: flex;
   flex-direction: column;
   margin-bottom: 0;
+  padding: 20px;
 }
 
 .system-card {
   border-radius: 16px;
+  box-shadow: none;
+  border: 1px solid var(--surface-border, var(--el-border-color-light));
+  background: var(--card-bg, #fff);
 }
 
 .h-100 {
@@ -379,8 +576,8 @@ const handleSeed = () => {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 20px;
-  padding-bottom: 16px;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
   border-bottom: 1px solid var(--el-border-color-light);
 }
 
@@ -412,7 +609,7 @@ const handleSeed = () => {
 .description {
   color: var(--text-regular);
   line-height: 1.6;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 
 .description ul {
@@ -429,13 +626,13 @@ const handleSeed = () => {
 }
 
 .action-area {
-  margin-top: auto;
-  text-align: center;
-  padding-top: 20px;
+  margin-top: 0;
+  text-align: left;
+  padding-top: 0;
 }
 
 .upload-area {
-  margin-top: auto;
+  margin-top: 0;
 }
 
 .selected-file {
@@ -462,24 +659,47 @@ const handleSeed = () => {
   border-color: var(--el-color-primary);
 }
 
-.system-top-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: clamp(20px, 2.4vw, 28px);
+.system-top-grid,
+.system-feature-section,
+.system-danger-section {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
-.system-danger-section {
-  margin-top: clamp(36px, 5vw, 64px);
+.system-grid-item {
+  width: 100%;
+}
+
+.system-top-grid .system-card {
+  min-height: auto;
+}
+
+.system-top-grid .card-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+}
+
+.system-top-grid .description {
+  margin-bottom: 0;
+}
+
+.system-top-grid .action-area,
+.system-top-grid .upload-area {
+  width: min(420px, 100%);
 }
 
 @media (max-width: 768px) {
-  .system-top-grid {
+  .system-top-grid .card-content {
     grid-template-columns: 1fr;
-    row-gap: 20px;
   }
 
+  .system-top-grid,
+  .system-feature-section,
   .system-danger-section {
-    margin-top: 22px;
+    gap: 16px;
   }
 }
 
@@ -509,6 +729,57 @@ const handleSeed = () => {
 .danger-info p {
   margin: 0;
   color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.feature-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.feature-input-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.feature-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.ocr-settings-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.ocr-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.ocr-status-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.feature-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--surface-border);
+}
+
+.feature-tags :deep(.el-tag) {
+  padding: 8px 12px;
+  border-radius: 12px;
   font-size: 14px;
 }
 

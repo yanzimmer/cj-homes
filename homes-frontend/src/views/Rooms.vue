@@ -105,7 +105,7 @@
                 </template>
               </el-dropdown>
             </div>
-          </template>
+        </template>
           <template #default="scope">
             <el-tag :type="scope.row.status === '已入住' ? 'danger' : 'success'">
               {{ scope.row.status }}
@@ -113,30 +113,41 @@
           </template>
         </el-table-column>
         <el-table-column prop="tenant_count" label="租户数量" min-width="100" sortable="custom" show-overflow-tooltip></el-table-column>
-        <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip></el-table-column>
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="房间设施" min-width="180" show-overflow-tooltip>
           <template #default="scope">
-            <el-button 
-              size="small" 
-              type="primary" 
-              @click="showRoomDetails(scope.row)"
-              :disabled="scope.row.status === '空闲' || scope.row.tenant_count === 0">
-              详情
-            </el-button>
-            <el-button size="small" @click="openEditDialog(scope.row)">编辑</el-button>
-            <el-button 
-              size="small" 
-              type="warning" 
-              @click="handleCheckout(scope.row)"
-              :disabled="scope.row.status === '空闲' || scope.row.tenant_count === 0">
-              退租
-            </el-button>
-            <el-button 
-              size="small" 
-              type="danger" 
-              :disabled="scope.row.status === '已入住'"
-              :title="scope.row.status === '已入住' ? '房间有在住租户不可删除，请先办理退租' : ''"
-              @click="handleDelete(scope.row)">删除</el-button>
+            <div class="room-feature-tags">
+              <el-tag v-for="item in (scope.row.features || [])" :key="item" size="small" effect="plain">{{ item }}</el-tag>
+              <span v-if="!scope.row.features || scope.row.features.length === 0">-</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip></el-table-column>
+        <el-table-column label="操作" width="420" fixed="right">
+          <template #default="scope">
+            <div class="room-actions-inline">
+              <el-button 
+                size="small" 
+                type="primary" 
+                @click="showRoomDetails(scope.row)"
+                :disabled="scope.row.status === '空闲' || scope.row.tenant_count === 0">
+                详情
+              </el-button>
+              <el-button size="small" @click="openEditDialog(scope.row)">编辑</el-button>
+              <el-button size="small" type="success" @click="openSelfCheckinDialog(scope.row)">入住链接</el-button>
+              <el-button 
+                size="small" 
+                type="warning" 
+                @click="handleCheckout(scope.row)"
+                :disabled="scope.row.status === '空闲' || scope.row.tenant_count === 0">
+                退租
+              </el-button>
+              <el-button 
+                size="small" 
+                type="danger" 
+                :disabled="scope.row.status === '已入住'"
+                :title="scope.row.status === '已入住' ? '房间有在住租户不可删除，请先办理退租' : ''"
+                @click="handleDelete(scope.row)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -251,6 +262,14 @@
         <el-form-item label="价格" prop="price">
           <el-input-number v-model="roomForm.price" :min="0" :precision="2" :step="100"></el-input-number>
         </el-form-item>
+        <el-form-item label="押金" prop="deposit">
+          <el-input-number v-model="roomForm.deposit" :min="0" :precision="2" :step="100"></el-input-number>
+        </el-form-item>
+        <el-form-item label="房间设施">
+          <el-checkbox-group v-model="roomForm.features">
+            <el-checkbox v-for="item in roomFeatureOptions" :key="item" :label="item">{{ item }}</el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
         <el-form-item label="状态" prop="status">
           <el-select v-model="roomForm.status" placeholder="请选择状态" style="width: 100%">
             <el-option label="空闲" value="空闲"></el-option>
@@ -295,12 +314,19 @@
             <el-descriptions-item label="楼层">{{ currentRoom.floor }}</el-descriptions-item>
             <el-descriptions-item label="房间类型">{{ currentRoom.room_type }}</el-descriptions-item>
             <el-descriptions-item label="价格">{{ currentRoom.price }} 元/月</el-descriptions-item>
+            <el-descriptions-item label="押金">{{ currentRoom.deposit }} 元</el-descriptions-item>
             <el-descriptions-item label="状态">
               <el-tag :type="currentRoom.status === '已入住' ? 'danger' : 'success'">
                 {{ currentRoom.status }}
               </el-tag>
             </el-descriptions-item>
             <el-descriptions-item label="租户数量">{{ currentRoom.tenant_count }}</el-descriptions-item>
+            <el-descriptions-item label="房间设施" :span="2">
+              <div class="room-feature-tags">
+                <el-tag v-for="item in (currentRoom.features || [])" :key="item" size="small" effect="plain">{{ item }}</el-tag>
+                <span v-if="!currentRoom.features || currentRoom.features.length === 0">-</span>
+              </div>
+            </el-descriptions-item>
           </el-descriptions>
         </div>
 
@@ -322,6 +348,163 @@
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="detailsDialogVisible = false">关闭</el-button>
+        </span>
+      </template>
+    </el-dialog>
+
+    <el-dialog title="自助入住链接" v-model="selfCheckinDialogVisible" width="820px">
+      <div class="self-checkin-panel">
+        <div class="self-checkin-toolbar">
+          <div class="self-checkin-room">
+            当前房间：{{ selfCheckinRoom.building }}栋 {{ selfCheckinRoom.room_no }}
+          </div>
+          <el-button
+            type="primary"
+            :loading="creatingSelfCheckinLink"
+            :disabled="selfCheckinLinks.length > 0"
+            @click="createSelfCheckinLink"
+          >
+            生成新链接
+          </el-button>
+        </div>
+        <div v-if="selfCheckinLinks.length > 0" class="self-checkin-tip">
+          当前房间已存在入住链接，如需新链接，请先删除原链接。删除链接不会删除已提交的记录。
+        </div>
+
+        <div v-if="selfCheckinLinks.length > 0" class="self-checkin-links">
+          <div v-for="item in selfCheckinLinks" :key="item.id" class="self-checkin-link-card">
+            <div class="self-checkin-link-meta">
+              <div>创建时间：{{ item.created_at }}</div>
+              <div>状态：{{ item.status }}</div>
+            </div>
+            <div v-if="item.qrCodeDataUrl" class="self-checkin-link-qr">
+              <img :src="item.qrCodeDataUrl" alt="入住二维码" class="self-checkin-qr-image" />
+            </div>
+            <div class="self-checkin-link-url">{{ buildSelfCheckinUrl(item.token) }}</div>
+            <div class="self-checkin-link-actions">
+              <el-button size="small" @click="copySelfCheckinUrl(item.token)">复制链接</el-button>
+              <el-button size="small" type="primary" plain @click="openSelfCheckinUrl(item.token)">打开链接</el-button>
+              <el-button
+                v-if="item.status === 'active'"
+                size="small"
+                type="danger"
+                @click="disableSelfCheckinLink(item)"
+              >
+                停用
+              </el-button>
+              <el-button
+                v-else
+                size="small"
+                type="success"
+                @click="enableSelfCheckinLink(item)"
+              >
+                启用
+              </el-button>
+              <el-button
+                size="small"
+                type="danger"
+                plain
+                @click="deleteSelfCheckinLink(item)"
+              >
+                删除
+              </el-button>
+            </div>
+          </div>
+        </div>
+
+        <el-divider />
+
+        <h3>待确认提交记录</h3>
+        <el-table :data="selfCheckinSubmissions" border style="width: 100%">
+          <el-table-column prop="name" label="姓名" min-width="100" />
+          <el-table-column prop="id_card" label="身份证号" min-width="170" />
+          <el-table-column prop="phone" label="联系电话" min-width="120" />
+          <el-table-column prop="check_in_date" label="入住日期" width="120" />
+          <el-table-column prop="check_out_date" label="退房日期" width="120" />
+          <el-table-column prop="status" label="状态" width="100" />
+          <el-table-column prop="submitted_at" label="提交时间" min-width="160" />
+          <el-table-column prop="reject_reason" label="驳回原因" min-width="180" show-overflow-tooltip />
+          <el-table-column label="操作" width="260" fixed="right">
+            <template #default="{ row }">
+              <div class="self-checkin-submission-actions">
+                <el-button size="small" @click="openSubmissionDetail(row)">详情</el-button>
+                <el-button
+                  size="small"
+                  type="primary"
+                  :disabled="row.status !== 'pending'"
+                  @click="approveSelfCheckinSubmission(row)"
+                >
+                  确认
+                </el-button>
+                <el-button
+                  size="small"
+                  type="danger"
+                  :disabled="row.status !== 'pending'"
+                  @click="rejectSelfCheckinSubmission(row)"
+                >
+                  驳回
+                </el-button>
+                <el-button
+                  size="small"
+                  type="danger"
+                  plain
+                  @click="deleteSelfCheckinSubmission(row)"
+                >
+                  删除
+                </el-button>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+    </el-dialog>
+
+    <el-drawer v-model="submissionDetailVisible" title="入住提交详情" size="520px">
+      <el-descriptions v-if="submissionDetail.id" :column="1" border>
+        <el-descriptions-item label="姓名">{{ submissionDetail.name || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="性别">{{ submissionDetail.gender || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="民族">{{ submissionDetail.nation || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="出生日期">{{ submissionDetail.birth_date || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="身份证号">{{ submissionDetail.id_card || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="住址">{{ submissionDetail.address || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="联系电话">{{ submissionDetail.phone || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="紧急联系人">{{ submissionDetail.emergency_contact_name || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="紧急电话">{{ submissionDetail.emergency_contact_phone || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="入住日期">{{ submissionDetail.check_in_date || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="退房日期">{{ submissionDetail.check_out_date || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="提交状态">{{ submissionDetail.status || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="提交时间">{{ submissionDetail.submitted_at || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="驳回原因">{{ submissionDetail.reject_reason || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="备注">{{ submissionDetail.remarks || '-' }}</el-descriptions-item>
+      </el-descriptions>
+    </el-drawer>
+
+    <el-dialog v-model="rejectDialogVisible" title="驳回入住提交" width="460px">
+      <el-alert
+        title="驳回后会保留记录，用户可在记录中看到驳回原因。"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="reject-dialog-alert"
+      />
+      <el-form label-position="top">
+        <el-form-item label="驳回原因">
+          <el-input
+            v-model="rejectReason"
+            type="textarea"
+            :rows="4"
+            maxlength="200"
+            show-word-limit
+            placeholder="请输入驳回原因"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="closeRejectDialog">取消</el-button>
+          <el-button type="danger" :loading="rejectingSubmission" @click="confirmRejectSelfCheckinSubmission">
+            确认驳回
+          </el-button>
         </span>
       </template>
     </el-dialog>
@@ -373,6 +556,8 @@ import autoTable from 'jspdf-autotable'
 import { Document, Packer, Paragraph, Table as DocxTable, TableRow, TableCell, TextRun } from 'docx'
 import { saveAs } from 'file-saver'
 import html2canvas from 'html2canvas'
+import QRCode from 'qrcode'
+import { consumeAiDraft } from '../utils/aiDrafts'
 
 // 视图切换
 const currentView = ref('table') // 'table' or 'floor'
@@ -438,6 +623,18 @@ const detailsDialogVisible = ref(false)
 const detailsLoading = ref(false)
 const currentRoom = ref({})
 const roomTenants = ref([])
+const roomFeatureOptions = ref([])
+const selfCheckinDialogVisible = ref(false)
+const selfCheckinRoom = ref({})
+const selfCheckinLinks = ref([])
+const selfCheckinSubmissions = ref([])
+const creatingSelfCheckinLink = ref(false)
+const submissionDetailVisible = ref(false)
+const submissionDetail = ref({})
+const rejectDialogVisible = ref(false)
+const rejectReason = ref('')
+const rejectingSubmission = ref(false)
+const rejectTargetSubmission = ref(null)
 
 const roomForm = reactive({
   id: null,
@@ -446,6 +643,8 @@ const roomForm = reactive({
   floor: '',
   room_type: '',
   price: 0,
+  deposit: 0,
+  features: [],
   status: '空闲',
   description: ''
 })
@@ -590,12 +789,15 @@ const rules = {
   floor: [{ required: true, message: '请输入楼层', trigger: 'blur' }],
   room_type: [{ required: true, message: '请选择房间类型', trigger: 'change' }],
   price: [{ required: true, message: '请输入价格', trigger: 'blur' }],
+  deposit: [{ required: true, message: '请输入押金', trigger: 'blur' }],
   status: [{ required: true, message: '请选择状态', trigger: 'change' }]
 }
 
 // 生命周期
 onMounted(() => {
   fetchRooms()
+  fetchRoomFeatureOptions()
+  applyRoomDraft()
 })
 
 onMounted(() => {
@@ -610,13 +812,22 @@ onUnmounted(() => {
 const fetchRooms = async () => {
   loading.value = true
   try {
-    const response = await roomsApi.listRooms({ fields: 'id,room_no,room_display,building,room_type,price,deposit,description,status,tenant_count,has_water_meter_img,has_electricity_meter_img' })
+    const response = await roomsApi.listRooms({ fields: 'id,room_no,room_display,building,room_type,price,deposit,description,features,status,tenant_count,has_water_meter_img,has_electricity_meter_img' })
     rooms.value = response.data.rooms || []
   } catch (error) {
     ElMessage.error('获取房间列表失败')
     console.error(error)
   } finally {
     loading.value = false
+  }
+}
+
+const fetchRoomFeatureOptions = async () => {
+  try {
+    const response = await roomsApi.getFeatureOptions()
+    roomFeatureOptions.value = response?.data?.options || []
+  } catch (error) {
+    console.error('获取房间设施选项失败', error)
   }
 }
 
@@ -634,6 +845,182 @@ const showRoomDetails = async (room) => {
     roomTenants.value = []
   } finally {
     detailsLoading.value = false
+  }
+}
+
+const buildSelfCheckinUrl = (token) => `${window.location.origin}/check-in/${token}`
+
+const fetchSelfCheckinData = async (room) => {
+  if (!room?.id) return
+  const [linksRes, submissionsRes] = await Promise.all([
+    roomsApi.listSelfCheckinLinks(room.id),
+    roomsApi.listSelfCheckinSubmissions(room.id),
+  ])
+  const links = linksRes?.data?.links || []
+  selfCheckinLinks.value = await Promise.all(
+    links.map(async (item) => ({
+      ...item,
+      qrCodeDataUrl: await QRCode.toDataURL(buildSelfCheckinUrl(item.token), { width: 132, margin: 1 }),
+    }))
+  )
+  selfCheckinSubmissions.value = submissionsRes?.data?.submissions || []
+}
+
+const openSelfCheckinDialog = async (room) => {
+  selfCheckinRoom.value = room
+  selfCheckinDialogVisible.value = true
+  try {
+    await fetchSelfCheckinData(room)
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '加载入住链接数据失败')
+  }
+}
+
+const createSelfCheckinLink = async () => {
+  if (!selfCheckinRoom.value?.id) return
+  creatingSelfCheckinLink.value = true
+  try {
+    await roomsApi.createSelfCheckinLink(selfCheckinRoom.value.id)
+    await fetchSelfCheckinData(selfCheckinRoom.value)
+    ElMessage.success('入住链接已生成')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '生成入住链接失败')
+  } finally {
+    creatingSelfCheckinLink.value = false
+  }
+}
+
+const copySelfCheckinUrl = async (token) => {
+  try {
+    await navigator.clipboard.writeText(buildSelfCheckinUrl(token))
+    ElMessage.success('入住链接已复制')
+  } catch (error) {
+    ElMessage.error('复制失败，请手动复制')
+  }
+}
+
+const openSelfCheckinUrl = (token) => {
+  window.open(buildSelfCheckinUrl(token), '_blank', 'noopener,noreferrer')
+}
+
+const disableSelfCheckinLink = async (item) => {
+  try {
+    await ElMessageBox.confirm(
+      '停用后该入住链接将无法继续提交，是否确认停用？',
+      '停用入住链接',
+      {
+        confirmButtonText: '确认停用',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+    await roomsApi.disableSelfCheckinLink(item.id)
+    await fetchSelfCheckinData(selfCheckinRoom.value)
+    ElMessage.success('入住链接已停用')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error?.response?.data?.error || error?.message || '停用入住链接失败')
+    }
+  }
+}
+
+const enableSelfCheckinLink = async (item) => {
+  try {
+    await roomsApi.enableSelfCheckinLink(item.id)
+    await fetchSelfCheckinData(selfCheckinRoom.value)
+    ElMessage.success('入住链接已启用')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || error?.message || '启用入住链接失败')
+  }
+}
+
+const deleteSelfCheckinLink = async (item) => {
+  try {
+    await ElMessageBox.confirm(
+      '删除后该链接会失效，但已提交的入住记录会保留，是否继续？',
+      '删除入住链接',
+      {
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+    await roomsApi.deleteSelfCheckinLink(item.id)
+    await fetchSelfCheckinData(selfCheckinRoom.value)
+    ElMessage.success('入住链接已删除')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error?.response?.data?.error || error?.message || '删除入住链接失败')
+    }
+  }
+}
+
+const approveSelfCheckinSubmission = async (row) => {
+  try {
+    await roomsApi.approveSelfCheckinSubmission(row.id)
+    await fetchSelfCheckinData(selfCheckinRoom.value)
+    await fetchRooms()
+    ElMessage.success('已确认入租户库')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '确认入库失败')
+  }
+}
+
+const openSubmissionDetail = (row) => {
+  submissionDetail.value = { ...row }
+  submissionDetailVisible.value = true
+}
+
+const rejectSelfCheckinSubmission = (row) => {
+  rejectTargetSubmission.value = row
+  rejectReason.value = row?.reject_reason || ''
+  rejectDialogVisible.value = true
+}
+
+const closeRejectDialog = () => {
+  rejectDialogVisible.value = false
+  rejectReason.value = ''
+  rejectTargetSubmission.value = null
+}
+
+const confirmRejectSelfCheckinSubmission = async () => {
+  const row = rejectTargetSubmission.value
+  if (!row?.id) return
+  if (!rejectReason.value.trim()) {
+    ElMessage.error('请填写驳回原因')
+    return
+  }
+  rejectingSubmission.value = true
+  try {
+    await roomsApi.rejectSelfCheckinSubmission(row.id, { reject_reason: rejectReason.value.trim() })
+    await fetchSelfCheckinData(selfCheckinRoom.value)
+    ElMessage.success('入住提交已驳回')
+    closeRejectDialog()
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || error?.message || '驳回失败')
+  } finally {
+    rejectingSubmission.value = false
+  }
+}
+
+const deleteSelfCheckinSubmission = async (row) => {
+  try {
+    await ElMessageBox.confirm(
+      '确定删除这条入住提交记录吗？',
+      '删除提交记录',
+      {
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+    await roomsApi.deleteSelfCheckinSubmission(row.id)
+    await fetchSelfCheckinData(selfCheckinRoom.value)
+    ElMessage.success('入住提交记录已删除')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error?.response?.data?.error || error?.message || '删除提交记录失败')
+    }
   }
 }
 
@@ -669,6 +1056,8 @@ const resetForm = () => {
   roomForm.floor = ''
   roomForm.room_type = ''
   roomForm.price = 0
+  roomForm.deposit = 0
+  roomForm.features = []
   roomForm.status = '空闲'
   roomForm.description = ''
 }
@@ -678,6 +1067,23 @@ const openAddDialog = () => {
   isEdit.value = false
   dialogTitle.value = '添加房间'
   dialogVisible.value = true
+}
+
+const applyRoomDraft = () => {
+  const draft = consumeAiDraft('room')
+  if (!draft) return
+  openAddDialog()
+  const buildingText = String(draft.building || '').toUpperCase()
+  const buildingMatch = buildingText.match(/[A-Z]/)
+  roomForm.building = buildingMatch ? buildingMatch[0] : ''
+  roomForm.room_no = String(draft.room_no || '').replace(/\D/g, '')
+  roomForm.room_type = String(draft.room_type || '')
+  roomForm.price = Number(draft.price || 0)
+  roomForm.deposit = Number(draft.deposit || 0)
+  roomForm.features = Array.isArray(draft.features) ? draft.features : []
+  roomForm.status = String(draft.status || '空闲')
+  roomForm.description = String(draft.description || '')
+  ElMessage.success('AI 草稿已带入房间表单')
 }
 
 const openEditDialog = (room) => {
@@ -697,6 +1103,8 @@ const openEditDialog = (room) => {
   }
   roomForm.room_type = room.room_type
   roomForm.price = room.price
+  roomForm.deposit = Number(room.deposit || 0)
+  roomForm.features = Array.isArray(room.features) ? room.features : []
   roomForm.status = room.status || '空闲'
   roomForm.description = room.description || ''
   dialogVisible.value = true
@@ -932,6 +1340,89 @@ const exportToPDF = async () => {
 
 .toolbar-btn {
   margin-left: 0 !important;
+}
+
+.room-feature-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.room-actions-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.self-checkin-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.self-checkin-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.self-checkin-room {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.self-checkin-tip {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.self-checkin-links {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.self-checkin-link-card {
+  padding: 12px;
+  border: 1px solid var(--surface-border, #dbe4f0);
+  border-radius: 12px;
+}
+
+.self-checkin-link-qr {
+  margin: 10px 0;
+}
+
+.self-checkin-qr-image {
+  width: 132px;
+  height: 132px;
+  display: block;
+  border-radius: 10px;
+  border: 1px solid var(--surface-border, #dbe4f0);
+}
+
+.self-checkin-link-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.self-checkin-link-url {
+  margin: 8px 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.self-checkin-link-actions,
+.self-checkin-submission-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 
 .table-panel {
