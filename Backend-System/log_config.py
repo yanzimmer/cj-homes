@@ -1,6 +1,7 @@
 import logging
 import os
-from logging.handlers import RotatingFileHandler
+import re
+from logging.handlers import TimedRotatingFileHandler
 
 
 BASE_DIR = os.path.dirname(__file__)
@@ -16,21 +17,27 @@ def configure_logging(app=None):
         "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
     )
 
-    app_handler = RotatingFileHandler(
+    app_handler = TimedRotatingFileHandler(
         APP_LOG_FILE,
-        maxBytes=5 * 1024 * 1024,
-        backupCount=10,
+        when="midnight",
+        interval=1,
+        backupCount=30,
         encoding="utf-8",
     )
+    app_handler.suffix = "%Y%m%d"
+    app_handler.extMatch = re.compile(r"^\d{8}$")
     app_handler.setLevel(logging.INFO)
     app_handler.setFormatter(formatter)
 
-    error_handler = RotatingFileHandler(
+    error_handler = TimedRotatingFileHandler(
         ERROR_LOG_FILE,
-        maxBytes=5 * 1024 * 1024,
-        backupCount=10,
+        when="midnight",
+        interval=1,
+        backupCount=30,
         encoding="utf-8",
     )
+    error_handler.suffix = "%Y%m%d"
+    error_handler.extMatch = re.compile(r"^\d{8}$")
     error_handler.setLevel(logging.ERROR)
     error_handler.setFormatter(formatter)
 
