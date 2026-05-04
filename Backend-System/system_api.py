@@ -64,8 +64,10 @@ def _get_ai_switch_status():
 
 
 def _ollama_generate(payload, timeout=AI_SWITCH_TIMEOUT_SECONDS):
+    settings = load_ai_settings()
+    ollama_base_url = settings.get('ollama_base_url') or OLLAMA_BASE_URL
     req = urllib.request.Request(
-        f'{OLLAMA_BASE_URL}/api/generate',
+        f"{ollama_base_url.rstrip('/')}/api/generate",
         data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
         headers={'Content-Type': 'application/json'},
         method='POST',
@@ -255,6 +257,7 @@ def get_ai_settings_api(current_user):
     return jsonify({
         'enabled': settings.get('enabled', True),
         'procurement_model': settings.get('procurement_model'),
+        'ollama_base_url': settings.get('ollama_base_url'),
         'available_procurement_models': ALLOWED_PROCUREMENT_MODELS,
         'updated_at': settings.get('updated_at', ''),
         'switch_status': _get_ai_switch_status(),
@@ -267,9 +270,12 @@ def update_ai_settings_api(current_user):
     data = request.json or {}
     action = str(data.get('action') or 'switch_model').strip()
     model = str(data.get('procurement_model') or '').strip()
+    requested_ollama_base_url = data.get('ollama_base_url')
     if model not in ALLOWED_PROCUREMENT_MODELS:
         return jsonify({'error': '不支持的采购 AI 模型'}), 400
     current = load_ai_settings()
+    if requested_ollama_base_url is not None:
+        current = save_ai_settings({'ollama_base_url': requested_ollama_base_url})
     old_model = current.get('procurement_model') or ''
     current_status = _get_ai_switch_status()
     if current_status.get('status') == 'running':
@@ -292,6 +298,7 @@ def update_ai_settings_api(current_user):
         return jsonify({
             'enabled': current.get('enabled', True),
             'procurement_model': old_model,
+            'ollama_base_url': current.get('ollama_base_url'),
             'available_procurement_models': ALLOWED_PROCUREMENT_MODELS,
             'updated_at': current.get('updated_at', ''),
             'switch_status': _get_ai_switch_status(),
@@ -313,6 +320,7 @@ def update_ai_settings_api(current_user):
         return jsonify({
             'enabled': current.get('enabled', True),
             'procurement_model': old_model,
+            'ollama_base_url': current.get('ollama_base_url'),
             'available_procurement_models': ALLOWED_PROCUREMENT_MODELS,
             'updated_at': current.get('updated_at', ''),
             'switch_status': _get_ai_switch_status(),
@@ -336,6 +344,7 @@ def update_ai_settings_api(current_user):
     return jsonify({
         'enabled': current.get('enabled', True),
         'procurement_model': old_model,
+        'ollama_base_url': current.get('ollama_base_url'),
         'available_procurement_models': ALLOWED_PROCUREMENT_MODELS,
         'updated_at': current.get('updated_at', ''),
         'switch_status': _get_ai_switch_status(),
@@ -349,6 +358,7 @@ def get_ai_switch_status_api(current_user):
     return jsonify({
         'enabled': settings.get('enabled', True),
         'procurement_model': settings.get('procurement_model'),
+        'ollama_base_url': settings.get('ollama_base_url'),
         'available_procurement_models': ALLOWED_PROCUREMENT_MODELS,
         'updated_at': settings.get('updated_at', ''),
         'switch_status': _get_ai_switch_status(),

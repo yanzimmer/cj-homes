@@ -169,7 +169,9 @@ def _build_repair_ai_prompt(user_text, image_count):
 
 
 def _call_ollama_generate(prompt, images):
-    model = load_ai_settings().get("procurement_model") or os.getenv("REPAIR_AI_MODEL", "qwen3.5:4b")
+    settings = load_ai_settings()
+    model = settings.get("procurement_model") or os.getenv("REPAIR_AI_MODEL", "qwen3.5:4b")
+    ollama_base_url = settings.get("ollama_base_url") or OLLAMA_BASE_URL
     payload = {
         "model": model,
         "prompt": prompt,
@@ -182,7 +184,7 @@ def _call_ollama_generate(prompt, images):
     if images:
         payload["images"] = images
     req = urllib.request.Request(
-        f"{OLLAMA_BASE_URL}/api/generate",
+        f"{ollama_base_url.rstrip('/')}/api/generate",
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         headers={"Content-Type": "application/json"},
         method="POST",

@@ -8,6 +8,7 @@ ALLOWED_PROCUREMENT_MODELS = ["qwen3.5:4b", "qwen3.5:2b", "qwen3.5:0.8b"]
 DEFAULT_SETTINGS = {
     "enabled": True,
     "procurement_model": os.getenv("PROCUREMENT_AI_MODEL", "qwen3.5:4b"),
+    "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
     "updated_at": "",
 }
 
@@ -15,6 +16,15 @@ DEFAULT_SETTINGS = {
 def _normalize_model(value):
     text = str(value or "").strip()
     return text if text in ALLOWED_PROCUREMENT_MODELS else "qwen3.5:4b"
+
+
+def _normalize_ollama_base_url(value):
+    text = str(value or "").strip().rstrip("/")
+    if not text:
+        return "http://127.0.0.1:11434"
+    if not (text.startswith("http://") or text.startswith("https://")):
+        text = f"http://{text}"
+    return text.rstrip("/")
 
 
 def load_ai_settings():
@@ -32,6 +42,7 @@ def load_ai_settings():
     merged.update(data)
     merged["enabled"] = bool(merged.get("enabled", True))
     merged["procurement_model"] = _normalize_model(merged.get("procurement_model"))
+    merged["ollama_base_url"] = _normalize_ollama_base_url(merged.get("ollama_base_url"))
     return merged
 
 
@@ -41,6 +52,8 @@ def save_ai_settings(data):
         current["enabled"] = bool(data.get("enabled"))
     if isinstance(data, dict) and "procurement_model" in data:
         current["procurement_model"] = _normalize_model(data.get("procurement_model"))
+    if isinstance(data, dict) and "ollama_base_url" in data:
+        current["ollama_base_url"] = _normalize_ollama_base_url(data.get("ollama_base_url"))
     current["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)

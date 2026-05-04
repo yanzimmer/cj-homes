@@ -150,6 +150,14 @@
                   @change="toggleAiEnabled"
                 />
               </el-form-item>
+              <el-form-item label="Ollama 服务地址">
+                <el-input
+                  v-model="aiSettings.ollama_base_url"
+                  placeholder="http://127.0.0.1:11434"
+                  :disabled="isAiSwitching"
+                  clearable
+                />
+              </el-form-item>
               <el-form-item label="采购 AI 模型">
                 <el-select v-model="aiSettings.procurement_model" style="width: 100%" :disabled="isAiSwitching || !aiSettings.enabled">
                   <el-option
@@ -161,7 +169,7 @@
                 </el-select>
               </el-form-item>
               <div class="feature-hint">
-                当前支持 qwen3.5:4b、qwen3.5:2b 和 qwen3.5:0.8b。停用时会停止当前模型，启用/切换时会启动所选模型。
+                当前支持 qwen3.5:4b、qwen3.5:2b 和 qwen3.5:0.8b。Ollama 和后端同机时使用 http://127.0.0.1:11434；远程部署时填写 http://另一台机器IP:11434。
               </div>
               <div class="ocr-status-row">
                 <el-tag :type="aiSwitchStatusTagType">
@@ -308,6 +316,7 @@ const ocrSettings = ref({
 const aiSettings = ref({
   enabled: true,
   procurement_model: 'qwen3.5:4b',
+  ollama_base_url: 'http://127.0.0.1:11434',
   available_procurement_models: ['qwen3.5:4b', 'qwen3.5:2b', 'qwen3.5:0.8b'],
   updated_at: '',
 })
@@ -359,6 +368,7 @@ const applyAiSettingsResponse = (data = {}) => {
   aiSettings.value = {
     enabled: data?.enabled !== false,
     procurement_model: data?.procurement_model || 'qwen3.5:4b',
+    ollama_base_url: data?.ollama_base_url || 'http://127.0.0.1:11434',
     available_procurement_models: data?.available_procurement_models || ['qwen3.5:4b', 'qwen3.5:2b', 'qwen3.5:0.8b'],
     updated_at: data?.updated_at || '',
   }
@@ -481,6 +491,7 @@ const runAiAction = async (action, successMessage) => {
     const response = await systemApi.updateAiSettings({
       action,
       procurement_model: aiSettings.value.procurement_model,
+      ollama_base_url: aiSettings.value.ollama_base_url,
     })
     applyAiSettingsResponse(response?.data || {})
     ElMessage.success(successMessage)
