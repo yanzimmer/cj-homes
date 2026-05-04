@@ -1,5 +1,16 @@
 <template>
   <div class="public-checkin-page">
+    <button
+      class="public-theme-toggle"
+      type="button"
+      :title="isDark ? '切换到亮色模式' : '切换到暗色模式'"
+      @click="togglePublicTheme"
+    >
+      <el-icon>
+        <Sunny v-if="isDark" />
+        <Moon v-else />
+      </el-icon>
+    </button>
     <div class="public-checkin-card">
       <div class="header">
         <h2>自助入住登记</h2>
@@ -19,6 +30,7 @@
           @change="handleIdCardFileChange"
         />
         <div class="ocr-toolbar-main">
+          <span class="ocr-toolbar-tip ocr-toolbar-leading">拍照/上传身份证正面识别</span>
           <el-button
             type="primary"
             plain
@@ -26,15 +38,16 @@
             :disabled="!ocrStatus.enabled"
             @click="openIdCardFileDialog"
           >
-            拍照/上传身份证正面识别
+            OCR识别
           </el-button>
+          <el-button type="primary" plain @click="openAiDialog">AI识别</el-button>
           <span class="ocr-toolbar-tip">
             支持手机拍照和电脑上传，识别后会自动回填，仍可手动修改。
             <template v-if="ocrStatus.max_recognitions > 0">
               剩余 {{ ocrStatus.remaining_count ?? 0 }} / {{ ocrStatus.max_recognitions }} 次。
             </template>
           </span>
-          <el-button text @click="clearDraftManually">清空本地草稿</el-button>
+          <el-button type="danger" plain @click="clearDraftManually">清空本地草稿</el-button>
         </div>
         <el-alert
           v-if="!ocrStatus.enabled && ocrStatus.reason"
@@ -48,6 +61,14 @@
           v-if="ocrMessage"
           :title="ocrMessage"
           :type="ocrMessageType"
+          show-icon
+          :closable="false"
+          class="ocr-alert"
+        />
+        <el-alert
+          v-if="submissionStatus.visible"
+          :title="submissionStatus.title"
+          :type="submissionStatus.type"
           show-icon
           :closable="false"
           class="ocr-alert"
@@ -76,6 +97,67 @@
         <el-button type="primary" :loading="submitting" @click="submitForm">提交入住信息</el-button>
         </el-form>
       </div>
+
+      <el-dialog
+        title="AI识别入住信息"
+        v-model="aiDialog.visible"
+        width="min(640px, calc(100vw - 24px))"
+        class="ai-checkin-dialog"
+        @close="resetAiDialog"
+      >
+        <el-form label-position="top">
+          <el-form-item label="文字描述">
+            <el-input
+              v-model="aiDialog.text"
+              type="textarea"
+              :rows="4"
+              placeholder="例如：张三，身份证号 110101199001011234，手机 13800000000，紧急联系人李四 13900000000，今天入住。也可以拍摄身份证正面让本地模型识别。"
+            />
+          </el-form-item>
+          <el-form-item label="拍照或上传">
+            <input
+              ref="aiCameraInputRef"
+              type="file"
+              accept="image/*"
+              capture="environment"
+              class="hidden-file-input"
+              @change="handleAiImageInputChange"
+            />
+            <input
+              ref="aiImageInputRef"
+              type="file"
+              accept="image/*"
+              multiple
+              class="hidden-file-input"
+              @change="handleAiImageInputChange"
+            />
+            <div class="ai-actions">
+              <el-button type="primary" plain @click="openAiCameraPicker">拍照</el-button>
+              <el-button type="primary" plain @click="openAiImagePicker">上传图片</el-button>
+              <el-button v-if="aiDialog.images.length" type="danger" plain @click="clearAiImages">清空图片</el-button>
+            </div>
+            <div class="upload-progress-text">已选 {{ aiDialog.images.length }} / 4</div>
+            <div v-if="aiDialog.images.length" class="ai-image-list">
+              <div v-for="(item, index) in aiDialog.images" :key="item.url" class="ai-image-item">
+                <el-image
+                  class="ai-image-thumb"
+                  :src="item.url"
+                  :preview-src-list="aiDialog.images.map(img => img.url)"
+                  fit="cover"
+                  preview-teleported
+                />
+                <el-button size="small" type="danger" plain @click="removeAiImage(index)">删除</el-button>
+              </div>
+            </div>
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <span class="dialog-footer">
+            <el-button @click="aiDialog.visible = false">取消</el-button>
+            <el-button type="primary" :loading="aiDialog.loading" @click="submitAiDraft">生成并填入</el-button>
+          </span>
+        </template>
+      </el-dialog>
     </div>
   </div>
 </template>
@@ -84,7 +166,9 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Moon, Sunny } from '@element-plus/icons-vue'
 import { publicSelfCheckinApi } from '../api'
+import { applyTheme, getPreferredTheme, toggleTheme } from '../utils/theme'
 
 const route = useRoute()
 const token = String(route.params.token || '')
@@ -94,9 +178,18 @@ const submitting = ref(false)
 const error = ref('')
 const formRef = ref(null)
 const idCardFileInputRef = ref(null)
+const aiCameraInputRef = ref(null)
+const aiImageInputRef = ref(null)
 const recognizingIdCard = ref(false)
 const ocrMessage = ref('')
 const ocrMessageType = ref('success')
+const isDark = ref(false)
+const aiDialog = reactive({
+  visible: false,
+  loading: false,
+  text: '',
+  images: [],
+})
 const ocrStatus = reactive({
   configured: false,
   enabled: false,
@@ -108,6 +201,14 @@ const ocrStatus = reactive({
 const roomInfo = reactive({
   room_no: '',
   building: '',
+})
+const submissionStatus = reactive({
+  visible: false,
+  title: '',
+  type: 'info',
+  submission_id: null,
+  status: '',
+  reject_reason: '',
 })
 
 const form = reactive({
@@ -126,6 +227,15 @@ const form = reactive({
 
 const idCardPattern = /^\d{17}[\dXx]$/
 const phonePattern = /^1[3-9]\d{9}$/
+
+const syncPublicThemeState = () => {
+  isDark.value = document.documentElement.classList.contains('dark')
+}
+
+const togglePublicTheme = () => {
+  toggleTheme({ transition: true })
+  syncPublicThemeState()
+}
 
 const deriveBirthDateFromIdCard = (value) => {
   const raw = String(value || '').trim()
@@ -203,6 +313,12 @@ const saveDraftToLocal = () => {
         form: { ...form },
         ocrMessage: ocrMessage.value,
         ocrMessageType: ocrMessageType.value,
+        submission: {
+          submission_id: submissionStatus.submission_id,
+          status: submissionStatus.status,
+          reject_reason: submissionStatus.reject_reason,
+          id_card: form.id_card,
+        },
         savedAt: Date.now(),
       })
     )
@@ -224,6 +340,11 @@ const loadDraftFromLocal = () => {
       ocrMessage.value = String(data.ocrMessage)
       ocrMessageType.value = data?.ocrMessageType || 'success'
     }
+    if (data?.submission?.submission_id) {
+      submissionStatus.submission_id = Number(data.submission.submission_id)
+      submissionStatus.status = String(data.submission.status || '')
+      submissionStatus.reject_reason = String(data.submission.reject_reason || '')
+    }
   } catch (_) {}
 }
 
@@ -233,12 +354,48 @@ const clearLocalDraft = () => {
   } catch (_) {}
 }
 
+const applySubmissionStatus = (submission = {}) => {
+  const status = String(submission.status || '').trim()
+  submissionStatus.submission_id = submission.id ?? submissionStatus.submission_id
+  submissionStatus.status = status
+  submissionStatus.reject_reason = String(submission.reject_reason || '')
+  if (status === 'approved') {
+    submissionStatus.visible = true
+    submissionStatus.type = 'success'
+    submissionStatus.title = '你的入住登记已通过管理员确认。'
+    return
+  }
+  if (status === 'rejected') {
+    submissionStatus.visible = true
+    submissionStatus.type = 'error'
+    submissionStatus.title = submissionStatus.reject_reason
+      ? `你的入住登记已被驳回：${submissionStatus.reject_reason}`
+      : '你的入住登记已被驳回，请联系管理员。'
+    return
+  }
+    if (status === 'pending') {
+      submissionStatus.visible = true
+      submissionStatus.type = 'info'
+      submissionStatus.title = '你的入住登记已提交，正在等待管理员确认。'
+      return
+    }
+  submissionStatus.visible = false
+  submissionStatus.title = ''
+  submissionStatus.type = 'info'
+}
+
 const clearDraftManually = () => {
   Object.keys(form).forEach((key) => {
     form[key] = key === 'gender' ? '男' : key === 'nation' ? '汉族' : ''
   })
   ocrMessage.value = ''
   ocrMessageType.value = 'success'
+  submissionStatus.visible = false
+  submissionStatus.title = ''
+  submissionStatus.type = 'info'
+  submissionStatus.submission_id = null
+  submissionStatus.status = ''
+  submissionStatus.reject_reason = ''
   clearLocalDraft()
   ElMessage.success('本地草稿已清空')
 }
@@ -264,6 +421,20 @@ const fetchLinkInfo = async () => {
   }
 }
 
+const fetchSubmissionStatus = async () => {
+  const submissionId = Number(submissionStatus.submission_id || 0)
+  const idCard = String(form.id_card || '').trim()
+  if (!submissionId || !idCard) return
+  try {
+    const response = await publicSelfCheckinApi.getSubmissionStatus(token, {
+      submission_id: submissionId,
+      id_card: idCard,
+    })
+    applySubmissionStatus(response?.data?.submission || {})
+    saveDraftToLocal()
+  } catch (_) {}
+}
+
 const openIdCardFileDialog = () => {
   if (recognizingIdCard.value) return
   idCardFileInputRef.value?.click()
@@ -275,6 +446,20 @@ const applyRecognizedFields = (fields = {}) => {
   if (fields.nation) form.nation = fields.nation
   if (fields.id_card) form.id_card = fields.id_card
   if (fields.address) form.address = fields.address
+}
+
+const applyAiDraftFields = (draft = {}) => {
+  if (draft.name) form.name = String(draft.name)
+  if (draft.gender === '男' || draft.gender === '女') form.gender = draft.gender
+  if (draft.nation) form.nation = String(draft.nation)
+  if (draft.id_card) form.id_card = String(draft.id_card).toUpperCase()
+  if (draft.address) form.address = String(draft.address)
+  if (draft.phone) form.phone = String(draft.phone)
+  if (draft.emergency_contact_name) form.emergency_contact_name = String(draft.emergency_contact_name)
+  if (draft.emergency_contact_phone) form.emergency_contact_phone = String(draft.emergency_contact_phone)
+  if (draft.check_in_date) form.check_in_date = String(draft.check_in_date)
+  if (draft.check_out_date) form.check_out_date = String(draft.check_out_date)
+  if (draft.remarks) form.remarks = String(draft.remarks)
 }
 
 const applyOcrStatus = (ocr = {}) => {
@@ -318,16 +503,113 @@ const handleIdCardFileChange = async (event) => {
   }
 }
 
+const revokeAiImageUrls = () => {
+  aiDialog.images.forEach((item) => {
+    if (String(item?.url || '').startsWith('blob:')) URL.revokeObjectURL(item.url)
+  })
+}
+
+const resetAiDialog = () => {
+  revokeAiImageUrls()
+  aiDialog.loading = false
+  aiDialog.text = ''
+  aiDialog.images = []
+}
+
+const openAiDialog = () => {
+  resetAiDialog()
+  aiDialog.visible = true
+}
+
+const addAiImageFile = (file) => {
+  if (!file) return false
+  if (aiDialog.images.length >= 4) {
+    ElMessage.warning('最多选择 4 张图片')
+    return false
+  }
+  if (!String(file.type || '').startsWith('image/')) {
+    ElMessage.warning('请上传图片文件')
+    return false
+  }
+  if (file.size && file.size > 8 * 1024 * 1024) {
+    ElMessage.warning('单张图片请控制在 8MB 以内')
+    return false
+  }
+  aiDialog.images.push({
+    file,
+    url: URL.createObjectURL(file)
+  })
+  return true
+}
+
+const openAiImagePicker = () => {
+  aiImageInputRef.value?.click()
+}
+
+const openAiCameraPicker = () => {
+  aiCameraInputRef.value?.click()
+}
+
+const handleAiImageInputChange = (event) => {
+  const files = Array.from(event?.target?.files || [])
+  event.target.value = ''
+  files.forEach(file => addAiImageFile(file))
+}
+
+const removeAiImage = (index) => {
+  const item = aiDialog.images[index]
+  if (!item) return
+  if (String(item.url || '').startsWith('blob:')) URL.revokeObjectURL(item.url)
+  aiDialog.images.splice(index, 1)
+}
+
+const clearAiImages = () => {
+  revokeAiImageUrls()
+  aiDialog.images = []
+}
+
+const submitAiDraft = async () => {
+  if (!aiDialog.text.trim() && aiDialog.images.length === 0) {
+    ElMessage.warning('请先输入文字、拍照或上传图片')
+    return
+  }
+  aiDialog.loading = true
+  try {
+    const formData = new FormData()
+    formData.append('text', aiDialog.text.trim())
+    aiDialog.images.forEach((item) => {
+      formData.append('images', item.file)
+    })
+    const response = await publicSelfCheckinApi.createAiDraft(token, formData)
+    applyAiDraftFields(response?.data?.draft || {})
+    aiDialog.visible = false
+    ocrMessageType.value = 'success'
+    ocrMessage.value = 'AI 已生成入住信息并回填，请确认后再提交。'
+    ElMessage.success('AI 信息已填入表单')
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.error || err?.message || 'AI识别失败')
+  } finally {
+    aiDialog.loading = false
+  }
+}
+
 const submitForm = async () => {
   if (!formRef.value) return
   await formRef.value.validate(async (valid) => {
     if (!valid) return
     submitting.value = true
     try {
-      await publicSelfCheckinApi.submit(token, {
+      const response = await publicSelfCheckinApi.submit(token, {
         ...form,
         birth_date: derivedBirthDate.value,
       })
+      submissionStatus.submission_id = response?.data?.submission_id || null
+      applySubmissionStatus({
+        id: response?.data?.submission_id || null,
+        status: 'pending',
+        reject_reason: '',
+      })
+      saveDraftToLocal()
       ElMessage.success('入住信息已提交，等待管理员确认')
     } catch (err) {
       ElMessage.error(err?.response?.data?.error || '提交失败')
@@ -338,8 +620,14 @@ const submitForm = async () => {
 }
 
 onMounted(() => {
+  applyTheme(getPreferredTheme())
+  syncPublicThemeState()
   fetchLinkInfo()
   loadDraftFromLocal()
+  fetchSubmissionStatus()
+  if (String(route.query.ai || '') === '1') {
+    openAiDialog()
+  }
 })
 
 watch(
@@ -358,16 +646,23 @@ watch(
   background:
     radial-gradient(circle at top left, rgba(37, 99, 235, 0.12), transparent 32%),
     linear-gradient(180deg, var(--bg-color) 0%, var(--surface-muted) 100%);
+  color: var(--text-main);
 }
 
 .public-checkin-card {
   max-width: 760px;
   margin: 0 auto;
   padding: 24px;
-  border-radius: 20px;
+  border-radius: var(--card-radius);
   background: var(--card-bg);
   border: 1px solid var(--surface-border);
   box-shadow: var(--card-shadow);
+}
+
+html.dark .public-checkin-page {
+  background:
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.18), transparent 32%),
+    linear-gradient(180deg, var(--bg-color) 0%, var(--surface-muted) 100%);
 }
 
 .header {
@@ -405,12 +700,58 @@ watch(
   font-size: 13px;
 }
 
+.ocr-toolbar-leading {
+  width: 100%;
+}
+
 .ocr-alert {
   margin-bottom: 4px;
 }
 
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .hidden-file-input {
   display: none;
+}
+
+.ai-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.upload-progress-text {
+  width: 100%;
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.ai-image-list {
+  width: 100%;
+  margin-top: 10px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ai-image-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-image-thumb {
+  width: 88px;
+  height: 88px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--surface-border);
 }
 
 .checkin-form {
@@ -428,6 +769,51 @@ watch(
 }
 
 @media (max-width: 768px) {
+  .public-checkin-page {
+    padding: 64px 8px 16px;
+  }
+
+  .public-checkin-card {
+    padding: 16px 12px;
+  }
+
+  :deep(.ai-checkin-dialog) {
+    margin: 8px auto;
+  }
+
+  :deep(.ai-checkin-dialog .el-dialog__body) {
+    padding: 12px 14px;
+  }
+
+  :deep(.ai-checkin-dialog .el-dialog__header),
+  :deep(.ai-checkin-dialog .el-dialog__footer) {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .dialog-footer {
+    width: 100%;
+  }
+
+  .dialog-footer .el-button {
+    flex: 1;
+    margin-left: 0;
+  }
+
+  .ai-actions {
+    width: 100%;
+  }
+
+  .ai-actions .el-button {
+    flex: 1;
+    margin-left: 0;
+  }
+
+  .ai-image-thumb {
+    width: 76px;
+    height: 76px;
+  }
+
   .checkin-form {
     grid-template-columns: 1fr;
   }

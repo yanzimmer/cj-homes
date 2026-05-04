@@ -1,4 +1,3 @@
-# 该文件负责处理通知配置查询、测试发送与通知历史记录接口。
 from flask import Blueprint, request, jsonify
 
 from auth_api import token_required
@@ -43,8 +42,12 @@ def update_notification_config(current_user):
 def api_test_email(current_user):
     data = request.json or {}
 
-    cfg = notify_config.get_config() or {}
+    cfg = notify_config.get_runtime_config() or {}
     smtp_config = data.get('smtp_config') or cfg.get('smtp_config') or {}
+    if isinstance(data.get('smtp_config'), dict):
+        merged_smtp = dict(cfg.get('smtp_config') or {})
+        merged_smtp.update({k: v for k, v in data.get('smtp_config', {}).items() if v != notify_config.MASKED_VALUE})
+        smtp_config = merged_smtp
     recipient = data.get('recipient') or smtp_config.get('username')
     sender = data.get('sender') or smtp_config.get('username') or 'system@example.com'
     subject = data.get('subject') or '测试邮件'
@@ -109,7 +112,12 @@ def api_test_sms(current_user):
         description: 参数缺失
     """
     data = request.json or {}
-    sms_config = data.get('sms_config') or {}
+    runtime_cfg = notify_config.get_runtime_config() or {}
+    sms_config = data.get('sms_config') or runtime_cfg.get('sms_config') or {}
+    if isinstance(data.get('sms_config'), dict):
+        merged_sms = dict(runtime_cfg.get('sms_config') or {})
+        merged_sms.update({k: v for k, v in data.get('sms_config', {}).items() if v != notify_config.MASKED_VALUE})
+        sms_config = merged_sms
 
     required_keys = [
         'secret_id', 'secret_key', 'app_id', 'sign_name',

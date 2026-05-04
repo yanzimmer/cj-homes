@@ -1,4 +1,3 @@
-# 该文件负责处理合同模板的增删改查、渲染与表结构初始化。
 import sqlite3
 from flask import Blueprint, request, jsonify
 from auth_api import token_required

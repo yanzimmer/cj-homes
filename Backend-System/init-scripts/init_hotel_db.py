@@ -1,4 +1,3 @@
-﻿# 该文件负责初始化酒店管理系统数据库表结构、默认管理员与演示数据。
 import argparse
 import hashlib
 import json
@@ -203,6 +202,7 @@ def ensure_tables():
             unit_price REAL DEFAULT 0,
             unit TEXT,
             total_amount REAL NOT NULL,
+            payment_person TEXT,
             remarks TEXT,
             procurement_images TEXT,
             created_at DATETIME DEFAULT (DATETIME('now')),
@@ -210,6 +210,10 @@ def ensure_tables():
         )
         """
     )
+    cur.execute("PRAGMA table_info(procurements)")
+    procurement_cols = {row[1] for row in cur.fetchall()}
+    if "payment_person" not in procurement_cols:
+        cur.execute("ALTER TABLE procurements ADD COLUMN payment_person TEXT")
 
     # warehouse
     cur.execute(
@@ -309,34 +313,6 @@ def ensure_tables():
             source TEXT,
             token TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-        )
-        """
-    )
-
-    # AI session history
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ai_sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            assistant_type TEXT NOT NULL,
-            title TEXT,
-            current_form_json TEXT DEFAULT '{}',
-            missing_fields_json TEXT DEFAULT '[]',
-            completed INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        )
-        """
-    )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ai_session_messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id INTEGER NOT NULL,
-            role TEXT NOT NULL,
-            content TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            FOREIGN KEY (session_id) REFERENCES ai_sessions(id) ON DELETE CASCADE
         )
         """
     )

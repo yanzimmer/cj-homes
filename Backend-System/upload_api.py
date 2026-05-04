@@ -1,4 +1,3 @@
-# 该文件负责处理通用分片上传、合并文件与上传状态查询接口。
 import json
 import math
 import os

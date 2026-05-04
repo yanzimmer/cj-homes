@@ -1,4 +1,3 @@
-# 该文件负责处理租户换房与房间搬迁记录的查询、新增和删除接口。
 import sqlite3
 from flask import Blueprint, request, jsonify
 

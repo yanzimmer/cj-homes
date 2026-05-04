@@ -6,7 +6,7 @@
         <el-input
           class="search-input"
           v-model="searchQuery"
-          placeholder="搜索房间号/维修类型"
+          placeholder="搜索房间号或维修类型"
           clearable
           @clear="handleSearchClear"
         >
@@ -14,8 +14,9 @@
             <el-icon><Search /></el-icon>
           </template>
         </el-input>
-        <el-button class="toolbar-btn" type="primary" @click="openAddDialog">添加维修记录</el-button>
-        <el-button class="toolbar-btn" type="success" @click="linkDialogVisible = true">填写链接</el-button>
+        <el-button class="toolbar-btn" type="primary" @click="openAddDialog">新增</el-button>
+        <el-button class="toolbar-btn" type="primary" plain @click="openAiDialog">AI 输入</el-button>
+        <el-button class="toolbar-btn" type="success" @click="linkDialogVisible = true">链接</el-button>
         <el-button class="toolbar-btn" type="danger" :disabled="multipleSelection.length === 0" @click="confirmBatchDelete">批量删除</el-button>
         <el-dropdown trigger="click" @command="handleExportCommand">
           <el-button class="toolbar-btn" type="success">
@@ -57,7 +58,12 @@
         fit
       >
       <el-table-column type="selection" width="55"></el-table-column>
-      <el-table-column prop="id" label="ID" width="80" sortable="custom"></el-table-column>
+      <el-table-column label="序号" width="80" align="center">
+        <template #default="{ $index }">
+          {{ repairRowStart + $index + 1 }}
+        </template>
+      </el-table-column>
+      <el-table-column prop="scope_type" label="维修范围" width="110" sortable="custom"></el-table-column>
       <el-table-column prop="building" label="楼栋" width="100" sortable="custom"></el-table-column>
       <el-table-column prop="room_no" label="房间号" width="100" sortable="custom"></el-table-column>
       <el-table-column prop="repair_type" label="维修类型" width="120" sortable="custom">
@@ -126,6 +132,7 @@
           {{ scope.row.amount ? `¥${scope.row.amount}` : '-' }}
         </template>
       </el-table-column>
+      <el-table-column prop="payment_person" label="支付人员" width="120"></el-table-column>
       <el-table-column label="领用库存" min-width="180" show-overflow-tooltip>
         <template #default="scope">
           <div v-if="(scope.row.inventory_usages || []).length > 0" class="inventory-usage-summary">
@@ -178,8 +185,41 @@
       width="50%"
     >
       <el-form :model="recordForm" label-width="100px" :rules="rules" ref="recordFormRef">
-        <el-form-item label="楼栋" prop="building">
-          <el-select v-model="recordForm.building" placeholder="请选择楼栋" style="width: 100%" @change="handleBuildingChange">
+        <el-form-item label="维修范围" prop="scope_type">
+          <el-select v-model="recordForm.scope_type" placeholder="请选择维修范围" style="width: 100%" @change="handleScopeTypeChange">
+            <el-option v-for="item in REPAIR_SCOPE_OPTIONS" :key="item" :label="item" :value="item" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="recordForm.scope_type !== '单个房间'" label="楼栋" prop="building">
+          <el-select
+            v-model="recordForm.building"
+            placeholder="请选择涉及楼栋"
+            style="width: 100%"
+            multiple
+            filterable
+            allow-create
+            default-first-option
+            clearable
+          >
+            <el-option
+              v-for="building in buildingOptions"
+              :key="building"
+              :label="building"
+              :value="building"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-else label="楼栋" prop="building">
+          <el-select
+            v-model="recordForm.building"
+            placeholder="请选择或手动输入楼栋"
+            style="width: 100%"
+            filterable
+            allow-create
+            default-first-option
+            clearable
+            @change="handleBuildingChange"
+          >
             <el-option 
               v-for="building in buildingOptions" 
               :key="building" 
@@ -188,8 +228,16 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="房间号" prop="room_no">
-          <el-select v-model="recordForm.room_no" placeholder="请选择房间号" style="width: 100%">
+        <el-form-item v-if="recordForm.scope_type === '单个房间'" label="房间号" prop="room_no">
+          <el-select
+            v-model="recordForm.room_no"
+            placeholder="请选择或手动输入房间号"
+            style="width: 100%"
+            filterable
+            allow-create
+            default-first-option
+            clearable
+          >
             <el-option 
               v-for="room in filteredRooms" 
               :key="room.room_no" 
@@ -197,6 +245,14 @@
               :value="room.room_no" 
             />
           </el-select>
+        </el-form-item>
+        <el-form-item v-else-if="recordForm.scope_type === '多个房间'" label="多个房间号" prop="room_nos">
+          <el-input
+            v-model="recordForm.room_nos"
+            type="textarea"
+            :rows="2"
+            placeholder="请输入多个房间号，例如：B-502，B-503"
+          />
         </el-form-item>
         <el-form-item label="维修类型" prop="repair_type">
           <el-select v-model="recordForm.repair_type" placeholder="请选择维修类型" style="width: 100%">
@@ -210,7 +266,22 @@
           <el-input v-model="recordForm.description" type="textarea" :rows="3" placeholder="请输入问题描述" />
         </el-form-item>
         <el-form-item label="报修人" prop="report_by">
-          <el-input v-model="recordForm.report_by" placeholder="请输入报修人姓名" />
+          <el-select
+            v-model="recordForm.report_by"
+            placeholder="请选择租户名或手动输入"
+            style="width: 100%"
+            filterable
+            allow-create
+            default-first-option
+            clearable
+          >
+            <el-option
+              v-for="name in tenantNameOptions"
+              :key="name"
+              :label="name"
+              :value="name"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="报修日期" prop="report_date">
           <el-date-picker
@@ -257,7 +328,15 @@
               :key="`usage-${index}`"
               class="inventory-usage-row"
             >
-              <el-select v-model="usage.warehouse_item_id" placeholder="选择库存物品" style="width: 100%">
+              <el-select
+                v-model="usage.warehouse_item_id"
+                placeholder="输入库存物品名称后自动筛选"
+                style="width: 100%"
+                filterable
+                clearable
+                default-first-option
+                reserve-keyword="false"
+              >
                 <el-option
                   v-for="item in inventoryOptions"
                   :key="item.id"
@@ -397,8 +476,10 @@
     >
             <el-descriptions :column="2" border>
         <el-descriptions-item label="ID">{{ currentRecord.id }}</el-descriptions-item>
+        <el-descriptions-item label="维修范围">{{ currentRecord.scope_type || '单个房间' }}</el-descriptions-item>
         <el-descriptions-item label="楼栋">{{ currentRecord.building }}</el-descriptions-item>
         <el-descriptions-item label="房间号">{{ currentRecord.room_no }}</el-descriptions-item>
+        <el-descriptions-item label="多个房间号">{{ currentRecord.room_nos || '-' }}</el-descriptions-item>
         <el-descriptions-item label="维修类型">{{ currentRecord.repair_type }}</el-descriptions-item>
         <el-descriptions-item label="问题描述" :span="2">{{ currentRecord.description }}</el-descriptions-item>
         <el-descriptions-item label="报修人">{{ currentRecord.report_by }}</el-descriptions-item>
@@ -470,6 +551,65 @@
         </el-descriptions-item>
       </el-descriptions>
     </el-dialog>
+
+    <el-dialog
+      title="AI 输入维修"
+      v-model="aiDialog.visible"
+      width="620px"
+      @close="resetAiDialog"
+    >
+      <el-form label-width="92px">
+        <el-form-item label="文字描述">
+          <el-input
+            v-model="aiDialog.text"
+            type="textarea"
+            :rows="5"
+            placeholder="例如：A栋 301 洗手间漏水，张三报修，今天待处理。也可以上传现场照片、报修截图或支付截图让 AI 识别。"
+          />
+        </el-form-item>
+        <el-form-item label="图片识别">
+          <el-upload
+            action=""
+            :auto-upload="false"
+            :show-file-list="false"
+            accept="image/*"
+            multiple
+            :limit="4"
+            :on-change="handleAiImageChange"
+          >
+            <el-button type="primary" plain>选择图片</el-button>
+          </el-upload>
+          <el-button
+            v-if="aiDialog.images.length"
+            style="margin-left: 8px"
+            type="danger"
+            plain
+            @click="clearAiImages"
+          >
+            清空图片
+          </el-button>
+          <div class="upload-progress-text">已选 {{ aiDialog.images.length }} / 4</div>
+          <div v-if="aiDialog.images.length" class="ai-image-list">
+            <div v-for="(item, index) in aiDialog.images" :key="item.url" class="ai-image-item">
+              <el-image
+                class="ai-image-thumb"
+                :src="item.url"
+                :preview-src-list="aiDialog.images.map(img => img.url)"
+                fit="cover"
+                preview-teleported
+              />
+              <el-button size="small" type="danger" plain @click="removeAiImage(index)">删除</el-button>
+            </div>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="aiDialog.visible = false">取消</el-button>
+          <el-button type="primary" :loading="aiDialog.loading" @click="submitAiDraft">生成并填入</el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 
   <!-- 隐藏打印区域：用于 PDF 截图导出 -->
@@ -479,6 +619,7 @@
       <thead>
         <tr>
           <th>ID</th>
+          <th>维修范围</th>
           <th>楼栋</th>
           <th>房间号</th>
           <th>维修类型</th>
@@ -495,6 +636,7 @@
       <tbody>
         <tr v-for="r in filteredRecords" :key="r.id">
           <td>{{ r.id }}</td>
+          <td>{{ r.scope_type || '单个房间' }}</td>
           <td>{{ r.building }}</td>
           <td>{{ r.room_no }}</td>
           <td>{{ r.repair_type }}</td>
@@ -522,7 +664,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { repairRecordsApi, roomsApi } from '../api'
+import { repairRecordsApi, roomsApi, tenantsApi } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Filter } from '@element-plus/icons-vue'
 import * as XLSX from 'xlsx'
@@ -532,7 +674,6 @@ import jsPDF from 'jspdf'
 import 'jspdf-autotable'
 import html2canvas from 'html2canvas'
 import { uploadFileByChunks } from '../utils/chunkUploader'
-import { consumeAiDraft } from '../utils/aiDrafts'
 import BusinessPublicLinkDialog from '../components/BusinessPublicLinkDialog.vue'
 
 const loading = ref(false)
@@ -554,6 +695,7 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 const showPrintArea = ref(false)
 const printAreaRef = ref(null)
+const repairRowStart = computed(() => (currentPage.value - 1) * pageSize.value)
 
 const searchQuery = ref('')
 const typeFilter = ref('all')
@@ -564,6 +706,12 @@ const dialogVisible = ref(false)
 const detailDialogVisible = ref(false)
 const isEdit = ref(false)
 const recordFormRef = ref(null)
+const aiDialog = reactive({
+  visible: false,
+  loading: false,
+  text: '',
+  images: []
+})
 const repairImageFilesBefore = ref([])
 const repairImageFilesAfter = ref([])
 const repairPaymentImageFiles = ref([])
@@ -571,10 +719,32 @@ const uploadingRepairImages = ref(false)
 const uploadProgress = ref(0)
 const MAX_REPAIR_IMAGES = 30
 const inventoryOptions = ref([])
+const tenantNameOptions = ref([])
+const formatReportByOption = (building, roomNo, name) => {
+  const buildingText = String(building || '').trim()
+  const roomText = String(roomNo || '').trim()
+  const nameText = String(name || '').trim()
+  if (!nameText) return ''
+  let roomPart = roomText
+  if (buildingText && roomText) {
+    const normalizedRoom = roomText.replace('栋', '').replaceAll('_', '-')
+    const prefixes = [`${buildingText}-`, `${buildingText}栋-`, buildingText]
+    for (const prefix of prefixes) {
+      if (normalizedRoom.startsWith(prefix)) {
+        roomPart = normalizedRoom.slice(prefix.length).replace(/^-+/, '')
+        break
+      }
+    }
+  }
+  if (buildingText && roomPart) return `${buildingText}-${roomPart}-${nameText}`
+  if (roomText) return `${roomText}-${nameText}`
+  return nameText
+}
 
 const currentRecord = ref({})
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 const API_ORIGIN = API_BASE.replace(/\/api\/?$/, '')
+const REPAIR_SCOPE_OPTIONS = ['单个房间', '多个房间', '公共区域', '整层', '整栋', '楼栋']
 
 const allRooms = ref([])
 const buildingOptions = ref([])
@@ -582,8 +752,10 @@ const filteredRooms = ref([])
 
 // 鐞涖劌宕熼弫鐗堝祦
 const recordForm = ref({
+  scope_type: '单个房间',
   building: '',
   room_no: '',
+  room_nos: '',
   repair_type: '',
   description: '',
   report_by: '',
@@ -652,11 +824,51 @@ const getRepairImages = (record) => {
   const merged = [...getRepairImagesBefore(record), ...getRepairImagesAfter(record)]
   return [...new Set(merged)].slice(0, MAX_REPAIR_IMAGES)
 }
+const parseBuildingModel = (value, scopeType) => {
+  if (scopeType !== '单个房间') {
+    if (Array.isArray(value)) return value.map(v => String(v || '').trim()).filter(Boolean)
+    return String(value || '').split(/[，,、;\s]+/).map(v => v.trim()).filter(Boolean)
+  }
+  if (Array.isArray(value)) return String(value[0] || '').trim()
+  return String(value || '').trim()
+}
+const serializeBuildingModel = (value, scopeType) => {
+  if (scopeType !== '单个房间') {
+    const items = Array.isArray(value) ? value : parseBuildingModel(value, scopeType)
+    return items.map(v => String(v || '').trim()).filter(Boolean).join('，')
+  }
+  return Array.isArray(value) ? String(value[0] || '').trim() : String(value || '').trim()
+}
 
+const validateRepairBuilding = (_rule, value, callback) => {
+  const scopeType = String(recordForm.value.scope_type || '单个房间')
+  if (scopeType === '单个房间') {
+    if (!String(value || '').trim()) return callback(new Error('请输入或选择楼栋'))
+  }
+  if (scopeType !== '单个房间') {
+    const items = Array.isArray(value) ? value.filter(Boolean) : []
+    if (!items.length) return callback(new Error('请选择楼栋'))
+  }
+  callback()
+}
+const validateRepairRoomNo = (_rule, value, callback) => {
+  if (String(recordForm.value.scope_type || '单个房间') === '单个房间' && !String(value || '').trim()) {
+    return callback(new Error('请输入或选择房间号'))
+  }
+  callback()
+}
+const validateRepairRoomNos = (_rule, value, callback) => {
+  if (String(recordForm.value.scope_type || '') === '多个房间' && !String(value || '').trim()) {
+    return callback(new Error('请输入多个房间号'))
+  }
+  callback()
+}
 // 鐞涖劌宕熸宀冪槈鐟欏嫬鍨?
 const rules = {
-  building: [{ required: true, message: '请选择楼栋', trigger: 'change' }],
-  room_no: [{ required: true, message: '请选择房间号', trigger: 'change' }],
+  scope_type: [{ required: true, message: '请选择维修范围', trigger: 'change' }],
+  building: [{ validator: validateRepairBuilding, trigger: ['change', 'blur'] }],
+  room_no: [{ validator: validateRepairRoomNo, trigger: ['change', 'blur'] }],
+  room_nos: [{ validator: validateRepairRoomNos, trigger: ['change', 'blur'] }],
   repair_type: [{ required: true, message: '请选择维修类型', trigger: 'change' }],
   description: [{ required: true, message: '请输入问题描述', trigger: 'blur' }],
   report_by: [{ required: true, message: '请输入报修人姓名', trigger: 'blur' }],
@@ -684,7 +896,7 @@ const loadRecords = async () => {
     const params = {
       page: currentPage.value,
       page_size: pageSize.value,
-      fields: 'id,building,room_no,repair_type,description,report_date,report_by,status,repair_date,repair_cost,amount,repair_person,payment_person,remarks,inventory_usages,repair_images_before,repair_images_after,repair_image_before,repair_image_after,repair_images,repair_image,payment_images,payment_image'
+      fields: 'id,building,room_no,scope_type,room_nos,repair_type,description,report_date,report_by,status,repair_date,repair_cost,amount,repair_person,payment_person,remarks,inventory_usages,repair_images_before,repair_images_after,repair_image_before,repair_image_after,repair_images,repair_image,payment_images,payment_image'
     }
     if (searchQuery.value.trim()) params.q = searchQuery.value.trim()
     if (typeFilter.value !== 'all') params.repair_type = typeFilter.value
@@ -782,9 +994,37 @@ const loadInventoryOptions = async () => {
   }
 }
 
+const loadTenantNameOptions = async () => {
+  try {
+    const response = await tenantsApi.listTenants({ fields: 'name,building,room_no', page_size: 500 })
+    const rows = response?.data?.tenants || []
+    tenantNameOptions.value = [...new Set(rows.map(item => formatReportByOption(item?.building, item?.room_no, item?.name)).filter(Boolean))]
+  } catch (error) {
+    console.error('加载租户姓名失败', error)
+  }
+}
+
 const handleBuildingChange = (building) => {
-  recordForm.value.room_no = '' // 濞撳懐鈹栭幋鍧楁？闁瀚?
   filteredRooms.value = allRooms.value.filter(room => room.building === building)
+  if (recordForm.value.scope_type === '单个房间') {
+    recordForm.value.room_no = ''
+  }
+}
+
+const handleScopeTypeChange = () => {
+  const scopeType = String(recordForm.value.scope_type || '单个房间')
+  recordForm.value.building = parseBuildingModel(recordForm.value.building, scopeType)
+  if (scopeType === '单个房间') {
+    recordForm.value.room_nos = ''
+  } else if (scopeType === '多个房间') {
+    recordForm.value.room_no = ''
+  } else {
+    recordForm.value.room_no = ''
+    recordForm.value.room_nos = ''
+  }
+  nextTick(() => {
+    recordFormRef.value?.clearValidate?.(['building', 'room_no', 'room_nos'])
+  })
 }
 
 const openAddDialog = () => {
@@ -804,8 +1044,10 @@ const openAddDialog = () => {
   uploadingRepairImages.value = false
   uploadProgress.value = 0
   recordForm.value = {
+    scope_type: '单个房间',
     building: '',
     room_no: '',
+    room_nos: '',
     repair_type: '',
     description: '',
     report_by: '',
@@ -823,33 +1065,6 @@ const openAddDialog = () => {
   }
   filteredRooms.value = []
   dialogVisible.value = true
-}
-
-const applyRepairDraft = () => {
-  const draft = consumeAiDraft('repair')
-  if (!draft) return
-  openAddDialog()
-  if (draft.building) {
-    recordForm.value.building = String(draft.building)
-    filteredRooms.value = allRooms.value.filter(room => room.building === recordForm.value.building)
-  }
-  if (draft.room_no) recordForm.value.room_no = String(draft.room_no)
-  if (draft.repair_type) recordForm.value.repair_type = String(draft.repair_type)
-  if (draft.description) recordForm.value.description = String(draft.description)
-  if (draft.report_by) recordForm.value.report_by = String(draft.report_by)
-  if (draft.report_date) recordForm.value.report_date = String(draft.report_date)
-  if (draft.status) recordForm.value.status = String(draft.status)
-  if (draft.repair_date) recordForm.value.repair_date = String(draft.repair_date)
-  if (draft.amount !== undefined && draft.amount !== null && draft.amount !== '') {
-    recordForm.value.amount = Number(draft.amount)
-  } else if (draft.repair_cost !== undefined && draft.repair_cost !== null && draft.repair_cost !== '') {
-    recordForm.value.amount = Number(draft.repair_cost)
-  }
-  if (draft.repair_person) recordForm.value.repair_person = String(draft.repair_person)
-  if (draft.payment_person) recordForm.value.payment_person = String(draft.payment_person)
-  if (Array.isArray(draft.inventory_usages)) recordForm.value.inventory_usages = draft.inventory_usages
-  if (draft.remarks) recordForm.value.remarks = String(draft.remarks)
-  ElMessage.success('AI 草稿已带入维修记录表单')
 }
 
 // 鏌ョ湅鐠佹澘缍嶇拠锔藉剰
@@ -883,6 +1098,9 @@ const editRecord = (row) => {
   uploadProgress.value = 0
   recordForm.value = {
     ...row,
+    scope_type: row.scope_type || '单个房间',
+    building: parseBuildingModel(row.building, row.scope_type || '单个房间'),
+    room_nos: row.room_nos || '',
     amount: row.amount ?? row.repair_cost ?? null,
     inventory_usages: Array.isArray(row.inventory_usages) ? row.inventory_usages : [],
     repair_images_before: getRepairImagesBefore(row),
@@ -890,7 +1108,7 @@ const editRecord = (row) => {
     payment_images: getRepairPaymentImages(row)
   }
 
-  if (row.building) {
+  if (row.building && row.scope_type === '单个房间') {
     filteredRooms.value = allRooms.value.filter(room => room.building === row.building)
   }
 
@@ -975,6 +1193,109 @@ const clearAllFormImages = (type) => {
   })
   recordForm.value[field] = []
   getPendingImageFiles(type).value = []
+}
+
+const revokeAiImageUrls = () => {
+  aiDialog.images.forEach((item) => {
+    if (String(item?.url || '').startsWith('blob:')) {
+      URL.revokeObjectURL(item.url)
+    }
+  })
+}
+
+const resetAiDialog = () => {
+  revokeAiImageUrls()
+  aiDialog.loading = false
+  aiDialog.text = ''
+  aiDialog.images = []
+}
+
+const openAiDialog = () => {
+  resetAiDialog()
+  aiDialog.visible = true
+}
+
+const handleAiImageChange = (file) => {
+  if (!file || !file.raw) return
+  if (aiDialog.images.length >= 4) {
+    ElMessage.warning('最多选择 4 张图片')
+    return
+  }
+  if (!String(file.raw.type || '').startsWith('image/')) {
+    ElMessage.warning('请上传图片文件')
+    return
+  }
+  if (file.raw.size && file.raw.size > 8 * 1024 * 1024) {
+    ElMessage.warning('单张图片请控制在 8MB 以内')
+    return
+  }
+  aiDialog.images.push({
+    file: file.raw,
+    url: URL.createObjectURL(file.raw)
+  })
+}
+
+const removeAiImage = (index) => {
+  const item = aiDialog.images[index]
+  if (!item) return
+  if (String(item.url || '').startsWith('blob:')) {
+    URL.revokeObjectURL(item.url)
+  }
+  aiDialog.images.splice(index, 1)
+}
+
+const clearAiImages = () => {
+  revokeAiImageUrls()
+  aiDialog.images = []
+}
+
+const applyAiDraftToForm = (draft = {}) => {
+  openAddDialog()
+  const scopeType = String(draft.scope_type || '单个房间')
+  recordForm.value.scope_type = REPAIR_SCOPE_OPTIONS.includes(scopeType) ? scopeType : '单个房间'
+  recordForm.value.building = parseBuildingModel(draft.building || '', recordForm.value.scope_type)
+  recordForm.value.room_no = String(draft.room_no || '')
+  recordForm.value.room_nos = String(draft.room_nos || '')
+  recordForm.value.repair_type = String(draft.repair_type || '其他')
+  recordForm.value.description = String(draft.description || '')
+  recordForm.value.report_by = String(draft.report_by || '')
+  recordForm.value.report_date = String(draft.report_date || new Date().toISOString().split('T')[0])
+  recordForm.value.status = String(draft.status || '待处理')
+  recordForm.value.repair_date = String(draft.repair_date || '')
+  recordForm.value.amount = Number(draft.amount || 0)
+  recordForm.value.repair_person = String(draft.repair_person || '')
+  recordForm.value.payment_person = String(draft.payment_person || '')
+  recordForm.value.remarks = String(draft.remarks || '')
+
+  if (recordForm.value.building && recordForm.value.scope_type === '单个房间') {
+    filteredRooms.value = allRooms.value.filter(room => room.building === recordForm.value.building)
+  }
+  nextTick(() => {
+    recordFormRef.value?.clearValidate?.()
+  })
+}
+
+const submitAiDraft = async () => {
+  if (!aiDialog.text.trim() && aiDialog.images.length === 0) {
+    ElMessage.warning('请先输入文字或选择图片')
+    return
+  }
+  aiDialog.loading = true
+  try {
+    const formData = new FormData()
+    formData.append('text', aiDialog.text.trim())
+    aiDialog.images.forEach((item) => {
+      formData.append('images', item.file)
+    })
+    const response = await repairRecordsApi.createAiDraft(formData)
+    applyAiDraftToForm(response?.data?.draft || {})
+    aiDialog.visible = false
+    ElMessage.success('AI 草稿已填入维修表单，请确认后保存')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || error?.message || 'AI 输入失败')
+  } finally {
+    aiDialog.loading = false
+  }
 }
 
 // 纭鍒犻櫎
@@ -1066,8 +1387,10 @@ const submitForm = async () => {
       loading.value = true
       try {
         const formData = { ...recordForm.value }
+        formData.building = serializeBuildingModel(formData.building, formData.scope_type)
         formData.amount = formData.amount === '' ? null : formData.amount
         formData.repair_cost = formData.amount
+        formData.scope_type = formData.scope_type || '单个房间'
         formData.inventory_usages = (formData.inventory_usages || []).filter(item => item?.warehouse_item_id && Number(item?.quantity) > 0)
         const existingBeforeImages = (formData.repair_images_before || []).filter(v => typeof v === 'string' && !v.startsWith('blob:')).slice(0, MAX_REPAIR_IMAGES)
         const existingAfterImages = (formData.repair_images_after || []).filter(v => typeof v === 'string' && !v.startsWith('blob:')).slice(0, MAX_REPAIR_IMAGES)
@@ -1164,13 +1487,14 @@ const submitForm = async () => {
 onMounted(async () => {
   await loadRooms()
   await loadInventoryOptions()
-  applyRepairDraft()
+  await loadTenantNameOptions()
   await loadRecords()
   window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
+  revokeAiImageUrls()
 })
 
 // 瀵煎嚭閻╃鍙?
@@ -1183,8 +1507,10 @@ const handleExportCommand = (cmd) => {
 const getExportRows = () => {
   return filteredRecords.value.map(r => ({
     ID: r.id,
+    '维修范围': r.scope_type || '单个房间',
     '楼栋': r.building,
     '房间号': r.room_no,
+    '多个房间号': r.room_nos,
     '维修类型': r.repair_type,
     '问题描述': r.description,
     '报修日期': r.report_date,
@@ -1214,7 +1540,7 @@ const exportToExcel = () => {
 const exportToWord = async () => {
   try {
     const rows = getExportRows()
-    const headerCells = ['ID','楼栋','房间号','维修类型','问题描述','报修日期','报修人','状态','维修日期','金额','维修人员','备注'].map(text =>
+    const headerCells = ['ID','维修范围','楼栋','房间号','多个房间号','维修类型','问题描述','报修日期','报修人','状态','维修日期','金额','维修人员','备注'].map(text =>
       new TableCell({ children: [new Paragraph({ children: [new TextRun(String(text))] })] })
     )
     const tableRows = [
@@ -1222,8 +1548,10 @@ const exportToWord = async () => {
       ...rows.map(r => new TableRow({
         children: [
           new TableCell({ children: [new Paragraph(String(r.ID))] }),
+          new TableCell({ children: [new Paragraph(String(r['维修范围']))] }),
           new TableCell({ children: [new Paragraph(String(r['楼栋']))] }),
           new TableCell({ children: [new Paragraph(String(r['房间号']))] }),
+          new TableCell({ children: [new Paragraph(String(r['多个房间号']))] }),
           new TableCell({ children: [new Paragraph(String(r['维修类型']))] }),
           new TableCell({ children: [new Paragraph(String(r['问题描述']))] }),
           new TableCell({ children: [new Paragraph(String(r['报修日期']))] }),
@@ -1294,8 +1622,10 @@ const handleImportFile = async (file) => {
       for (const row of results) {
         // 閺勭姴鐨?Excel 閺佺増宓?
         const payload = {
-          building: '',
+          scope_type: row['维修范围类型'] || row['维修范围'] || '单个房间',
+          building: row['楼栋'] || '',
           room_no: row['房间号'],
+          room_nos: row['多个房间号'] || '',
           repair_type: row['维修类型'] || '其他',
           description: row['问题描述'] || '',
           report_by: row['报修人'] || 'Excel导入',
@@ -1306,15 +1636,13 @@ const handleImportFile = async (file) => {
           remarks: row['备注'] || ''
         }
         if (payload.room_no) {
-           const room = allRooms.value.find(r => r.room_no == payload.room_no)
-           if (room) {
-             payload.building = room.building
-             await repairRecordsApi.addRepairRecord(payload)
-             successCount++
-           } else {
-              console.warn(`未找到房间号: ${payload.room_no} 的楼栋信息`)
-           }
+          const room = allRooms.value.find(r => r.room_no == payload.room_no)
+          if (room) {
+            payload.building = room.building
+          }
         }
+        await repairRecordsApi.addRepairRecord(payload)
+        successCount++
       }
       ElMessage.success(`成功导入 ${successCount} 条记录`)
       loadRecords()
@@ -1448,6 +1776,28 @@ const handleImportFile = async (file) => {
   border-radius: 8px;
 }
 
+.ai-image-list {
+  width: 100%;
+  margin-top: 10px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ai-image-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-image-thumb {
+  width: 88px;
+  height: 88px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--surface-border);
+}
+
 .detail-image-thumb {
   width: 120px;
   height: 120px;
@@ -1537,7 +1887,3 @@ const handleImportFile = async (file) => {
   background: #f5f7fa;
 }
 </style>
-
-
-
-

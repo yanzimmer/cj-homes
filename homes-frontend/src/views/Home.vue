@@ -156,6 +156,17 @@
                 :stroke-width="8"
               />
             </div>
+            <div class="monthly-stats">
+              <div class="monthly-title">按月统计</div>
+              <div v-if="stats.repairs.monthly.length" class="monthly-list">
+                <div v-for="item in stats.repairs.monthly.slice(0, 4)" :key="item.month" class="monthly-row">
+                  <span class="month">{{ formatMonthLabel(item.month) }}</span>
+                  <span>{{ item.total }} 次</span>
+                  <strong>¥{{ Number(item.totalAmount || 0).toFixed(2) }}</strong>
+                </div>
+              </div>
+              <el-empty v-else description="暂无月度数据" :image-size="42" />
+            </div>
           </div>
       </div>
 
@@ -184,6 +195,17 @@
                 <span>累计支出</span>
               </div>
               <div class="ocr-status-line">用于展示采购记录累计金额</div>
+            </div>
+            <div class="monthly-stats">
+              <div class="monthly-title">按月统计</div>
+              <div v-if="stats.procurements.monthly.length" class="monthly-list">
+                <div v-for="item in stats.procurements.monthly.slice(0, 4)" :key="item.month" class="monthly-row">
+                  <span class="month">{{ formatMonthLabel(item.month) }}</span>
+                  <span>{{ item.total }} 条</span>
+                  <strong>¥{{ Number(item.totalAmount || 0).toFixed(2) }}</strong>
+                </div>
+              </div>
+              <el-empty v-else description="暂无月度数据" :image-size="42" />
             </div>
           </div>
       </div>
@@ -265,11 +287,13 @@ const stats = reactive({
     inProgress: 0,
     completed: 0,
     totalAmount: 0,
-    completionRate: 0
+    completionRate: 0,
+    monthly: []
   },
   procurements: {
     total: 0,
-    totalAmount: 0
+    totalAmount: 0,
+    monthly: []
   },
   expiring: {
     count: 0,
@@ -294,6 +318,13 @@ const percentageFormat = (percentage) => {
 // 根据百分比获取进度条颜色
 const getProgressColor = (percentage) => {
   return '#409EFF' // 统一使用蓝色
+}
+
+const formatMonthLabel = (month) => {
+  const text = String(month || '')
+  const match = text.match(/^(\d{4})-(\d{2})/)
+  if (!match) return text || '-'
+  return `${match[1]}年${Number(match[2])}月`
 }
 
 // 表格行样式
@@ -587,6 +618,45 @@ html.dark .alert-panel {
 .ocr-status-line {
   font-size: 13px;
   color: var(--text-secondary);
+}
+
+.monthly-stats {
+  border-top: 1px solid var(--surface-border);
+  padding-top: 12px;
+}
+
+.monthly-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 8px;
+}
+
+.monthly-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.monthly-row {
+  display: grid;
+  grid-template-columns: minmax(76px, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 28px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.monthly-row .month {
+  color: var(--text-main);
+  font-weight: 500;
+}
+
+.monthly-row strong {
+  color: var(--el-color-primary);
+  font-weight: 700;
+  text-align: right;
 }
 
 .section-header {

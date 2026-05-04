@@ -1,4 +1,3 @@
-# 该文件负责处理采购入库同步、维修领用扣减与库存回滚逻辑。
 import json
 
 from common import connect
@@ -216,7 +215,9 @@ def sync_procurement_delete(conn, procurement_row):
     quantity = _to_float(procurement_row[4], 0)
     warehouse_item_id = procurement_row[9]
     if warehouse_item_id:
-        _change_warehouse_quantity(conn, warehouse_item_id, -quantity)
+        row = _get_warehouse_item(conn, warehouse_item_id)
+        if row:
+            _change_warehouse_quantity(conn, warehouse_item_id, -quantity)
 
 
 def validate_inventory_usages(conn, inventory_usages):

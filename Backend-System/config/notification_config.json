@@ -14,12 +14,12 @@
         "server": "smtp.qq.com",
         "port": 587,
         "username": "yanzimmer@qq.com",
-        "password": "bdncmdmptrhibdhe",
+        "password": "",
         "use_tls": true
     },
     "sms_config": {
-        "secret_id": "1401054168",
-        "secret_key": "c998dbf1b66ce40cb6b62f10e9484b6a",
+        "secret_id": "",
+        "secret_key": "",
         "app_id": "1401054168",
         "sign_name": "675518",
         "tenant_template_id": "2548266",

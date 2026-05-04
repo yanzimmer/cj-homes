@@ -26,7 +26,7 @@
           </el-radio-button>
         </el-radio-group>
 
-        <el-button class="toolbar-btn" type="primary" @click="openAddDialog">添加房间</el-button>
+        <el-button class="toolbar-btn" type="primary" @click="openAddDialog">新增</el-button>
         <el-button class="toolbar-btn" type="danger" :disabled="selectedRooms.length === 0" :loading="batchDeleting" @click="handleBatchDelete">批量删除</el-button>
         <el-dropdown trigger="click" @command="handleExportCommand">
           <el-button class="toolbar-btn" type="success">
@@ -54,20 +54,25 @@
         v-loading="loading" 
         border 
         style="width: 100%"
+        :fit="false"
         :max-height="tableMaxHeight"
         @sort-change="handleSortChange"
         @selection-change="handleSelectionChange"
         @select="handleRowSelect"
       >
-        <el-table-column type="selection" width="50" :selectable="rowSelectable"></el-table-column>
-        <el-table-column prop="id" label="ID" min-width="80" sortable="custom" show-overflow-tooltip></el-table-column>
-        <el-table-column prop="building" label="楼栋" min-width="100" sortable="custom" show-overflow-tooltip></el-table-column>
+        <el-table-column type="selection" width="42" :selectable="rowSelectable"></el-table-column>
+        <el-table-column prop="__sequence" label="序号" width="66" align="center" sortable="custom" show-overflow-tooltip>
+          <template #default="{ $index }">
+            {{ roomRowStart + $index + 1 }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="building" label="楼栋" width="70" sortable="custom" show-overflow-tooltip></el-table-column>
 
-        <el-table-column prop="room_no" label="房间号" min-width="120" sortable="custom" show-overflow-tooltip></el-table-column>
-        <el-table-column prop="room_type" label="房间类型" min-width="120" sortable="custom" show-overflow-tooltip>
+        <el-table-column prop="room_no" label="房间号" width="92" sortable="custom" show-overflow-tooltip></el-table-column>
+        <el-table-column prop="room_type" label="类型" width="86" sortable="custom" show-overflow-tooltip>
           <template #header>
             <div style="display: flex; align-items: center;">
-              <span>房间类型</span>
+              <span>类型</span>
               <el-dropdown trigger="click" @command="handleTypeFilter">
                 <el-button style="margin-left: 5px; padding: 2px 5px;" size="small">
                   <el-icon><Filter /></el-icon>
@@ -83,12 +88,17 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="price" label="价格" min-width="120" sortable="custom" show-overflow-tooltip>
+        <el-table-column prop="price" label="价格" width="98" sortable="custom" show-overflow-tooltip>
           <template #default="scope">
             {{ scope.row.price }} 元/月
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" min-width="100" sortable="custom" show-overflow-tooltip>
+        <el-table-column prop="deposit" label="押金" width="88" sortable="custom" show-overflow-tooltip>
+          <template #default="scope">
+            {{ scope.row.deposit }} 元
+          </template>
+        </el-table-column>
+        <el-table-column prop="status" label="状态" width="88" sortable="custom" show-overflow-tooltip>
           <template #header>
             <div style="display: flex; align-items: center;">
               <span>状态</span>
@@ -112,8 +122,8 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="tenant_count" label="租户数量" min-width="100" sortable="custom" show-overflow-tooltip></el-table-column>
-        <el-table-column label="房间设施" min-width="180" show-overflow-tooltip>
+        <el-table-column prop="tenant_count" label="租户数" width="76" sortable="custom" show-overflow-tooltip></el-table-column>
+        <el-table-column label="房间设施" min-width="120" show-overflow-tooltip>
           <template #default="scope">
             <div class="room-feature-tags">
               <el-tag v-for="item in (scope.row.features || [])" :key="item" size="small" effect="plain">{{ item }}</el-tag>
@@ -121,32 +131,41 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip></el-table-column>
-        <el-table-column label="操作" width="420" fixed="right">
+        <el-table-column prop="description" label="描述" min-width="120" show-overflow-tooltip></el-table-column>
+        <el-table-column label="操作" width="210" fixed="right">
           <template #default="scope">
             <div class="room-actions-inline">
-              <el-button 
-                size="small" 
-                type="primary" 
+              <el-button
+                size="small"
                 @click="showRoomDetails(scope.row)"
-                :disabled="scope.row.status === '空闲' || scope.row.tenant_count === 0">
+                :disabled="scope.row.status === '空闲' || scope.row.tenant_count === 0"
+              >
                 详情
               </el-button>
-              <el-button size="small" @click="openEditDialog(scope.row)">编辑</el-button>
-              <el-button size="small" type="success" @click="openSelfCheckinDialog(scope.row)">入住链接</el-button>
-              <el-button 
-                size="small" 
-                type="warning" 
-                @click="handleCheckout(scope.row)"
-                :disabled="scope.row.status === '空闲' || scope.row.tenant_count === 0">
-                退租
-              </el-button>
-              <el-button 
-                size="small" 
-                type="danger" 
-                :disabled="scope.row.status === '已入住'"
-                :title="scope.row.status === '已入住' ? '房间有在住租户不可删除，请先办理退租' : ''"
-                @click="handleDelete(scope.row)">删除</el-button>
+              <el-button size="small" type="primary" @click="openEditDialog(scope.row)">编辑</el-button>
+              <el-dropdown trigger="click">
+                <el-button size="small">
+                  更多
+                  <el-icon style="margin-left: 4px"><MoreFilled /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item @click="openSelfCheckinDialog(scope.row)">入住登记</el-dropdown-item>
+                    <el-dropdown-item
+                      :disabled="scope.row.status === '空闲' || scope.row.tenant_count === 0"
+                      @click="handleCheckout(scope.row)"
+                    >
+                      退租
+                    </el-dropdown-item>
+                    <el-dropdown-item
+                      :disabled="scope.row.status === '已入住'"
+                      @click="handleDelete(scope.row)"
+                    >
+                      删除
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
             </div>
           </template>
         </el-table-column>
@@ -237,7 +256,22 @@
     </div>
 
     <!-- 添加/编辑房间对话框 -->
-    <el-dialog :title="dialogTitle" v-model="dialogVisible" width="500px">
+    <el-dialog :title="dialogTitle" v-model="dialogVisible" width="620px">
+      <input
+        ref="roomWaterQrInputRef"
+        type="file"
+        accept="image/*"
+        multiple
+        class="hidden-file-input"
+        @change="handleRoomMeterQrFileChange('water', $event)"
+      />
+      <input
+        ref="roomElectricityQrInputRef"
+        type="file"
+        accept="image/*"
+        class="hidden-file-input"
+        @change="handleRoomMeterQrFileChange('electricity', $event)"
+      />
       <el-form :model="roomForm" :rules="rules" ref="roomFormRef" label-width="100px">
         <el-form-item label="房间号" prop="room_no">
           <el-input v-model="roomForm.room_no" placeholder="例如：401"></el-input>
@@ -279,6 +313,43 @@
         <el-form-item label="描述" prop="description">
           <el-input v-model="roomForm.description" type="textarea" :rows="3"></el-input>
         </el-form-item>
+        <el-form-item label="水二维码">
+          <div class="room-meter-form-block">
+            <div class="room-meter-form-actions">
+              <el-button type="primary" plain @click="openRoomMeterQrPicker('water')">选择图片</el-button>
+              <span class="room-meter-form-tip">支持一次上传多张水表图片，适合套间两个水表</span>
+            </div>
+            <div class="room-meter-form-tip">当前已选 {{ roomForm.water_meter_imgs.length }} 张</div>
+            <div v-if="roomForm.water_meter_imgs.length > 0" class="room-meter-form-preview">
+              <el-image
+                v-for="(img, index) in roomForm.water_meter_imgs"
+                :key="`water-${img}-${index}`"
+                class="room-meter-form-image"
+                :src="toStaticUrl(img)"
+                :preview-src-list="roomForm.water_meter_imgs.map((item) => toStaticUrl(item))"
+                fit="cover"
+                preview-teleported
+              />
+            </div>
+          </div>
+        </el-form-item>
+        <el-form-item label="电二维码">
+          <div class="room-meter-form-block">
+            <div class="room-meter-form-actions">
+              <el-button type="primary" plain @click="openRoomMeterQrPicker('electricity')">选择图片</el-button>
+              <span class="room-meter-form-tip">支持上传并预览电二维码图片</span>
+            </div>
+            <div v-if="roomForm.electricity_meter_img" class="room-meter-form-preview">
+              <el-image
+                class="room-meter-form-image"
+                :src="toStaticUrl(roomForm.electricity_meter_img)"
+                :preview-src-list="[toStaticUrl(roomForm.electricity_meter_img)]"
+                fit="cover"
+                preview-teleported
+              />
+            </div>
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <span class="dialog-footer">
@@ -291,7 +362,7 @@
     <!-- 退租确认对话框 -->
     <el-dialog title="确认退租" v-model="checkoutDialogVisible" width="400px">
       <div class="checkout-confirm">
-        <p>确定要将房间 <strong>{{ checkoutRoom.room_no }}</strong> 退租吗？</p>
+        <p>确定要将房间 <strong>{{ checkoutRoom.room_display || checkoutRoom.room_no }}</strong> 退租吗？</p>
         <p>该操作将会将房间内所有租户 ({{ checkoutRoom.tenant_count }} 人) 标记为已退租。</p>
         <p class="warning">此操作不可撤销！</p>
       </div>
@@ -308,7 +379,7 @@
       <div v-loading="detailsLoading">
         <div class="room-info">
           <h3>房间信息</h3>
-          <el-descriptions :column="2" border>
+          <el-descriptions :column="2" border class="room-details-descriptions">
             <el-descriptions-item label="房间号">{{ currentRoom.room_no }}</el-descriptions-item>
             <el-descriptions-item label="楼栋">{{ currentRoom.building }}</el-descriptions-item>
             <el-descriptions-item label="楼层">{{ currentRoom.floor }}</el-descriptions-item>
@@ -321,6 +392,32 @@
               </el-tag>
             </el-descriptions-item>
             <el-descriptions-item label="租户数量">{{ currentRoom.tenant_count }}</el-descriptions-item>
+            <el-descriptions-item label="水二维码">
+              <div v-if="getWaterMeterImages(currentRoom).length > 0" class="detail-meter-qr-list">
+                <el-image
+                  v-for="(img, index) in getWaterMeterImages(currentRoom)"
+                  :key="`detail-water-${img}-${index}`"
+                  class="detail-meter-qr-image"
+                  :src="toStaticUrl(img)"
+                  :preview-src-list="getWaterMeterImages(currentRoom).map((item) => toStaticUrl(item))"
+                  fit="cover"
+                  preview-teleported
+                />
+              </div>
+              <span v-else>-</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="电二维码">
+              <div v-if="currentRoom.electricity_meter_img" class="detail-meter-qr-list">
+                <el-image
+                  class="detail-meter-qr-image"
+                  :src="toStaticUrl(currentRoom.electricity_meter_img)"
+                  :preview-src-list="[toStaticUrl(currentRoom.electricity_meter_img)]"
+                  fit="cover"
+                  preview-teleported
+                />
+              </div>
+              <span v-else>-</span>
+            </el-descriptions-item>
             <el-descriptions-item label="房间设施" :span="2">
               <div class="room-feature-tags">
                 <el-tag v-for="item in (currentRoom.features || [])" :key="item" size="small" effect="plain">{{ item }}</el-tag>
@@ -332,13 +429,13 @@
 
         <div class="tenant-list" v-if="roomTenants.length > 0">
           <h3>入住人员</h3>
-          <el-table :data="roomTenants" border style="width: 100%">
-            <el-table-column prop="name" label="姓名" width="100"></el-table-column>
-            <el-table-column prop="gender" label="性别" width="80"></el-table-column>
-            <el-table-column prop="phone" label="电话" width="120"></el-table-column>
-            <el-table-column prop="id_card" label="身份证号" width="180"></el-table-column>
-            <el-table-column prop="check_in_date" label="入住日期" width="120"></el-table-column>
-            <el-table-column prop="check_out_date" label="到期日期" width="120"></el-table-column>
+          <el-table :data="roomTenants" border style="width: 100%" table-layout="auto" class="room-details-tenant-table">
+            <el-table-column prop="name" label="姓名" min-width="90"></el-table-column>
+            <el-table-column prop="gender" label="性别" min-width="70"></el-table-column>
+            <el-table-column prop="phone" label="电话" min-width="120"></el-table-column>
+            <el-table-column prop="id_card" label="身份证号" min-width="180"></el-table-column>
+            <el-table-column prop="check_in_date" label="入住日期" min-width="110"></el-table-column>
+            <el-table-column prop="check_out_date" label="到期日期" min-width="110"></el-table-column>
           </el-table>
         </div>
         <div v-else class="no-tenants">
@@ -352,23 +449,27 @@
       </template>
     </el-dialog>
 
-    <el-dialog title="自助入住链接" v-model="selfCheckinDialogVisible" width="820px">
+
+    <el-dialog title="入住登记" v-model="selfCheckinDialogVisible" width="820px">
       <div class="self-checkin-panel">
         <div class="self-checkin-toolbar">
           <div class="self-checkin-room">
             当前房间：{{ selfCheckinRoom.building }}栋 {{ selfCheckinRoom.room_no }}
           </div>
-          <el-button
-            type="primary"
-            :loading="creatingSelfCheckinLink"
-            :disabled="selfCheckinLinks.length > 0"
-            @click="createSelfCheckinLink"
-          >
-            生成新链接
-          </el-button>
+          <div class="self-checkin-toolbar-actions">
+            <el-button :loading="refreshingSelfCheckin" @click="refreshSelfCheckinData">刷新</el-button>
+            <el-button
+              type="primary"
+              :loading="creatingSelfCheckinLink"
+              :disabled="selfCheckinLinks.length > 0"
+              @click="createSelfCheckinLink"
+            >
+              生成新链接
+            </el-button>
+          </div>
         </div>
         <div v-if="selfCheckinLinks.length > 0" class="self-checkin-tip">
-          当前房间已存在入住链接，如需新链接，请先删除原链接。删除链接不会删除已提交的记录。
+          当前房间已存在入住登记链接，如需新链接，请先删除原链接。删除链接不会删除已提交的记录。
         </div>
 
         <div v-if="selfCheckinLinks.length > 0" class="self-checkin-links">
@@ -549,7 +650,7 @@
 import { ref, reactive, onMounted, onUnmounted, computed, nextTick, watch } from 'vue'
 import { roomsApi } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Filter, List, Grid, Edit, Delete, SwitchButton } from '@element-plus/icons-vue'
+import { Search, Filter, List, Grid, Edit, Delete, SwitchButton, MoreFilled } from '@element-plus/icons-vue'
 import * as XLSX from 'xlsx'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -557,7 +658,6 @@ import { Document, Packer, Paragraph, Table as DocxTable, TableRow, TableCell, T
 import { saveAs } from 'file-saver'
 import html2canvas from 'html2canvas'
 import QRCode from 'qrcode'
-import { consumeAiDraft } from '../utils/aiDrafts'
 
 // 视图切换
 const currentView = ref('table') // 'table' or 'floor'
@@ -570,6 +670,12 @@ const dialogTitle = ref('添加房间')
 const submitting = ref(false)
 const roomFormRef = ref(null)
 const isEdit = ref(false)
+const roomWaterQrInputRef = ref(null)
+const roomElectricityQrInputRef = ref(null)
+const pendingRoomMeterFiles = reactive({
+  water: [],
+  electricity: null
+})
 // 批量选择与删除相关
 const roomsTableRef = ref(null)
 const selectedRooms = ref([])
@@ -595,6 +701,7 @@ const currentPage = ref(1)
 const pageSize = ref(20)
 const showPrintArea = ref(false)
 const printAreaRef = ref(null)
+const roomRowStart = computed(() => (currentPage.value - 1) * pageSize.value)
 // （重复声明已移除）
 
 // 表格高度自适应：根据窗口动态计算可视高度
@@ -629,6 +736,7 @@ const selfCheckinRoom = ref({})
 const selfCheckinLinks = ref([])
 const selfCheckinSubmissions = ref([])
 const creatingSelfCheckinLink = ref(false)
+const refreshingSelfCheckin = ref(false)
 const submissionDetailVisible = ref(false)
 const submissionDetail = ref({})
 const rejectDialogVisible = ref(false)
@@ -646,8 +754,27 @@ const roomForm = reactive({
   deposit: 0,
   features: [],
   status: '空闲',
-  description: ''
+  description: '',
+  water_meter_imgs: [],
+  water_meter_img: '',
+  electricity_meter_img: ''
 })
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
+const API_ORIGIN = API_BASE.replace(/\/api\/?$/, '')
+const PUBLIC_APP_ORIGIN = (import.meta.env.VITE_PUBLIC_APP_ORIGIN || window.location.origin).replace(/\/$/, '')
+const toStaticUrl = (value) => {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if (/^https?:\/\//i.test(text) || text.startsWith('blob:') || text.startsWith('data:')) return text
+  if (text.startsWith('/')) return `${API_ORIGIN}${text}`
+  return `${API_ORIGIN}/${text}`
+}
+const getWaterMeterImages = (room) => {
+  if (Array.isArray(room?.water_meter_imgs) && room.water_meter_imgs.length > 0) return room.water_meter_imgs
+  const single = String(room?.water_meter_img || '').trim()
+  return single ? [single] : []
+}
 
 // 根据房间号自动填充楼层（例如 401 -> 4楼；1001 -> 10楼）
 watch(() => roomForm.room_no, (val) => {
@@ -677,11 +804,14 @@ const filteredRooms = computed(() => {
   // 应用搜索过滤
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
+    const textIncludes = (value) => String(value || '').toLowerCase().includes(query)
     result = result.filter(room => 
-      room.room_no.toLowerCase().includes(query) ||
-      room.floor.toLowerCase().includes(query) ||
-      room.room_type.toLowerCase().includes(query) ||
-      (room.description && room.description.toLowerCase().includes(query))
+      textIncludes(room.room_no) ||
+      textIncludes(room.room_display) ||
+      textIncludes(room.building) ||
+      textIncludes(room.floor) ||
+      textIncludes(room.room_type) ||
+      textIncludes(room.description)
     )
   }
   
@@ -702,7 +832,7 @@ const filteredRooms = computed(() => {
       let bValue = b[sortBy.value]
       
       // 处理数字类型
-      if (sortBy.value === 'price' || sortBy.value === 'tenant_count') {
+      if (sortBy.value === '__sequence' || sortBy.value === 'price' || sortBy.value === 'tenant_count') {
         aValue = Number(aValue)
         bValue = Number(bValue)
       }
@@ -797,7 +927,6 @@ const rules = {
 onMounted(() => {
   fetchRooms()
   fetchRoomFeatureOptions()
-  applyRoomDraft()
 })
 
 onMounted(() => {
@@ -812,8 +941,11 @@ onUnmounted(() => {
 const fetchRooms = async () => {
   loading.value = true
   try {
-    const response = await roomsApi.listRooms({ fields: 'id,room_no,room_display,building,room_type,price,deposit,description,features,status,tenant_count,has_water_meter_img,has_electricity_meter_img' })
-    rooms.value = response.data.rooms || []
+    const response = await roomsApi.listRooms({ fields: 'id,room_no,room_display,building,room_type,price,deposit,description,features,status,tenant_count,water_meter_img,electricity_meter_img,has_water_meter_img,has_electricity_meter_img' })
+    rooms.value = (response.data.rooms || []).map((room, index) => ({
+      ...room,
+      __sequence: index + 1
+    }))
   } catch (error) {
     ElMessage.error('获取房间列表失败')
     console.error(error)
@@ -833,13 +965,20 @@ const fetchRoomFeatureOptions = async () => {
 
 // 显示房间详情
 const showRoomDetails = async (room) => {
-  currentRoom.value = room
+  currentRoom.value = { ...room }
   detailsDialogVisible.value = true
   detailsLoading.value = true
   
   try {
-    const response = await roomsApi.getRoomTenants(room.room_no)
-    roomTenants.value = response.data.tenants || []
+    const [roomRes, tenantsRes] = await Promise.all([
+      roomsApi.getRoom(room.id),
+      roomsApi.getRoomTenants(room.room_display || room.room_no)
+    ])
+    currentRoom.value = {
+      ...currentRoom.value,
+      ...(roomRes?.data?.room || {})
+    }
+    roomTenants.value = tenantsRes?.data?.tenants || []
   } catch (error) {
     ElMessage.error('获取房间租户信息失败：' + error.message)
     roomTenants.value = []
@@ -848,7 +987,44 @@ const showRoomDetails = async (room) => {
   }
 }
 
-const buildSelfCheckinUrl = (token) => `${window.location.origin}/check-in/${token}`
+const openRoomMeterQrPicker = (type) => {
+  if (type === 'water') {
+    roomWaterQrInputRef.value?.click()
+    return
+  }
+  roomElectricityQrInputRef.value?.click()
+}
+
+const revokeRoomMeterPreview = (value) => {
+  const text = String(value || '')
+  if (text.startsWith('blob:')) URL.revokeObjectURL(text)
+}
+
+const handleRoomMeterQrFileChange = (type, event) => {
+  const files = Array.from(event?.target?.files || [])
+  event.target.value = ''
+  if (!files.length) return
+  for (const file of files) {
+    if (!String(file.type || '').startsWith('image/')) {
+      ElMessage.error('请上传图片文件')
+      return
+    }
+  }
+  if (type === 'water') {
+    pendingRoomMeterFiles.water = [...pendingRoomMeterFiles.water, ...files]
+    roomForm.water_meter_imgs = [
+      ...(roomForm.water_meter_imgs || []),
+      ...files.map((file) => URL.createObjectURL(file))
+    ]
+  } else {
+    const file = files[0]
+    pendingRoomMeterFiles.electricity = file
+    revokeRoomMeterPreview(roomForm.electricity_meter_img)
+    roomForm.electricity_meter_img = URL.createObjectURL(file)
+  }
+}
+
+const buildSelfCheckinUrl = (token) => `${PUBLIC_APP_ORIGIN}/check-in/${token}`
 
 const fetchSelfCheckinData = async (room) => {
   if (!room?.id) return
@@ -864,6 +1040,19 @@ const fetchSelfCheckinData = async (room) => {
     }))
   )
   selfCheckinSubmissions.value = submissionsRes?.data?.submissions || []
+}
+
+const refreshSelfCheckinData = async () => {
+  if (!selfCheckinRoom.value?.id) return
+  refreshingSelfCheckin.value = true
+  try {
+    await fetchSelfCheckinData(selfCheckinRoom.value)
+    ElMessage.success('入住登记记录已刷新')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '刷新入住登记记录失败')
+  } finally {
+    refreshingSelfCheckin.value = false
+  }
 }
 
 const openSelfCheckinDialog = async (room) => {
@@ -1034,7 +1223,7 @@ const handleCheckout = (room) => {
 const confirmCheckout = async () => {
   checkoutLoading.value = true
   try {
-    const response = await roomsApi.checkoutRoom(checkoutRoom.value.room_no)
+    const response = await roomsApi.checkoutRoom(checkoutRoom.value.room_display || checkoutRoom.value.room_no)
     ElMessage.success('房间退租成功')
     checkoutDialogVisible.value = false
     fetchRooms() // 刷新房间列表
@@ -1060,6 +1249,14 @@ const resetForm = () => {
   roomForm.features = []
   roomForm.status = '空闲'
   roomForm.description = ''
+  revokeRoomMeterPreview(roomForm.water_meter_img)
+  revokeRoomMeterPreview(roomForm.electricity_meter_img)
+  ;(roomForm.water_meter_imgs || []).forEach(revokeRoomMeterPreview)
+  roomForm.water_meter_imgs = []
+  roomForm.water_meter_img = ''
+  roomForm.electricity_meter_img = ''
+  pendingRoomMeterFiles.water = []
+  pendingRoomMeterFiles.electricity = null
 }
 
 const openAddDialog = () => {
@@ -1069,24 +1266,7 @@ const openAddDialog = () => {
   dialogVisible.value = true
 }
 
-const applyRoomDraft = () => {
-  const draft = consumeAiDraft('room')
-  if (!draft) return
-  openAddDialog()
-  const buildingText = String(draft.building || '').toUpperCase()
-  const buildingMatch = buildingText.match(/[A-Z]/)
-  roomForm.building = buildingMatch ? buildingMatch[0] : ''
-  roomForm.room_no = String(draft.room_no || '').replace(/\D/g, '')
-  roomForm.room_type = String(draft.room_type || '')
-  roomForm.price = Number(draft.price || 0)
-  roomForm.deposit = Number(draft.deposit || 0)
-  roomForm.features = Array.isArray(draft.features) ? draft.features : []
-  roomForm.status = String(draft.status || '空闲')
-  roomForm.description = String(draft.description || '')
-  ElMessage.success('AI 草稿已带入房间表单')
-}
-
-const openEditDialog = (room) => {
+const openEditDialog = async (room) => {
   resetForm()
   isEdit.value = true
   dialogTitle.value = '编辑房间'
@@ -1107,6 +1287,14 @@ const openEditDialog = (room) => {
   roomForm.features = Array.isArray(room.features) ? room.features : []
   roomForm.status = room.status || '空闲'
   roomForm.description = room.description || ''
+  try {
+    const detail = await roomsApi.getRoom(room.id)
+    roomForm.water_meter_imgs = detail?.data?.room?.water_meter_imgs || []
+    roomForm.water_meter_img = detail?.data?.room?.water_meter_img || ''
+    roomForm.electricity_meter_img = detail?.data?.room?.electricity_meter_img || ''
+  } catch (error) {
+    console.error('获取房间二维码详情失败', error)
+  }
   dialogVisible.value = true
 }
 
@@ -1118,12 +1306,29 @@ const handleSubmit = async () => {
       submitting.value = true
       try {
         const payload = { ...roomForm, room_no: composedRoomNo.value }
+        delete payload.water_meter_imgs
+        delete payload.water_meter_img
+        delete payload.electricity_meter_img
+        let roomId = roomForm.id
         if (isEdit.value) {
           await roomsApi.updateRoom(roomForm.id, payload)
+          roomId = roomForm.id
           ElMessage.success('房间更新成功')
         } else {
-          await roomsApi.addRoom(payload)
+          const created = await roomsApi.addRoom(payload)
+          roomId = created?.data?.id
           ElMessage.success('房间添加成功')
+        }
+        if (roomId && pendingRoomMeterFiles.water.length > 0) {
+          for (const file of pendingRoomMeterFiles.water) {
+            const res = await roomsApi.uploadRoomMeterImage(roomId, 'water', file)
+            roomForm.water_meter_imgs = res?.data?.images || roomForm.water_meter_imgs
+            roomForm.water_meter_img = res?.data?.images?.[0] || res?.data?.image || roomForm.water_meter_img
+          }
+        }
+        if (roomId && pendingRoomMeterFiles.electricity) {
+          const res = await roomsApi.uploadRoomMeterImage(roomId, 'electricity', pendingRoomMeterFiles.electricity)
+          roomForm.electricity_meter_img = res?.data?.image || roomForm.electricity_meter_img
         }
         dialogVisible.value = false
         fetchRooms()
@@ -1348,12 +1553,29 @@ const exportToPDF = async () => {
   gap: 6px;
 }
 
+:deep(.room-details-descriptions .el-descriptions__cell) {
+  white-space: normal;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+:deep(.room-details-tenant-table .cell) {
+  white-space: normal;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
 .room-actions-inline {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   flex-wrap: nowrap;
   white-space: nowrap;
+  justify-content: center;
+}
+
+.room-actions-inline :deep(.el-button--small) {
+  padding: 5px 8px;
 }
 
 .self-checkin-panel {
@@ -1367,6 +1589,13 @@ const exportToPDF = async () => {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+}
+
+.self-checkin-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .self-checkin-room {
@@ -1425,6 +1654,73 @@ const exportToPDF = async () => {
   white-space: nowrap;
 }
 
+.hidden-file-input {
+  display: none;
+}
+
+.table-meter-qr-image {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  border: 1px solid var(--surface-border, #dbe4f0);
+}
+
+.table-meter-qr-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.table-meter-qr-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.detail-meter-qr-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail-meter-qr-image {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  border: 1px solid var(--surface-border, #dbe4f0);
+}
+
+.room-meter-form-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.room-meter-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.room-meter-form-tip {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.room-meter-form-preview {
+  display: flex;
+  align-items: center;
+}
+
+.room-meter-form-image {
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+  border: 1px solid var(--surface-border, #dbe4f0);
+}
+
 .table-panel {
   background: var(--card-bg);
   border: 1px solid var(--surface-border);
@@ -1453,11 +1749,17 @@ const exportToPDF = async () => {
 :deep(.rooms-table .el-table__header-wrapper th.el-table__cell) {
   font-weight: 700;
   color: var(--text-main);
-  height: 48px;
+  height: 42px;
+  padding: 6px 4px;
 }
 
 :deep(.rooms-table .el-table__body-wrapper td.el-table__cell) {
-  padding: 12px 0;
+  padding: 8px 4px;
+  font-size: 13px;
+}
+
+:deep(.rooms-table .el-button--small) {
+  padding: 6px 10px;
 }
 
 :deep(.rooms-table .el-table__fixed-right::before),

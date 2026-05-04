@@ -1,4 +1,3 @@
-# 该文件负责管理阿里云 OCR 配置、识别次数限制与使用统计。
 import json
 import os
 from typing import Dict

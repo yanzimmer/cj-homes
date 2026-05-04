@@ -1,4 +1,3 @@
-﻿# 该文件负责提供后端通用配置、数据库连接与分页字段处理等共享工具。
 import os
 import sqlite3
 from dotenv import load_dotenv

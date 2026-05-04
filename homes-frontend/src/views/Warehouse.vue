@@ -15,14 +15,20 @@
           </template>
         </el-input>
         <el-button class="toolbar-btn" type="primary" @click="handleSearch">搜索</el-button>
-        <el-button class="toolbar-btn" type="primary" @click="openDialog('add')">新增物品</el-button>
+        <el-button class="toolbar-btn" type="primary" @click="openDialog('add')">新增</el-button>
         <el-button class="toolbar-btn" type="success" @click="linkDialogVisible = true">填写链接</el-button>
+        <el-button class="toolbar-btn" type="danger" :disabled="selectedItems.length === 0" @click="handleBatchDelete">批量删除</el-button>
       </div>
     </div>
 
     <div class="table-panel">
-      <el-table class="warehouse-table" :data="items" v-loading="loading" border stripe style="width: 100%">
-        <el-table-column prop="id" label="ID" width="80" align="center" />
+      <el-table class="warehouse-table" :data="items" v-loading="loading" border stripe style="width: 100%" @selection-change="handleSelectionChange">
+        <el-table-column type="selection" width="55" />
+        <el-table-column label="序号" width="80" align="center">
+          <template #default="{ $index }">
+            {{ warehouseRowStart + $index + 1 }}
+          </template>
+        </el-table-column>
         <el-table-column prop="procurement_date" label="时间" width="120" />
         <el-table-column prop="item_name" label="物品" min-width="150" show-overflow-tooltip />
         <el-table-column prop="specification" label="规格" width="120" show-overflow-tooltip />
@@ -44,10 +50,24 @@
         </el-table-column>
         <el-table-column prop="remarks" label="备注" min-width="180" show-overflow-tooltip />
         <el-table-column prop="updated_at" label="更新时间" width="170" />
-        <el-table-column label="操作" width="160" fixed="right" align="center">
+        <el-table-column label="操作" width="170" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openDialog('edit', row)">编辑</el-button>
-            <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
+            <div class="table-actions-row">
+              <el-button size="small" type="primary" @click="openDialog('edit', row)">编辑</el-button>
+              <el-dropdown trigger="click">
+                <el-button size="small">
+                  更多
+                  <el-icon style="margin-left: 4px"><MoreFilled /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item @click="handleDelete(row)">
+                      <span style="color: var(--el-color-danger);">删除</span>
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -149,23 +169,24 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted } from 'vue'
 import { warehouseApi } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Plus } from '@element-plus/icons-vue'
+import { Search, Plus, MoreFilled } from '@element-plus/icons-vue'
 import { uploadFileByChunks } from '../utils/chunkUploader'
-import { consumeAiDraft } from '../utils/aiDrafts'
 import BusinessPublicLinkDialog from '../components/BusinessPublicLinkDialog.vue'
 
 const loading = ref(false)
 const linkDialogVisible = ref(false)
 const items = ref([])
+const selectedItems = ref([])
 const searchQuery = ref('')
 const pagination = reactive({
   page: 1,
   pageSize: 10,
   total: 0
 })
+const warehouseRowStart = computed(() => (pagination.page - 1) * pagination.pageSize)
 const formRef = ref(null)
 const imageUploading = ref(false)
 const imageUploadProgress = ref(0)
@@ -257,6 +278,10 @@ const handleCurrentChange = (val) => {
   fetchItems()
 }
 
+const handleSelectionChange = (rows) => {
+  selectedItems.value = rows || []
+}
+
 const resetForm = () => {
   if (formRef.value) formRef.value.resetFields()
   Object.assign(form, {
@@ -289,19 +314,6 @@ const openDialog = async (type, row = null) => {
     }
   }
   dialog.visible = true
-}
-
-const applyWarehouseDraft = () => {
-  const draft = consumeAiDraft('warehouse')
-  if (!draft) return
-  openDialog('add')
-  if (draft.item_name) form.item_name = String(draft.item_name)
-  if (draft.specification) form.specification = String(draft.specification)
-  if (draft.quantity !== undefined && draft.quantity !== null && draft.quantity !== '') form.quantity = Number(draft.quantity)
-  if (draft.unit) form.unit = String(draft.unit)
-  if (draft.location) form.location = String(draft.location)
-  if (draft.remarks) form.remarks = String(draft.remarks)
-  ElMessage.success('AI 草稿已带入库存表单')
 }
 
 const handleImageUpload = async (file) => {
@@ -407,9 +419,47 @@ const handleDelete = async (row) => {
   }
 }
 
+const handleBatchDelete = async () => {
+  if (!selectedItems.value.length) return
+  try {
+    await ElMessageBox.confirm(
+      `确定要批量删除选中的 ${selectedItems.value.length} 条库存记录吗？`,
+      '批量删除确认',
+      {
+        type: 'warning',
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消'
+      }
+    )
+    loading.value = true
+    let successCount = 0
+    const failures = []
+    for (const row of selectedItems.value) {
+      try {
+        await warehouseApi.deleteItem(row.id)
+        successCount++
+      } catch (error) {
+        failures.push(`${row.item_name}(ID:${row.id})`)
+      }
+    }
+    await fetchItems()
+    selectedItems.value = []
+    if (failures.length === 0) {
+      ElMessage.success(`批量删除完成：成功 ${successCount} 条`)
+    } else {
+      ElMessage.error(`批量删除完成：成功 ${successCount} 条，失败 ${failures.length} 条`)
+    }
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error('批量删除失败')
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
 onMounted(() => {
   fetchItems()
-  applyWarehouseDraft()
 })
 </script>
 
@@ -456,6 +506,19 @@ onMounted(() => {
 
 :deep(.warehouse-table .el-table__body-wrapper td.el-table__cell) {
   padding: 12px 0;
+}
+
+.table-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+:deep(.warehouse-table .el-button--small) {
+  padding: 6px 10px;
 }
 
 .image-upload-row {

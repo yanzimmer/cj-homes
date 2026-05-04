@@ -1,4 +1,3 @@
-# 该文件负责管理房间设施选项的读取、规范化与保存。
 import json
 import os
 

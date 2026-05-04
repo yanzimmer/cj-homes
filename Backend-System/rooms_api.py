@@ -1,4 +1,3 @@
-# 该文件负责处理房间信息、房态管理及表计图片相关接口。
 import sqlite3
 import os
 import uuid
@@ -37,6 +36,7 @@ def ensure_rooms_schema():
             status TEXT DEFAULT '空闲',
             description TEXT,
             features_json TEXT DEFAULT '[]',
+            water_meter_imgs TEXT DEFAULT '[]',
             water_meter_img TEXT,
             electricity_meter_img TEXT
         )
@@ -47,6 +47,19 @@ def ensure_rooms_schema():
         cursor.execute("ALTER TABLE rooms ADD COLUMN deposit REAL DEFAULT 0")
     if 'features_json' not in room_columns:
         cursor.execute("ALTER TABLE rooms ADD COLUMN features_json TEXT DEFAULT '[]'")
+    if 'water_meter_imgs' not in room_columns:
+        cursor.execute("ALTER TABLE rooms ADD COLUMN water_meter_imgs TEXT DEFAULT '[]'")
+    cursor.execute(
+        """
+        UPDATE rooms
+        SET water_meter_imgs = CASE
+            WHEN COALESCE(TRIM(water_meter_imgs), '') = '' AND COALESCE(TRIM(water_meter_img), '') <> ''
+            THEN json_array(water_meter_img)
+            WHEN COALESCE(TRIM(water_meter_imgs), '') = '' THEN '[]'
+            ELSE water_meter_imgs
+        END
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -68,6 +81,26 @@ def _parse_room_features(value):
 
 def _dump_room_features(values):
     return json.dumps(_parse_room_features(values), ensure_ascii=False)
+
+
+def _parse_room_meter_images(value):
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    raw = str(value or '').strip()
+    if not raw:
+        return []
+    if raw.startswith('['):
+        try:
+            data = json.loads(raw)
+            if isinstance(data, list):
+                return [str(v).strip() for v in data if str(v).strip()]
+        except Exception:
+            pass
+    return [raw]
+
+
+def _dump_room_meter_images(values):
+    return json.dumps(_parse_room_meter_images(values), ensure_ascii=False)
 
 
 @rooms_bp.route('/rooms/feature-options', methods=['GET'])
@@ -144,6 +177,19 @@ def _find_room_by_no(conn, room_no_input):
     return None
 
 
+def _find_room_matches_by_no(conn, room_no_input):
+    cursor = conn.cursor()
+    text = '' if room_no_input is None else str(room_no_input).strip().upper()
+    if text == '':
+        return []
+    cursor.execute("SELECT id, room_no FROM rooms WHERE UPPER(room_no) = ?", (text,))
+    exact = cursor.fetchall()
+    if exact:
+        return exact
+    cursor.execute("SELECT id, room_no FROM rooms WHERE UPPER(room_no) LIKE ? ORDER BY room_no", (f'%-{text}',))
+    return cursor.fetchall()
+
+
 @rooms_bp.route('/rooms', methods=['GET'])
 @token_required
 def api_list_rooms(current_user):
@@ -190,6 +236,7 @@ def api_list_rooms(current_user):
     has_description = 'description' in room_columns
     has_deposit = 'deposit' in room_columns
     has_features = 'features_json' in room_columns
+    has_water_meter_imgs = 'water_meter_imgs' in room_columns
     has_water_meter_img = 'water_meter_img' in room_columns
     has_electricity_meter_img = 'electricity_meter_img' in room_columns
     cursor = conn.cursor()
@@ -204,6 +251,9 @@ def api_list_rooms(current_user):
         {"COALESCE(r.deposit, 0)" if has_deposit else "0"} AS deposit,
         {"r.description" if has_description else "''"} AS description,
         {"COALESCE(r.features_json, '[]')" if has_features else "'[]'"} AS features_json,
+        {"COALESCE(r.water_meter_imgs, '[]')" if has_water_meter_imgs else "'[]'"} AS water_meter_imgs,
+        {"COALESCE(r.water_meter_img, '')" if has_water_meter_img else "''"} AS water_meter_img,
+        {"COALESCE(r.electricity_meter_img, '')" if has_electricity_meter_img else "''"} AS electricity_meter_img,
         CASE
             WHEN EXISTS (
                 SELECT 1 FROM tenants t
@@ -217,7 +267,7 @@ def api_list_rooms(current_user):
          WHERE t.room_id = r.id
            AND t.status = '在住'
            AND DATE('now','localtime') BETWEEN t.check_in_date AND t.check_out_date) AS tenant_count,
-        {"CASE WHEN COALESCE(r.water_meter_img, '') <> '' THEN 1 ELSE 0 END" if has_water_meter_img else "0"} AS has_water_meter_img,
+        {"CASE WHEN COALESCE(r.water_meter_imgs, '') <> '[]' OR COALESCE(r.water_meter_img, '') <> '' THEN 1 ELSE 0 END" if has_water_meter_imgs or has_water_meter_img else "0"} AS has_water_meter_img,
         {"CASE WHEN COALESCE(r.electricity_meter_img, '') <> '' THEN 1 ELSE 0 END" if has_electricity_meter_img else "0"} AS has_electricity_meter_img
     FROM rooms r
     ORDER BY r.room_no
@@ -228,6 +278,9 @@ def api_list_rooms(current_user):
 
     rooms = []
     for row in rows:
+        water_meter_imgs = _parse_room_meter_images(row[8])
+        if not water_meter_imgs and row[9]:
+          water_meter_imgs = _parse_room_meter_images(row[9])
         rooms.append({
             'id': row[0],
             'room_no': _extract_room_number(row[1], row[2]),
@@ -238,10 +291,13 @@ def api_list_rooms(current_user):
             'deposit': row[5],
             'description': row[6],
             'features': _parse_room_features(row[7]),
-            'status': row[8],
-            'tenant_count': row[9],
-            'has_water_meter_img': bool(row[10]),
-            'has_electricity_meter_img': bool(row[11]),
+            'water_meter_imgs': water_meter_imgs,
+            'water_meter_img': water_meter_imgs[0] if water_meter_imgs else '',
+            'electricity_meter_img': row[10] or '',
+            'status': row[11],
+            'tenant_count': row[12],
+            'has_water_meter_img': bool(row[13]),
+            'has_electricity_meter_img': bool(row[14]),
         })
 
     q = (request.args.get('q') or request.args.get('search') or '').strip().lower()
@@ -301,6 +357,9 @@ def api_list_rooms(current_user):
         'features',
         'status',
         'tenant_count',
+        'water_meter_imgs',
+        'water_meter_img',
+        'electricity_meter_img',
         'has_water_meter_img',
         'has_electricity_meter_img',
     ]
@@ -318,6 +377,7 @@ def api_get_room(current_user, room_id):
     has_description = 'description' in room_columns
     has_deposit = 'deposit' in room_columns
     has_features = 'features_json' in room_columns
+    has_water_meter_imgs = 'water_meter_imgs' in room_columns
     has_water_meter_img = 'water_meter_img' in room_columns
     has_electricity_meter_img = 'electricity_meter_img' in room_columns
     cursor = conn.cursor()
@@ -327,6 +387,7 @@ def api_get_room(current_user, room_id):
                {"COALESCE(deposit, 0)" if has_deposit else "0"} AS deposit,
                {"description" if has_description else "''"} AS description,
                {"COALESCE(features_json, '[]')" if has_features else "'[]'"} AS features_json,
+               {"COALESCE(water_meter_imgs, '[]')" if has_water_meter_imgs else "'[]'"} AS water_meter_imgs,
                {"water_meter_img" if has_water_meter_img else "''"} AS water_meter_img,
                {"electricity_meter_img" if has_electricity_meter_img else "''"} AS electricity_meter_img
         FROM rooms
@@ -338,6 +399,9 @@ def api_get_room(current_user, room_id):
     conn.close()
     if not row:
         return jsonify({'error': f'房间ID {room_id} 不存在'}), 404
+    water_meter_imgs = _parse_room_meter_images(row[8])
+    if not water_meter_imgs and row[9]:
+        water_meter_imgs = _parse_room_meter_images(row[9])
     return jsonify({
         'room': {
             'id': row[0],
@@ -349,10 +413,11 @@ def api_get_room(current_user, room_id):
             'deposit': row[5],
             'description': row[6],
             'features': _parse_room_features(row[7]),
-            'water_meter_img': row[8] or '',
-            'electricity_meter_img': row[9] or '',
-            'has_water_meter_img': bool(row[8]),
-            'has_electricity_meter_img': bool(row[9]),
+            'water_meter_imgs': water_meter_imgs,
+            'water_meter_img': water_meter_imgs[0] if water_meter_imgs else '',
+            'electricity_meter_img': row[10] or '',
+            'has_water_meter_img': bool(water_meter_imgs),
+            'has_electricity_meter_img': bool(row[10]),
         }
     })
 
@@ -363,18 +428,37 @@ def api_get_room_meter_image(current_user, room_id):
     meter_type = (request.args.get('type') or '').strip().lower()
     if meter_type not in ('water', 'electricity'):
         return jsonify({'error': 'type 参数必须为 water 或 electricity'}), 400
-    field = 'water_meter_img' if meter_type == 'water' else 'electricity_meter_img'
     conn = connect()
     room_columns = _get_rooms_table_columns(conn)
-    if field not in room_columns:
-        conn.close()
-        return jsonify({'error': '当前数据库未启用二维码字段'}), 400
+    if meter_type == 'water':
+        has_water_meter_imgs = 'water_meter_imgs' in room_columns
+        has_water_meter_img = 'water_meter_img' in room_columns
+        if not has_water_meter_imgs and not has_water_meter_img:
+            conn.close()
+            return jsonify({'error': '当前数据库未启用二维码字段'}), 400
+    else:
+        if 'electricity_meter_img' not in room_columns:
+            conn.close()
+            return jsonify({'error': '当前数据库未启用二维码字段'}), 400
     cursor = conn.cursor()
-    cursor.execute(f"SELECT {field} FROM rooms WHERE id = ?", (room_id,))
+    if meter_type == 'water':
+        cursor.execute(
+            f"SELECT {'water_meter_imgs' if 'water_meter_imgs' in room_columns else '\'[]\''}, {'water_meter_img' if 'water_meter_img' in room_columns else '\'\'\''} FROM rooms WHERE id = ?",
+            (room_id,),
+        )
+    else:
+        cursor.execute("SELECT electricity_meter_img FROM rooms WHERE id = ?", (room_id,))
     row = cursor.fetchone()
     conn.close()
     if not row:
         return jsonify({'error': f'房间ID {room_id} 不存在'}), 404
+    if meter_type == 'water':
+        images = _parse_room_meter_images(row[0])
+        if not images and row[1]:
+            images = _parse_room_meter_images(row[1])
+        if not images:
+            return jsonify({'error': '该房间未上传二维码'}), 404
+        return jsonify({'images': images, 'image': images[0]})
     image = row[0] or ''
     if not image:
         return jsonify({'error': '该房间未上传二维码'}), 404
@@ -398,13 +482,8 @@ def api_upload_room_meter_image(current_user, room_id):
         ext = '.png'
     if ext not in ('.png', '.jpg', '.jpeg', '.webp', '.avif'):
         return jsonify({'error': '仅支持 png/jpg/jpeg/webp/avif 图片'}), 400
-    field = 'water_meter_img' if meter_type == 'water' else 'electricity_meter_img'
-
     conn = connect()
     room_columns = _get_rooms_table_columns(conn)
-    if field not in room_columns:
-        conn.close()
-        return jsonify({'error': '当前数据库未启用二维码字段'}), 400
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM rooms WHERE id = ?", (room_id,))
     room = cursor.fetchone()
@@ -418,9 +497,27 @@ def api_upload_room_meter_image(current_user, room_id):
     file.save(save_path)
     relative_url = f"/static/uploads/room_meters/{unique_name}"
     try:
-        cursor.execute(f"UPDATE rooms SET {field} = ? WHERE id = ?", (relative_url, room_id))
+        if meter_type == 'water':
+            existing_images = []
+            if 'water_meter_imgs' in room_columns:
+                cursor.execute("SELECT water_meter_imgs FROM rooms WHERE id = ?", (room_id,))
+                existing_row = cursor.fetchone()
+                existing_images = _parse_room_meter_images(existing_row[0] if existing_row else '')
+            elif 'water_meter_img' in room_columns:
+                cursor.execute("SELECT water_meter_img FROM rooms WHERE id = ?", (room_id,))
+                existing_row = cursor.fetchone()
+                existing_images = _parse_room_meter_images(existing_row[0] if existing_row else '')
+            existing_images.append(relative_url)
+            cursor.execute(
+                "UPDATE rooms SET water_meter_imgs = ?, water_meter_img = ? WHERE id = ?",
+                (_dump_room_meter_images(existing_images), existing_images[0] if existing_images else '', room_id),
+            )
+        else:
+            cursor.execute("UPDATE rooms SET electricity_meter_img = ? WHERE id = ?", (relative_url, room_id))
         conn.commit()
         conn.close()
+        if meter_type == 'water':
+            return jsonify({'message': '上传成功', 'image': relative_url, 'images': existing_images})
         return jsonify({'message': '上传成功', 'image': relative_url})
     except sqlite3.Error as e:
         conn.close()
@@ -433,7 +530,11 @@ def api_get_room_tenants(current_user, room_no):
     conn = connect()
     room = _find_room_by_no(conn, room_no)
     if not room:
+        matches = _find_room_matches_by_no(conn, room_no)
         conn.close()
+        if len(matches) > 1:
+            options = '、'.join(row[1] for row in matches)
+            return jsonify({'error': f'房间 {room_no} 对应多个房间：{options}，请指定完整房间号'}), 400
         return jsonify({'error': f'房间 {room_no} 不存在'}), 404
 
     room_id = room[0]
@@ -502,9 +603,16 @@ def api_checkout_room(current_user, room_no):
         description: 房间不存在
     """
     conn = connect()
-    room = _find_room_by_no(conn, room_no)
+    data = request.get_json(silent=True) or {}
+    building = data.get('building') or request.args.get('building') or ''
+    lookup_room_no = _compose_room_no(building, room_no) if building else room_no
+    room = _find_room_by_no(conn, lookup_room_no)
     if not room:
+        matches = _find_room_matches_by_no(conn, lookup_room_no)
         conn.close()
+        if len(matches) > 1:
+            options = '、'.join(row[1] for row in matches)
+            return jsonify({'error': f'房间 {room_no} 对应多个房间：{options}，请指定完整房间号'}), 400
         return jsonify({'error': f'房间 {room_no} 不存在'}), 404
 
     room_id = room[0]

@@ -1,4 +1,3 @@
-﻿# 该文件负责创建并启动后端 Flask 应用，统一注册各业务模块的路由与基础配置。
 import logging
 import os
 from flask import Flask, jsonify
@@ -9,7 +8,6 @@ from common import SECRET_KEY, JWT_EXPIRATION_DELTA
 from contract_templates_api import templates_bp, ensure_contract_templates_schema
 from contracts_api import contracts_bp, ensure_contracts_schema
 from auth_api import auth_bp
-from ai_assistant_api import ai_bp
 from dashboard_api import dashboard_bp
 from notify_api import notify_bp
 from rooms_api import rooms_bp, ensure_rooms_schema
@@ -94,7 +92,6 @@ except Exception as e:
     app.logger.warning(f"娉ㄥ唽鍚堝悓妗ｆ妯″潡澶辫触: {e}")
 
 app.register_blueprint(auth_bp)
-app.register_blueprint(ai_bp)
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(notify_bp)
 ensure_rooms_schema()
@@ -129,4 +126,8 @@ def internal_error(error):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host='0.0.0.0', port=int(os.getenv("PORT", "5000")))
+    app.run(
+        debug=True,
+        host=os.getenv("HOST", "127.0.0.1"),
+        port=int(os.getenv("PORT", "5000"))
+    )

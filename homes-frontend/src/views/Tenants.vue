@@ -29,7 +29,8 @@
           </el-radio-button>
         </el-radio-group>
 
-        <el-button class="toolbar-btn" type="primary" @click="openAddDialog">添加租户</el-button>
+        <el-button class="toolbar-btn" type="primary" @click="openAddDialog">新增</el-button>
+        <el-button class="toolbar-btn" type="primary" plain @click="openAiDialog">AI 输入</el-button>
         <el-button
           class="toolbar-btn"
           type="warning"
@@ -63,29 +64,34 @@
     <el-table 
       class="tenants-table"
       ref="tenantsTableRef"
-      row-key="id_card"
+      row-key="id"
       :data="paginatedTenants" 
       v-loading="loading" 
       border 
       style="width: 100%"
+      :fit="false"
       @sort-change="handleSortChange"
       @selection-change="handleSelectionChange"
       :reserve-selection="true"
     >
-      <el-table-column type="selection" width="50" :selectable="rowSelectable" />
-      <el-table-column prop="id" label="ID" width="80" sortable="custom"></el-table-column>
-      <el-table-column prop="name" label="姓名" width="100" sortable="custom"></el-table-column>
-      <el-table-column prop="gender" label="性别" width="80" sortable="custom"></el-table-column>
-      <el-table-column prop="nation" label="民族" width="80" sortable="custom"></el-table-column>
-      <el-table-column prop="birth_date" label="出生日期" width="120" sortable="custom"></el-table-column>
-      <el-table-column prop="id_card" label="公民身份证号" width="180" sortable="custom"></el-table-column>
-      <el-table-column prop="address" label="住址" width="180" sortable="custom"></el-table-column>
-      <el-table-column prop="phone" label="联系电话" width="130" sortable="custom"></el-table-column>
-      <el-table-column prop="emergency_contact_name" label="紧急联系人" width="120" sortable="custom"></el-table-column>
-      <el-table-column prop="emergency_contact_phone" label="紧急电话" width="130" sortable="custom"></el-table-column>
-      <el-table-column prop="building" label="楼栋" width="100" sortable="custom"></el-table-column>
-      <el-table-column prop="room_no" label="房间号" width="100" sortable="custom"></el-table-column>
-      <el-table-column prop="status" label="状态" width="100" sortable="custom">
+      <el-table-column type="selection" width="42" :selectable="rowSelectable" />
+      <el-table-column prop="__sequence" label="序号" width="66" align="center" sortable="custom">
+        <template #default="{ $index }">
+          {{ tenantRowStart + $index + 1 }}
+        </template>
+      </el-table-column>
+      <el-table-column prop="name" label="姓名" width="88" sortable="custom"></el-table-column>
+      <el-table-column prop="gender" label="性别" width="64" sortable="custom"></el-table-column>
+      <el-table-column prop="nation" label="民族" width="70" sortable="custom"></el-table-column>
+      <el-table-column prop="birth_date" label="出生日期" width="110" sortable="custom"></el-table-column>
+      <el-table-column prop="id_card" label="公民身份证号" width="168" sortable="custom"></el-table-column>
+      <el-table-column prop="address" label="住址" min-width="160" sortable="custom" show-overflow-tooltip></el-table-column>
+      <el-table-column prop="phone" label="联系电话" width="120" sortable="custom"></el-table-column>
+      <el-table-column prop="emergency_contact_name" label="紧急联系人" width="104" sortable="custom"></el-table-column>
+      <el-table-column prop="emergency_contact_phone" label="紧急电话" width="120" sortable="custom"></el-table-column>
+      <el-table-column prop="building" label="楼栋" width="72" sortable="custom"></el-table-column>
+      <el-table-column prop="room_no" label="房间号" width="92" sortable="custom"></el-table-column>
+      <el-table-column prop="status" label="状态" width="82" sortable="custom">
         <template #header>
           <div style="display: flex; align-items: center;">
             <span>状态</span>
@@ -109,31 +115,36 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="check_in_date" label="入住日期" width="120" sortable="custom"></el-table-column>
-      <el-table-column prop="check_out_date" label="退房日期" width="120" sortable="custom"></el-table-column>
-      <el-table-column prop="remarks" label="备注" width="150"></el-table-column>
-      <el-table-column label="操作" width="300" fixed="right">
+      <el-table-column prop="check_in_date" label="入住日期" width="110" sortable="custom"></el-table-column>
+      <el-table-column prop="check_out_date" label="退房日期" width="110" sortable="custom"></el-table-column>
+      <el-table-column prop="remarks" label="备注" min-width="120" show-overflow-tooltip></el-table-column>
+      <el-table-column label="操作" width="210" fixed="right">
         <template #default="scope">
           <div class="table-actions-row">
-            <el-button 
-              size="small" 
-              type="primary" 
-              @click="showTenantDetails(scope.row)"
-            >详情</el-button>
-            <el-button size="small" @click="openEditDialog(scope.row)">编辑</el-button>
-            <el-button 
-              size="small" 
-              type="warning" 
-              @click="handleCheckout(scope.row)"
-              :disabled="scope.row.status === '已退租'"
-            >退租</el-button>
-            <el-button 
-              size="small" 
-              type="danger" 
-              :disabled="scope.row.status === '在住'"
-              @click="handleDelete(scope.row)"
-              :title="scope.row.status === '在住' ? '在租状态不可删除，请先办理退租' : ''"
-            >删除</el-button>
+            <el-button size="small" @click="showTenantDetails(scope.row)">详情</el-button>
+            <el-button size="small" type="primary" @click="openEditDialog(scope.row)">编辑</el-button>
+            <el-dropdown trigger="click">
+              <el-button size="small">
+                更多
+                <el-icon style="margin-left: 4px"><MoreFilled /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item
+                    :disabled="scope.row.status === '已退租'"
+                    @click="handleCheckout(scope.row)"
+                  >
+                    退租
+                  </el-dropdown-item>
+                  <el-dropdown-item
+                    :disabled="scope.row.status === '在住'"
+                    @click="handleDelete(scope.row)"
+                  >
+                    删除
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </div>
         </template>
       </el-table-column>
@@ -405,11 +416,70 @@
       </template>
     </el-dialog>
 
+    <el-dialog
+      title="AI 输入租户"
+      v-model="aiDialog.visible"
+      width="620px"
+      @close="resetAiDialog"
+    >
+      <el-form label-width="92px">
+        <el-form-item label="文字描述">
+          <el-input
+            v-model="aiDialog.text"
+            type="textarea"
+            :rows="5"
+            placeholder="例如：张三，身份证号 110101199001011234，手机 13800000000，住 A栋301，今天入住。也可以上传身份证照片让本地模型识别。"
+          />
+        </el-form-item>
+        <el-form-item label="图片识别">
+          <el-upload
+            action=""
+            :auto-upload="false"
+            :show-file-list="false"
+            accept="image/*"
+            multiple
+            :limit="4"
+            :on-change="handleAiImageChange"
+          >
+            <el-button type="primary" plain>选择图片</el-button>
+          </el-upload>
+          <el-button
+            v-if="aiDialog.images.length"
+            style="margin-left: 8px"
+            type="danger"
+            plain
+            @click="clearAiImages"
+          >
+            清空图片
+          </el-button>
+          <div class="upload-progress-text">已选 {{ aiDialog.images.length }} / 4</div>
+          <div v-if="aiDialog.images.length" class="ai-image-list">
+            <div v-for="(item, index) in aiDialog.images" :key="item.url" class="ai-image-item">
+              <el-image
+                class="ai-image-thumb"
+                :src="item.url"
+                :preview-src-list="aiDialog.images.map(img => img.url)"
+                fit="cover"
+                preview-teleported
+              />
+              <el-button size="small" type="danger" plain @click="removeAiImage(index)">删除</el-button>
+            </div>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="aiDialog.visible = false">取消</el-button>
+          <el-button type="primary" :loading="aiDialog.loading" @click="submitAiDraft">生成并填入</el-button>
+        </span>
+      </template>
+    </el-dialog>
+
     <!-- 退租确认对话框 -->
     <el-dialog title="确认退租" v-model="checkoutDialogVisible" width="400px">
       <div class="checkout-confirm">
         <p>确定要将租户 <strong>{{ checkoutTenant.name }}</strong> 办理退租吗？</p>
-        <p>公民身份证号: {{ checkoutTenant.id_card }}</p>
+        <p>公民身份证号: {{ checkoutTenant.id_card || '未填写' }}</p>
         <p>房间号: {{ checkoutTenant.room_no }}</p>
         <p class="warning">注意: 退租操作不可撤销，租户状态将变更为"已退租"</p>
       </div>
@@ -469,13 +539,12 @@
 import { ref, reactive, onMounted, computed, nextTick } from 'vue'
 import { tenantsApi, roomsApi, repairRecordsApi, systemApi } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Filter, UserFilled, List, Grid, Operation, Iphone, Timer } from '@element-plus/icons-vue'
+import { Search, Filter, UserFilled, List, Grid, Operation, Iphone, Timer, MoreFilled } from '@element-plus/icons-vue'
 import * as XLSX from 'xlsx'
 import { jsPDF } from 'jspdf'
 import { Document, Packer, Paragraph, Table as DocxTable, TableRow, TableCell, TextRun } from 'docx'
 import { saveAs } from 'file-saver'
 import html2canvas from 'html2canvas'
-import { consumeAiDraft } from '../utils/aiDrafts'
 
 // 视图切换
 const currentView = ref('table') // 'table', 'card', 'group'
@@ -499,6 +568,12 @@ const tenantOcrStatus = reactive({
   remainingCount: null,
   reason: '',
 })
+const aiDialog = reactive({
+  visible: false,
+  loading: false,
+  text: '',
+  images: []
+})
 
 // 搜索、排序和筛选
 const searchQuery = ref('')
@@ -511,6 +586,7 @@ const currentPage = ref(1)
 const pageSize = ref(20)
 const showPrintArea = ref(false)
 const printAreaRef = ref(null)
+const tenantRowStart = computed(() => (currentPage.value - 1) * pageSize.value)
 
 // 当前页数据（基于 filteredTenants 的稳定切片）
 const paginatedTenants = computed(() => {
@@ -565,7 +641,7 @@ const filteredTenants = computed(() => {
       if (bValue === undefined || bValue === null) bValue = ''
       
       // 数字类型的排序
-      if (!isNaN(aValue) && !isNaN(bValue)) {
+      if (sortBy.value === '__sequence' || (!isNaN(aValue) && !isNaN(bValue))) {
         return sortOrder.value === 'ascending' ? aValue - bValue : bValue - aValue
       }
       
@@ -672,12 +748,12 @@ const handleCheckout = (tenant) => {
 const confirmCheckout = async () => {
   try {
     checkoutLoading.value = true
-    const response = await tenantsApi.checkoutTenant(checkoutTenant.value.id_card)
+    const response = await tenantsApi.checkoutTenant(checkoutTenant.value)
     
     ElMessage.success(response.data.message || '退租成功')
     checkoutDialogVisible.value = false
     await fetchTenants()
-    if (currentTenant.value?.id_card === checkoutTenant.value?.id_card) {
+    if (currentTenant.value?.id === checkoutTenant.value?.id) {
       currentTenant.value = {
         ...currentTenant.value,
         status: '已退租',
@@ -725,6 +801,56 @@ const applyTenantRecognizedFields = (fields = {}) => {
   if (fields.address) tenantForm.address = fields.address
 }
 
+const normalizeBuildingCode = (value) => String(value || '').trim().replace(/栋/g, '')
+
+const normalizeRoomDigits = (value) => String(value || '').replace(/\D/g, '')
+
+const resolveAiRoomNo = (draft = {}) => {
+  const roomText = String(draft.room_no || '').trim()
+  const building = normalizeBuildingCode(draft.building)
+  const roomDigits = normalizeRoomDigits(roomText)
+  if (!roomText) return ''
+
+  const exact = availableRooms.value.find(room => String(room.room_no || '') === roomText)
+  if (exact) return exact.room_no
+
+  const candidates = new Set([roomText])
+  if (building && roomDigits) {
+    candidates.add(`${building}-${roomDigits}`)
+    candidates.add(`${building}${roomDigits}`)
+  }
+  const candidateMatch = availableRooms.value.find(room => candidates.has(String(room.room_no || '')))
+  if (candidateMatch) return candidateMatch.room_no
+
+  const roomByBuilding = availableRooms.value.find(room => {
+    const itemBuilding = normalizeBuildingCode(room.building)
+    const itemDigits = normalizeRoomDigits(room.room_no)
+    return building && itemBuilding === building && roomDigits && itemDigits.endsWith(roomDigits)
+  })
+  return roomByBuilding?.room_no || roomText
+}
+
+const applyTenantAiDraftToForm = (draft = {}) => {
+  openAddDialog()
+  tenantForm.name = String(draft.name || '')
+  tenantForm.gender = draft.gender === '女' ? '女' : '男'
+  tenantForm.nation = String(draft.nation || '汉族')
+  tenantForm.birth_date = String(draft.birth_date || '')
+  tenantForm.id_card = String(draft.id_card || '')
+  tenantForm.address = String(draft.address || '')
+  tenantForm.phone = String(draft.phone || '')
+  tenantForm.emergency_contact = String(draft.emergency_contact_name || draft.emergency_contact || '')
+  tenantForm.emergency_phone = String(draft.emergency_contact_phone || draft.emergency_phone || '')
+  tenantForm.room_no = resolveAiRoomNo(draft)
+  tenantForm.status = draft.status === '已退租' ? '已退租' : '在住'
+  tenantForm.check_in_date = String(draft.check_in_date || new Date().toISOString().split('T')[0])
+  tenantForm.check_out_date = String(draft.check_out_date || '')
+  tenantForm.notes = String(draft.remarks || draft.notes || '')
+  nextTick(() => {
+    tenantFormRef.value?.clearValidate?.()
+  })
+}
+
 const rules = {
   name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
   gender: [{ required: true, message: '请选择性别', trigger: 'change' }],
@@ -739,7 +865,6 @@ const rules = {
 onMounted(async () => {
   fetchTenants()
   await fetchAvailableRooms()
-  applyTenantDraft()
 })
 
 // 方法
@@ -781,12 +906,12 @@ const handleBatchCheckout = async () => {
     let successCount = 0
     for (const tenant of activeTenants) {
       try {
-        await tenantsApi.checkoutTenant(tenant.id_card)
+        await tenantsApi.checkoutTenant(tenant)
         successCount++
         await new Promise(resolve => setTimeout(resolve, 50))
       } catch (error) {
         const msg = error?.response?.data?.error || error?.message || '退租失败'
-        failures.push(`${tenant.name}(${tenant.id_card})：${msg}`)
+        failures.push(`${tenant.name}(${tenant.id_card || '未填写身份证'})：${msg}`)
       }
     }
     await fetchTenants()
@@ -823,7 +948,10 @@ const fetchTenants = async () => {
   try {
     const response = await tenantsApi.listTenants({ fields: 'id,name,gender,nation,birth_date,id_card,address,phone,emergency_contact_name,emergency_contact_phone,check_in_date,check_out_date,room_no,building,remarks,status' })
     // 确保tenants.value是一个数组
-    tenants.value = response.data.tenants || []
+    tenants.value = (response.data.tenants || []).map((tenant, index) => ({
+      ...tenant,
+      __sequence: index + 1
+    }))
     console.log('租户数据:', tenants.value)
   } catch (error) {
     ElMessage.error('获取租户列表失败')
@@ -931,6 +1059,83 @@ const handleTenantIdCardFileChange = async (event) => {
     ElMessage.error(tenantOcrMessage.value)
   } finally {
     tenantOcrRecognizing.value = false
+  }
+}
+
+const revokeAiImageUrls = () => {
+  aiDialog.images.forEach((item) => {
+    if (String(item?.url || '').startsWith('blob:')) {
+      URL.revokeObjectURL(item.url)
+    }
+  })
+}
+
+const resetAiDialog = () => {
+  revokeAiImageUrls()
+  aiDialog.loading = false
+  aiDialog.text = ''
+  aiDialog.images = []
+}
+
+const openAiDialog = () => {
+  resetAiDialog()
+  aiDialog.visible = true
+}
+
+const handleAiImageChange = (file) => {
+  if (!file || !file.raw) return
+  if (aiDialog.images.length >= 4) {
+    ElMessage.warning('最多选择 4 张图片')
+    return
+  }
+  if (!String(file.raw.type || '').startsWith('image/')) {
+    ElMessage.warning('请上传图片文件')
+    return
+  }
+  if (file.raw.size && file.raw.size > 8 * 1024 * 1024) {
+    ElMessage.warning('单张图片请控制在 8MB 以内')
+    return
+  }
+  aiDialog.images.push({
+    file: file.raw,
+    url: URL.createObjectURL(file.raw)
+  })
+}
+
+const removeAiImage = (index) => {
+  const item = aiDialog.images[index]
+  if (!item) return
+  if (String(item.url || '').startsWith('blob:')) {
+    URL.revokeObjectURL(item.url)
+  }
+  aiDialog.images.splice(index, 1)
+}
+
+const clearAiImages = () => {
+  revokeAiImageUrls()
+  aiDialog.images = []
+}
+
+const submitAiDraft = async () => {
+  if (!aiDialog.text.trim() && aiDialog.images.length === 0) {
+    ElMessage.warning('请先输入文字或选择图片')
+    return
+  }
+  aiDialog.loading = true
+  try {
+    const formData = new FormData()
+    formData.append('text', aiDialog.text.trim())
+    aiDialog.images.forEach((item) => {
+      formData.append('images', item.file)
+    })
+    const response = await tenantsApi.createAiDraft(formData)
+    applyTenantAiDraftToForm(response?.data?.draft || {})
+    aiDialog.visible = false
+    ElMessage.success('AI 草稿已填入租户表单，请确认后保存')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || error?.message || 'AI 输入失败')
+  } finally {
+    aiDialog.loading = false
   }
 }
 
@@ -1068,38 +1273,6 @@ const formatDate = (date) => {
   const month = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
-}
-
-const applyTenantDraft = () => {
-  const draft = consumeAiDraft('tenant')
-  if (!draft) return
-  openAddDialog()
-  if (draft.name) tenantForm.name = draft.name
-  if (draft.gender) tenantForm.gender = draft.gender
-  if (draft.nation) tenantForm.nation = draft.nation
-  if (draft.birth_date) tenantForm.birth_date = draft.birth_date
-  if (draft.id_card) tenantForm.id_card = draft.id_card
-  if (draft.address) tenantForm.address = draft.address
-  if (draft.phone) tenantForm.phone = draft.phone
-  if (draft.emergency_contact) tenantForm.emergency_contact = draft.emergency_contact
-  if (draft.emergency_phone) tenantForm.emergency_phone = draft.emergency_phone
-  if (draft.check_in_date) tenantForm.check_in_date = draft.check_in_date
-  if (draft.check_out_date) tenantForm.check_out_date = draft.check_out_date
-  if (draft.status) tenantForm.status = draft.status
-  if (draft.notes) tenantForm.notes = draft.notes
-
-  const draftBuilding = String(draft.building || '').trim().toUpperCase()
-  const draftRoomNo = String(draft.room_no || '').trim().toUpperCase()
-  if (draftRoomNo) {
-    const matchedRoom = (availableRooms.value || []).find(room => {
-      const roomBuilding = String(room.building || '').trim().toUpperCase()
-      const roomNo = String(room.room_no || '').trim().toUpperCase()
-      return roomNo === draftRoomNo || `${roomBuilding}${roomNo}` === `${draftBuilding}${draftRoomNo}`
-    })
-    tenantForm.room_no = matchedRoom?.room_no || draftRoomNo
-  }
-
-  ElMessage.success('AI 草稿已带入租户表单')
 }
 
 // 导出相关
@@ -1291,11 +1464,17 @@ const exportToPDF = async () => {
 :deep(.tenants-table .el-table__header-wrapper th.el-table__cell) {
   font-weight: 700;
   color: var(--text-main);
-  height: 48px;
+  height: 42px;
+  padding: 6px 4px;
 }
 
 :deep(.tenants-table .el-table__body-wrapper td.el-table__cell) {
-  padding: 12px 0;
+  padding: 8px 4px;
+  font-size: 13px;
+}
+
+:deep(.tenants-table .el-button--small) {
+  padding: 6px 10px;
 }
 
 :deep(.tenants-table .el-table__fixed-right::before),
@@ -1490,7 +1669,12 @@ const exportToPDF = async () => {
   align-items: center;
   flex-wrap: nowrap;
   white-space: nowrap;
-  gap: 8px;
+  gap: 4px;
+  justify-content: center;
+}
+
+.table-actions-row :deep(.el-button--small) {
+  padding: 5px 8px;
 }
 .table-actions-row :deep(.el-button + .el-button) {
   margin-left: 0;

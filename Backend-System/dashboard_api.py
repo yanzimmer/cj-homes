@@ -1,4 +1,3 @@
-# 该文件负责聚合首页运营总览所需的房间、租户、维修和到期预警统计接口。
 import sqlite3
 from datetime import date, datetime
 
@@ -30,6 +29,66 @@ def _load_advance_days():
         return max(0, int(config.get("advance_days", 7)))
     except Exception:
         return 7
+
+
+def _load_monthly_repair_stats(cursor, limit=12):
+    cursor.execute(
+        """
+        SELECT
+            substr(report_date, 1, 7) AS month,
+            COUNT(*) AS total,
+            COALESCE(SUM(COALESCE(amount, repair_cost, 0)), 0) AS total_amount,
+            SUM(CASE WHEN status = '待处理' THEN 1 ELSE 0 END) AS pending,
+            SUM(CASE WHEN status = '处理中' THEN 1 ELSE 0 END) AS in_progress,
+            SUM(CASE WHEN status = '已完成' THEN 1 ELSE 0 END) AS completed
+        FROM repair_records
+        WHERE report_date IS NOT NULL
+          AND TRIM(report_date) <> ''
+          AND length(TRIM(report_date)) >= 7
+        GROUP BY substr(report_date, 1, 7)
+        ORDER BY month DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    return [
+        {
+            "month": row["month"],
+            "total": int(row["total"] or 0),
+            "totalAmount": round(float(row["total_amount"] or 0), 2),
+            "pending": int(row["pending"] or 0),
+            "inProgress": int(row["in_progress"] or 0),
+            "completed": int(row["completed"] or 0),
+        }
+        for row in cursor.fetchall()
+    ]
+
+
+def _load_monthly_procurement_stats(cursor, limit=12):
+    cursor.execute(
+        """
+        SELECT
+            substr(procurement_date, 1, 7) AS month,
+            COUNT(*) AS total,
+            COALESCE(SUM(COALESCE(total_amount, 0)), 0) AS total_amount
+        FROM procurements
+        WHERE procurement_date IS NOT NULL
+          AND TRIM(procurement_date) <> ''
+          AND length(TRIM(procurement_date)) >= 7
+        GROUP BY substr(procurement_date, 1, 7)
+        ORDER BY month DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    return [
+        {
+            "month": row["month"],
+            "total": int(row["total"] or 0),
+            "totalAmount": round(float(row["total_amount"] or 0), 2),
+        }
+        for row in cursor.fetchall()
+    ]
 
 
 @dashboard_bp.route("/stats", methods=["GET"])
@@ -148,6 +207,7 @@ def api_dashboard_stats(current_user):
             """
         )
         repair_total_amount = float((cursor.fetchone() or {})["total_amount"] or 0)
+        repair_monthly = _load_monthly_repair_stats(cursor)
 
         cursor.execute(
             """
@@ -160,6 +220,7 @@ def api_dashboard_stats(current_user):
         procurement_row = cursor.fetchone() or {}
         procurement_total = int(procurement_row["total"] or 0)
         procurement_total_amount = float(procurement_row["total_amount"] or 0)
+        procurement_monthly = _load_monthly_procurement_stats(cursor)
         ocr_status = build_ocr_status()
 
         return jsonify(
@@ -185,10 +246,12 @@ def api_dashboard_stats(current_user):
                     "completed": repair_completed,
                     "totalAmount": round(repair_total_amount, 2),
                     "completionRate": round((repair_completed / repair_total) * 100) if repair_total > 0 else 0,
+                    "monthly": repair_monthly,
                 },
                 "procurements": {
                     "total": procurement_total,
                     "totalAmount": round(procurement_total_amount, 2),
+                    "monthly": procurement_monthly,
                 },
                 "expiring": {
                     "count": len(expiring_list),

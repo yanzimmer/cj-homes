@@ -1,4 +1,4 @@
-# 该文件负责处理租客自助入住链接、待确认提交记录与管理员确认入库流程。
+import base64
 import re
 import secrets
 import sqlite3
@@ -9,8 +9,17 @@ from flask import Blueprint, jsonify, request
 from aliyun_ocr_utils import aliyun_ocr_is_configured, recognize_cn_id_card
 from auth_api import token_required
 from common import connect
+from local_ai_settings import load_ai_settings
 from ocr_settings import build_ocr_status, record_ocr_usage
-from tenants_api import _refresh_room_statuses, _refresh_tenant_statuses
+from tenants_api import (
+    _build_tenant_ai_prompt,
+    _call_ollama_generate,
+    _clean_text,
+    _extract_json_object,
+    _normalize_tenant_ai_payload,
+    _refresh_room_statuses,
+    _refresh_tenant_statuses,
+)
 
 
 self_checkin_bp = Blueprint("self_checkin", __name__, url_prefix="/api")
@@ -532,6 +541,49 @@ def api_get_public_self_checkin_form(token):
     )
 
 
+@self_checkin_bp.route("/public/self-checkin/<token>/submission-status", methods=["GET"])
+def api_get_public_self_checkin_submission_status(token):
+    ensure_self_checkin_schema()
+    submission_id = str(request.args.get("submission_id") or "").strip()
+    id_card = str(request.args.get("id_card") or "").strip()
+    if not submission_id or not submission_id.isdigit() or not id_card:
+        return jsonify({"error": "缺少 submission_id 或 id_card"}), 400
+
+    conn = connect()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, status
+        FROM self_checkin_links
+        WHERE token = ?
+        """,
+        (token,),
+    )
+    link = cur.fetchone()
+    if not link:
+        conn.close()
+        return jsonify({"error": "入住链接不存在"}), 404
+
+    cur.execute(
+        """
+        SELECT
+            id, link_id, room_id, status, name, gender, nation, birth_date, id_card,
+            address, phone, emergency_contact_name, emergency_contact_phone, check_in_date,
+            check_out_date, remarks, submitted_at, approved_at, approved_tenant_id, reject_reason
+        FROM self_checkin_submissions
+        WHERE id = ? AND link_id = ? AND id_card = ?
+        LIMIT 1
+        """,
+        (int(submission_id), link[0], id_card),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({"error": "提交记录不存在"}), 404
+
+    return jsonify({"submission": _submission_to_dict(row)})
+
+
 @self_checkin_bp.route("/public/self-checkin/<token>/recognize-id-card", methods=["POST"])
 def api_recognize_public_self_checkin_id_card(token):
     ensure_self_checkin_schema()
@@ -577,6 +629,72 @@ def api_recognize_public_self_checkin_id_card(token):
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e) or "身份证识别失败"}), 500
+
+
+@self_checkin_bp.route("/public/self-checkin/<token>/ai-draft", methods=["POST"])
+def api_create_public_self_checkin_ai_draft(token):
+    if not load_ai_settings().get("enabled", True):
+        return jsonify({"error": "本地 AI 功能已停用，请联系管理员启用后再使用"}), 503
+
+    ensure_self_checkin_schema()
+    conn = connect()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, status
+        FROM self_checkin_links
+        WHERE token = ?
+        """,
+        (token,),
+    )
+    link = cur.fetchone()
+    conn.close()
+    if not link:
+        return jsonify({"error": "入住链接不存在"}), 404
+    if link[1] != "active":
+        return jsonify({"error": "入住链接已失效"}), 400
+
+    images = []
+    if request.content_type and request.content_type.startswith("multipart/form-data"):
+        user_text = request.form.get("text") or ""
+        for file in request.files.getlist("images"):
+            if not file or not file.filename:
+                continue
+            if not str(file.mimetype or "").startswith("image/"):
+                return jsonify({"error": "仅支持图片文件"}), 400
+            data = file.read()
+            if len(data) > 8 * 1024 * 1024:
+                return jsonify({"error": "单张图片请控制在 8MB 以内"}), 400
+            images.append(base64.b64encode(data).decode("ascii"))
+    else:
+        data = request.json or {}
+        user_text = data.get("text") or ""
+        raw_images = data.get("images") or []
+        if isinstance(raw_images, list):
+            for item in raw_images[:4]:
+                value = str(item or "").strip()
+                if value.startswith("data:image/") and "," in value:
+                    value = value.split(",", 1)[1]
+                if value:
+                    images.append(value)
+
+    if not _clean_text(user_text) and not images:
+        return jsonify({"error": "请提供文字或图片"}), 400
+    if len(images) > 4:
+        return jsonify({"error": "最多支持 4 张图片"}), 400
+
+    prompt = _build_tenant_ai_prompt(user_text, len(images))
+    try:
+        result = _call_ollama_generate(prompt, images)
+        response_text = result.get("response") or ""
+        parsed = _extract_json_object(response_text)
+        draft = _normalize_tenant_ai_payload(parsed)
+        return jsonify({
+            "draft": draft,
+            "model": load_ai_settings().get("procurement_model"),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
 
 
 @self_checkin_bp.route("/public/self-checkin/<token>/submit", methods=["POST"])

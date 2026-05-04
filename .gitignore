@@ -6,6 +6,7 @@ Backend-System/.env
 Backend-System/config/ai_settings.json
 Backend-System/config/ocr_settings.json
 Backend-System/config/room_feature_options.json
+Backend-System/static/uploads/
 __pycache__/
 *.pyc
 *.pyo
@@ -23,3 +24,5 @@ dist/
 build/
 shot-*.png
 tmp-home.png
+*.xlsx
+从江房屋水电表/

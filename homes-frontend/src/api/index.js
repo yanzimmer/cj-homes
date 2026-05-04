@@ -60,10 +60,18 @@ export const roomsApi = {
   getFeatureOptions: () => apiClient.get('/rooms/feature-options'),
   getRoom: (roomId) => apiClient.get(`/rooms/${roomId}`),
   getRoomMeterImage: (roomId, type) => apiClient.get(`/rooms/${roomId}/meter-image?type=${type}`),
+  uploadRoomMeterImage: (roomId, type, file) => {
+    const formData = new FormData()
+    formData.append('type', type)
+    formData.append('file', file)
+    return apiClient.post(`/rooms/${roomId}/meter-image`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
   addRoom: (roomData) => apiClient.post('/rooms', roomData),
   updateRoom: (roomId, roomData) => apiClient.put(`/rooms/${roomId}`, roomData),
   deleteRoom: (roomId) => apiClient.delete(`/rooms/${roomId}`),
-  checkoutRoom: (roomNo) => apiClient.post(`/rooms/${roomNo}/checkout`),
+  checkoutRoom: (roomNo) => apiClient.post(`/rooms/${encodeURIComponent(roomNo)}/checkout`),
   getRoomTenants: (roomNo) => apiClient.get(`/rooms/${roomNo}/tenants`),
   listSelfCheckinLinks: (roomId) => apiClient.get(`/self-checkin/rooms/${roomId}/links`),
   createSelfCheckinLink: (roomId) => apiClient.post(`/self-checkin/rooms/${roomId}/links`),
@@ -82,7 +90,19 @@ export const tenantsApi = {
   addTenant: (tenantData) => apiClient.post('/tenants', tenantData),
   updateTenant: (tenantId, tenantData) => apiClient.put(`/tenants/${tenantData.id_card}`, tenantData),
   deleteTenant: (idCard) => apiClient.delete(`/tenants/${encodeURIComponent(idCard)}`),
-  checkoutTenant: (idCard) => apiClient.post(`/tenants/${idCard}/checkout`),
+  checkoutTenant: (tenant) => {
+    if (tenant && typeof tenant === 'object') {
+      if (tenant.id !== undefined && tenant.id !== null && tenant.id !== '') {
+        return apiClient.post(`/tenants/by-id/${tenant.id}/checkout`)
+      }
+      return apiClient.post(`/tenants/${encodeURIComponent(tenant.id_card || '')}/checkout`)
+    }
+    return apiClient.post(`/tenants/${encodeURIComponent(tenant)}/checkout`)
+  },
+  createAiDraft: (payload) => apiClient.post('/tenants/ai-draft', payload, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 180000
+  }),
   recognizeIdCard: (file) => {
     const formData = new FormData()
     formData.append('file', file)
@@ -113,6 +133,10 @@ export const notifyApi = {
 export const repairRecordsApi = {
   listRepairRecords: (params = {}) => apiClient.get('/repair-records', { params }),
   getRepairRecord: (recordId) => apiClient.get(`/repair-records/${recordId}`),
+  createAiDraft: (payload) => apiClient.post('/repair-records/ai-draft', payload, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 180000
+  }),
   addRepairRecord: (recordData) => apiClient.post('/repair-records', recordData),
   updateRepairRecord: (recordId, recordData) => apiClient.put(`/repair-records/${recordId}`, recordData),
   listInventoryOptions: () => apiClient.get('/repair-records/inventory-options'),
@@ -164,30 +188,15 @@ export const dashboardApi = {
   getStats: () => apiClient.get('/dashboard/stats')
 }
 
-export const aiAssistantApi = {
-  assistantChat: (payload) => apiClient.post('/ai/assistant/chat', payload),
-  assistantTranscribe: (audioBlob, filename = 'recording.webm') => {
-    const formData = new FormData()
-    formData.append('audio', audioBlob, filename)
-    return apiClient.post('/ai/assistant/transcribe', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
-  },
-  getSettings: () => apiClient.get('/ai/settings'),
-  updateSettings: (payload) => apiClient.put('/ai/settings', payload),
-  testChat: () => apiClient.post('/ai/settings/test-chat'),
-  testTranscription: () => apiClient.post('/ai/settings/test-transcription'),
-  listSessions: () => apiClient.get('/ai/sessions'),
-  getSession: (id) => apiClient.get(`/ai/sessions/${id}`),
-  deleteSession: (id) => apiClient.delete(`/ai/sessions/${id}`),
-}
-
 export const systemApi = {
   exportData: () => apiClient.get('/system/export', { responseType: 'blob' }),
   getRoomFeatureOptions: () => apiClient.get('/system/room-feature-options'),
   updateRoomFeatureOptions: (payload) => apiClient.put('/system/room-feature-options', payload),
   getOcrSettings: () => apiClient.get('/system/ocr-settings'),
   updateOcrSettings: (payload) => apiClient.put('/system/ocr-settings', payload),
+  getAiSettings: () => apiClient.get('/system/ai-settings'),
+  updateAiSettings: (payload) => apiClient.put('/system/ai-settings', payload),
+  getAiSwitchStatus: () => apiClient.get('/system/ai-settings/switch-status'),
   importData: (fileOrUrl) => {
     if (typeof fileOrUrl === 'string') {
       return apiClient.post('/system/import', { file_url: fileOrUrl }, {
@@ -208,6 +217,10 @@ export const systemApi = {
 // 閲囪喘绠＄悊API
 export const procurementApi = {
   listProcurements: (params) => apiClient.get('/procurements', { params }),
+  createAiDraft: (payload) => apiClient.post('/procurements/ai-draft', payload, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 180000
+  }),
   createProcurement: (data) => apiClient.post('/procurements', data),
   updateProcurement: (id, data) => apiClient.put(`/procurements/${id}`, data),
   uploadProcurementImage: (id, file, onProgress) => {
@@ -266,6 +279,11 @@ export const uploadApi = {
 
 export const publicSelfCheckinApi = {
   getForm: (token) => apiClient.get(`/public/self-checkin/${token}`),
+  getSubmissionStatus: (token, params) => apiClient.get(`/public/self-checkin/${token}/submission-status`, { params }),
+  createAiDraft: (token, payload) => apiClient.post(`/public/self-checkin/${token}/ai-draft`, payload, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 180000
+  }),
   recognizeIdCard: (token, file) => {
     const formData = new FormData()
     formData.append('file', file)

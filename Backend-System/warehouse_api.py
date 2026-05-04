@@ -1,4 +1,3 @@
-# 该文件负责处理库房物资的增删改查、分页筛选与字段裁剪逻辑。
 import sqlite3
 import json
 from flask import Blueprint, request, jsonify

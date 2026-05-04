@@ -1,13 +1,18 @@
-# 该文件负责处理租户资料、入住退租及相关字段映射接口。
+import base64
+import json
+import os
 import re
 import sqlite3
 from datetime import date
+import urllib.error
+import urllib.request
 
 from flask import Blueprint, request, jsonify
 
 from aliyun_ocr_utils import aliyun_ocr_is_configured, recognize_cn_id_card
 from auth_api import token_required
 from common import connect, parse_fields_arg, parse_pagination_args, paginate_list, project_fields
+from local_ai_settings import load_ai_settings
 from ocr_settings import build_ocr_status, record_ocr_usage
 from rooms_api import _compose_room_no, _find_room_by_no, _normalize_building_code
 
@@ -15,6 +20,8 @@ from rooms_api import _compose_room_no, _find_room_by_no, _normalize_building_co
 tenants_bp = Blueprint('tenants', __name__, url_prefix='/api')
 SQL_TODAY = "DATE('now','localtime')"
 ID_CARD_PATTERN = re.compile(r"^\d{17}[\dXx]$")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+TENANT_AI_TIMEOUT_SECONDS = int(os.getenv("TENANT_AI_TIMEOUT_SECONDS", "180"))
 
 
 def _resolve_room_for_tenant(conn, room_no_input, building_input=''):
@@ -85,6 +92,27 @@ def _refresh_room_statuses(conn):
     )
 
 
+def _checkout_tenant(conn, where_clause, params):
+    cursor = conn.cursor()
+    today = date.today().isoformat()
+    cursor.execute(
+        f"""
+        UPDATE tenants
+        SET check_out_date = ?,
+            status = '已退租'
+        WHERE {where_clause} AND status = '在住'
+        """,
+        (today, *params),
+    )
+
+    if cursor.rowcount == 0:
+        return None
+
+    _refresh_tenant_statuses(conn)
+    _refresh_room_statuses(conn)
+    return today
+
+
 def _derive_birth_date_from_id_card(id_card):
     raw = str(id_card or "").strip()
     if not ID_CARD_PATTERN.match(raw):
@@ -93,6 +121,145 @@ def _derive_birth_date_from_id_card(id_card):
     month = raw[10:12]
     day = raw[12:14]
     return f"{year}-{month}-{day}"
+
+
+def _clean_text(value):
+    return str(value or "").strip()
+
+
+def _clean_ai_field(value, placeholders=()):
+    text = _clean_text(value)
+    if not text:
+        return ""
+    for placeholder in placeholders:
+        if text == placeholder or placeholder in text:
+            return ""
+    return text
+
+
+def _today_text():
+    return date.today().strftime("%Y-%m-%d")
+
+
+def _extract_json_object(text):
+    raw = _clean_text(text)
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?", "", raw, flags=re.IGNORECASE).strip()
+        raw = re.sub(r"```$", "", raw).strip()
+    try:
+        return json.loads(raw)
+    except Exception:
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(raw[start:end + 1])
+    raise ValueError("AI 未返回有效 JSON")
+
+
+def _normalize_gender(value):
+    text = _clean_text(value)
+    if text in ("男", "女"):
+        return text
+    return "女" if "女" in text else "男"
+
+
+def _normalize_tenant_status(value):
+    text = _clean_text(value)
+    return "已退租" if text == "已退租" else "在住"
+
+
+def _normalize_tenant_ai_payload(data):
+    if not isinstance(data, dict):
+        data = {}
+    id_card = _clean_text(data.get("id_card")).upper()
+    birth_date = _clean_text(data.get("birth_date")) or _derive_birth_date_from_id_card(id_card)
+    check_in_date = _clean_text(data.get("check_in_date")) or _today_text()
+    return {
+        "name": _clean_ai_field(data.get("name"), ("姓名",)),
+        "gender": _normalize_gender(data.get("gender")),
+        "nation": _clean_ai_field(data.get("nation"), ("民族",)) or "汉族",
+        "birth_date": birth_date,
+        "id_card": id_card,
+        "address": _clean_ai_field(data.get("address"), ("身份证地址或住址", "住址")),
+        "phone": _clean_ai_field(data.get("phone"), ("联系电话",)),
+        "emergency_contact_name": _clean_ai_field(data.get("emergency_contact_name") or data.get("emergency_contact"), ("紧急联系人",)),
+        "emergency_contact_phone": _clean_ai_field(data.get("emergency_contact_phone") or data.get("emergency_phone"), ("紧急电话",)),
+        "building": _clean_ai_field(data.get("building"), ("楼栋",)),
+        "room_no": _clean_ai_field(data.get("room_no"), ("房间号",)),
+        "status": _normalize_tenant_status(data.get("status")),
+        "check_in_date": check_in_date,
+        "check_out_date": _clean_text(data.get("check_out_date")),
+        "remarks": _clean_text(data.get("remarks") or data.get("notes")),
+    }
+
+
+def _build_tenant_ai_prompt(user_text, image_count):
+    today = _today_text()
+    return f"""
+你是房屋管理系统的租户录入助手。请从用户文字和图片中提取一条租户记录，只返回一个 JSON 对象，不要解释，不要 Markdown。
+
+今天日期：{today}
+图片数量：{image_count}
+
+输出 JSON 格式：
+{{
+  "name": "姓名",
+  "gender": "男",
+  "nation": "汉族",
+  "birth_date": "YYYY-MM-DD",
+  "id_card": "公民身份证号",
+  "address": "身份证地址或住址",
+  "phone": "联系电话",
+  "emergency_contact_name": "紧急联系人",
+  "emergency_contact_phone": "紧急电话",
+  "building": "A栋",
+  "room_no": "301",
+  "status": "在住",
+  "check_in_date": "YYYY-MM-DD",
+  "check_out_date": "",
+  "remarks": ""
+}}
+
+规则：
+- 用户可能输入一大段聊天记录、转述、身份证照片、入住登记截图或手写信息；先整理含义，再提取字段。
+- 图片如果是中国居民身份证正面，请识别姓名、性别、民族、出生日期、公民身份证号、住址。
+- 身份证号必须尽量只保留 18 位数字或末位 X；无法确认就留空。
+- gender 只能是“男”或“女”；无法判断用“男”。
+- nation 不要带“族”以外的多余描述；无法判断用“汉族”。
+- 日期统一 YYYY-MM-DD；入住日期无法判断时用今天日期；退房日期不确定留空。
+- status 只能是“在住”或“已退租”；无法判断用“在住”。
+- 房间可从“A栋301”“A-301”“301房”等自然语言推断；room_no 尽量填写系统里常用的房间号文本。
+- 电话只保留电话号码文本，不要加说明。
+- 不要自动提交，只生成表单草稿需要的 JSON。
+
+用户文字：
+{_clean_text(user_text)}
+""".strip()
+
+
+def _call_ollama_generate(prompt, images):
+    model = load_ai_settings().get("procurement_model") or os.getenv("TENANT_AI_MODEL", "qwen3.5:4b")
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "think": False,
+        "options": {"temperature": 0},
+    }
+    if images:
+        payload["images"] = images
+    req = urllib.request.Request(
+        f"{OLLAMA_BASE_URL}/api/generate",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=TENANT_AI_TIMEOUT_SECONDS) as resp:
+            body = resp.read().decode("utf-8")
+            return json.loads(body)
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Ollama 连接失败: {e}") from e
 
 
 @tenants_bp.route('/tenants', methods=['GET'])
@@ -195,7 +362,7 @@ def api_list_tenants(current_user):
             'check_in_date': row[10],
             'check_out_date': row[11],
             'room_no': row[12],
-            'building': row[13],
+            'building': _normalize_building_code(row[13]),
             'remarks': row[14],
             'status': row[15],
         })
@@ -284,28 +451,28 @@ def api_checkout_tenant(current_user, id_card):
         description: 未找到该租户或已退租
     """
     conn = connect()
-    cursor = conn.cursor()
-
-    today = date.today().isoformat()
-    cursor.execute(
-        """
-    UPDATE tenants
-    SET check_out_date = ?,
-        status = '已退租'
-    WHERE id_card = ? AND status = '在住'
-    """,
-        (today, id_card),
-    )
-
-    if cursor.rowcount == 0:
+    today = _checkout_tenant(conn, "id_card = ?", (id_card,))
+    if not today:
         conn.close()
         return jsonify({'error': '未找到该租户或租户已退租'}), 404
-
-    _refresh_tenant_statuses(conn)
-    _refresh_room_statuses(conn)
     conn.commit()
     conn.close()
+    return jsonify({'message': '租户退租成功', 'checkout_date': today})
 
+
+@tenants_bp.route('/tenants/by-id/<int:tenant_id>/checkout', methods=['POST'])
+@token_required
+def api_checkout_tenant_by_id(current_user, tenant_id):
+    """
+    按租户记录 ID 办理退租。用于身份证号为空或重复的历史数据。
+    """
+    conn = connect()
+    today = _checkout_tenant(conn, "id = ?", (tenant_id,))
+    if not today:
+        conn.close()
+        return jsonify({'error': '未找到该租户或租户已退租'}), 404
+    conn.commit()
+    conn.close()
     return jsonify({'message': '租户退租成功', 'checkout_date': today})
 
 
@@ -399,6 +566,56 @@ def api_recognize_tenant_id_card(current_user):
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e) or "身份证识别失败"}), 500
+
+
+@tenants_bp.route('/tenants/ai-draft', methods=['POST'])
+@token_required
+def api_create_tenant_ai_draft(current_user):
+    if not load_ai_settings().get("enabled", True):
+        return jsonify({'error': '本地 AI 功能已停用，请在系统维护页面启用后再使用'}), 503
+
+    images = []
+
+    if request.content_type and request.content_type.startswith('multipart/form-data'):
+        user_text = request.form.get('text') or ''
+        for file in request.files.getlist('images'):
+            if not file or not file.filename:
+                continue
+            if not str(file.mimetype or '').startswith('image/'):
+                return jsonify({'error': '仅支持图片文件'}), 400
+            data = file.read()
+            if len(data) > 8 * 1024 * 1024:
+                return jsonify({'error': '单张图片请控制在 8MB 以内'}), 400
+            images.append(base64.b64encode(data).decode('ascii'))
+    else:
+        data = request.json or {}
+        user_text = data.get('text') or ''
+        raw_images = data.get('images') or []
+        if isinstance(raw_images, list):
+            for item in raw_images[:4]:
+                value = str(item or '').strip()
+                if value.startswith('data:image/') and ',' in value:
+                    value = value.split(',', 1)[1]
+                if value:
+                    images.append(value)
+
+    if not _clean_text(user_text) and not images:
+        return jsonify({'error': '请提供文字或图片'}), 400
+    if len(images) > 4:
+        return jsonify({'error': '最多支持 4 张图片'}), 400
+
+    prompt = _build_tenant_ai_prompt(user_text, len(images))
+    try:
+        result = _call_ollama_generate(prompt, images)
+        response_text = result.get('response') or ''
+        parsed = _extract_json_object(response_text)
+        draft = _normalize_tenant_ai_payload(parsed)
+        return jsonify({
+            'draft': draft,
+            'model': load_ai_settings().get('procurement_model'),
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 502
 
 
 @tenants_bp.route('/tenants/<id_card>', methods=['PUT'])

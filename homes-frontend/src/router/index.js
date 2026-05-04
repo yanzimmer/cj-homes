@@ -87,18 +87,6 @@ const routes = [
         component: () => import('../views/SystemMaintenance.vue'),
         meta: { requiresAuth: true }
       },
-      {
-        path: 'ai-assistant',
-        name: 'AiAssistant',
-        component: () => import('../views/AiAssistant.vue'),
-        meta: { requiresAuth: true }
-      },
-      {
-        path: 'ai-settings',
-        name: 'AiSettings',
-        component: () => import('../views/AiSettings.vue'),
-        meta: { requiresAuth: true }
-      }
     ]
   },
   {

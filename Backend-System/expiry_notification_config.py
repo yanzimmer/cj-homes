@@ -1,11 +1,16 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# 该文件负责管理租期到期提醒相关的通知配置读写与默认值处理。
-
 import os
 import json
 import logging
+from copy import deepcopy
 from datetime import datetime
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+except Exception:
+    pass
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -13,6 +18,27 @@ logger = logging.getLogger('expiry_notification')
 
 # 配置文件路径（迁移至 config 目录）
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'config', 'notification_config.json')
+MASKED_VALUE = "********"
+
+ENV_FIELD_MAP = {
+    ("smtp_config", "server"): ("SMTP_SERVER", str),
+    ("smtp_config", "port"): ("SMTP_PORT", int),
+    ("smtp_config", "username"): ("SMTP_USERNAME", str),
+    ("smtp_config", "password"): ("SMTP_PASSWORD", str),
+    ("smtp_config", "use_tls"): ("SMTP_USE_TLS", "bool"),
+    ("sms_config", "secret_id"): ("TENCENT_SMS_SECRET_ID", str),
+    ("sms_config", "secret_key"): ("TENCENT_SMS_SECRET_KEY", str),
+    ("sms_config", "app_id"): ("TENCENT_SMS_APP_ID", str),
+    ("sms_config", "sign_name"): ("TENCENT_SMS_SIGN_NAME", str),
+    ("sms_config", "tenant_template_id"): ("TENCENT_SMS_TENANT_TEMPLATE_ID", str),
+    ("sms_config", "landlord_template_id"): ("TENCENT_SMS_LANDLORD_TEMPLATE_ID", str),
+}
+
+SENSITIVE_FIELDS = {
+    ("smtp_config", "password"),
+    ("sms_config", "secret_id"),
+    ("sms_config", "secret_key"),
+}
 
 # 默认配置已迁移至 init-scripts/init_notification_config.py
 
@@ -23,24 +49,82 @@ def ensure_config_file():
         return False
     return True
 
-def get_config():
-    """获取当前配置；若不存在或读取失败，返回空字典。"""
+
+def _coerce_env_value(value, caster):
+    if caster == "bool":
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+    if caster is int:
+        try:
+            return int(value)
+        except Exception:
+            return value
+    return str(value)
+
+
+def _read_config_raw():
     if not os.path.exists(CONFIG_FILE):
         return {}
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        return config
+            return json.load(f)
     except Exception as e:
         logger.error(f"读取配置文件失败: {str(e)}")
         return {}
+
+
+def _apply_env_overrides(config, include_secrets=False):
+    merged = deepcopy(config) if isinstance(config, dict) else {}
+    for (section, field), (env_name, caster) in ENV_FIELD_MAP.items():
+        raw = os.getenv(env_name)
+        if raw is None or raw == "":
+            continue
+        merged.setdefault(section, {})
+        merged[section][field] = _coerce_env_value(raw, caster)
+
+    if not include_secrets:
+        for section, field in SENSITIVE_FIELDS:
+            value = merged.get(section, {}).get(field)
+            if value:
+                merged[section][field] = MASKED_VALUE
+    return merged
+
+
+def get_runtime_config():
+    """获取运行时配置，包含从环境变量注入的真实密钥。仅后端内部使用。"""
+    return _apply_env_overrides(_read_config_raw(), include_secrets=True)
+
+
+def _strip_masked_values(value):
+    if isinstance(value, dict):
+        cleaned = {}
+        for key, item in value.items():
+            if item == MASKED_VALUE:
+                continue
+            cleaned[key] = _strip_masked_values(item)
+        return cleaned
+    if isinstance(value, list):
+        return [_strip_masked_values(item) for item in value]
+    return value
+
+
+def _remove_stored_secrets(config):
+    cleaned = deepcopy(config) if isinstance(config, dict) else {}
+    for section, field in SENSITIVE_FIELDS:
+        if isinstance(cleaned.get(section), dict):
+            cleaned[section][field] = ""
+    return cleaned
+
+def get_config():
+    """获取当前配置，敏感字段仅返回脱敏占位符。"""
+    return _apply_env_overrides(_read_config_raw(), include_secrets=False)
 
 def update_config(new_config):
     """更新配置"""
     ensure_config_file()
     try:
         # 读取当前配置
-        current_config = get_config()
+        current_config = _read_config_raw()
+        new_config = _strip_masked_values(new_config)
         
         # 更新配置
         for key, value in new_config.items():
@@ -54,6 +138,7 @@ def update_config(new_config):
         
         # 更新最后修改时间
         current_config["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        current_config = _remove_stored_secrets(current_config)
         
         # 写入文件
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
@@ -72,7 +157,8 @@ def validate_config(config):
         config.setdefault("tenant_notification_methods", config["notification_methods"])
         config.setdefault("landlord_notification_methods", config["notification_methods"])
 
-    current = get_config()
+    current = get_runtime_config()
+    config = _strip_masked_values(config)
 
     # 构建合并视图（不写盘，仅用于校验）
     merged = {}

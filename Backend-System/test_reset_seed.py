@@ -1,4 +1,3 @@
-# 该文件负责验证系统重置与演示数据恢复相关流程是否正常。
 import requests
 import json
 import sqlite3

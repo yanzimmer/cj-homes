@@ -1,18 +1,22 @@
-# 该文件负责处理系统备份恢复、重置、导入导出与演示数据维护接口。
 import os
 import json
 import sqlite3
 import zipfile
 import io
 import shutil
+import subprocess
 import time
-from threading import Lock
+import urllib.error
+import urllib.request
+import uuid
+from threading import Lock, Thread
 from datetime import datetime
 from flask import Blueprint, request, jsonify, send_file, current_app
 from auth_api import token_required
 from common import connect, DB_NAME, BASE_DIR
 from room_feature_config import get_room_feature_options, save_room_feature_options
 from ocr_settings import build_ocr_status, load_ocr_settings, save_ocr_settings
+from local_ai_settings import ALLOWED_PROCUREMENT_MODELS, load_ai_settings, save_ai_settings
 
 system_bp = Blueprint('system', __name__, url_prefix='/api/system')
 
@@ -24,6 +28,20 @@ SQL_DIR = os.path.join(BASE_DIR, 'sql')
 EXPORT_INTERVAL_SECONDS = 120
 _export_lock = Lock()
 _last_export_ts = 0.0
+OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://127.0.0.1:11434').rstrip('/')
+AI_SWITCH_TIMEOUT_SECONDS = int(os.getenv('AI_SWITCH_TIMEOUT_SECONDS', '120'))
+_ai_switch_lock = Lock()
+_ai_switch_status = {
+    'id': '',
+    'status': 'idle',
+    'phase': '',
+    'message': '未执行切换',
+    'from_model': '',
+    'to_model': '',
+    'started_at': '',
+    'finished_at': '',
+    'error': '',
+}
 
 EXCLUDED_SQLITE_TABLES = {"sqlite_sequence"}
 ENV_EXPORT_DIRS = [
@@ -32,6 +50,164 @@ ENV_EXPORT_DIRS = [
     os.path.join(PROJECT_ROOT, 'homes-frontend'),
 ]
 ENV_EXPORT_SKIP_DIRS = {'venv', 'node_modules', '.git', '__pycache__'}
+
+
+def _set_ai_switch_status(**updates):
+    with _ai_switch_lock:
+        _ai_switch_status.update(updates)
+        return dict(_ai_switch_status)
+
+
+def _get_ai_switch_status():
+    with _ai_switch_lock:
+        return dict(_ai_switch_status)
+
+
+def _ollama_generate(payload, timeout=AI_SWITCH_TIMEOUT_SECONDS):
+    req = urllib.request.Request(
+        f'{OLLAMA_BASE_URL}/api/generate',
+        data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+        headers={'Content-Type': 'application/json'},
+        method='POST',
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        body = resp.read().decode('utf-8')
+        return json.loads(body)
+
+
+def _stop_ollama_model(model):
+    if not model:
+        return
+    result = subprocess.run(
+        ['ollama', 'stop', model],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    if result.returncode != 0:
+        message = (result.stderr or result.stdout or '').strip()
+        raise RuntimeError(message or f'停止模型 {model} 失败')
+
+
+def _warm_ollama_model(model):
+    _ollama_generate({
+        'model': model,
+        'prompt': 'ping',
+        'stream': False,
+        'think': False,
+        'keep_alive': '30m',
+        'options': {'num_predict': 1, 'temperature': 0},
+    })
+
+
+def _run_ai_model_switch(task_id, old_model, new_model):
+    started_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    _set_ai_switch_status(
+        id=task_id,
+        status='running',
+        phase='stopping_old',
+        message=f'正在停止旧模型 {old_model}' if old_model and old_model != new_model else '无需停止旧模型',
+        from_model=old_model,
+        to_model=new_model,
+        started_at=started_at,
+        finished_at='',
+        error='',
+    )
+    try:
+        if old_model and old_model != new_model:
+            _stop_ollama_model(old_model)
+
+        _set_ai_switch_status(
+            status='running',
+            phase='starting_new',
+            message=f'正在启动新模型 {new_model}',
+        )
+        _warm_ollama_model(new_model)
+
+        saved = save_ai_settings({'enabled': True, 'procurement_model': new_model})
+        _set_ai_switch_status(
+            status='completed',
+            phase='completed',
+            message=f'已切换到 {new_model}',
+            finished_at=saved.get('updated_at') or datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            error='',
+        )
+    except Exception as e:
+        _set_ai_switch_status(
+            status='failed',
+            phase='failed',
+            message='模型切换失败',
+            finished_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            error=str(e),
+        )
+
+
+def _run_ai_disable(task_id, current_model):
+    started_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    _set_ai_switch_status(
+        id=task_id,
+        status='running',
+        phase='stopping_old',
+        message=f'正在停止模型 {current_model}' if current_model else '正在停用本地 AI 功能',
+        from_model=current_model,
+        to_model='',
+        started_at=started_at,
+        finished_at='',
+        error='',
+    )
+    try:
+        if current_model:
+            _stop_ollama_model(current_model)
+        saved = save_ai_settings({'enabled': False})
+        _set_ai_switch_status(
+            status='completed',
+            phase='disabled',
+            message='本地 AI 功能已停用',
+            finished_at=saved.get('updated_at') or datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            error='',
+        )
+    except Exception as e:
+        _set_ai_switch_status(
+            status='failed',
+            phase='failed',
+            message='停用本地 AI 功能失败',
+            finished_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            error=str(e),
+        )
+
+
+def _run_ai_enable(task_id, current_model):
+    started_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    _set_ai_switch_status(
+        id=task_id,
+        status='running',
+        phase='starting_new',
+        message=f'正在启动模型 {current_model}',
+        from_model=current_model,
+        to_model=current_model,
+        started_at=started_at,
+        finished_at='',
+        error='',
+    )
+    try:
+        _warm_ollama_model(current_model)
+        saved = save_ai_settings({'enabled': True})
+        _set_ai_switch_status(
+            status='completed',
+            phase='enabled',
+            message='本地 AI 功能已启用',
+            finished_at=saved.get('updated_at') or datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            error='',
+        )
+    except Exception as e:
+        _set_ai_switch_status(
+            status='failed',
+            phase='failed',
+            message='启用本地 AI 功能失败',
+            finished_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            error=str(e),
+        )
 
 
 @system_bp.route('/room-feature-options', methods=['GET'])
@@ -70,6 +246,113 @@ def update_ocr_settings_api(current_user):
     payload = dict(saved)
     payload.update(status)
     return jsonify(payload)
+
+
+@system_bp.route('/ai-settings', methods=['GET'])
+@token_required
+def get_ai_settings_api(current_user):
+    settings = load_ai_settings()
+    return jsonify({
+        'enabled': settings.get('enabled', True),
+        'procurement_model': settings.get('procurement_model'),
+        'available_procurement_models': ALLOWED_PROCUREMENT_MODELS,
+        'updated_at': settings.get('updated_at', ''),
+        'switch_status': _get_ai_switch_status(),
+    })
+
+
+@system_bp.route('/ai-settings', methods=['PUT'])
+@token_required
+def update_ai_settings_api(current_user):
+    data = request.json or {}
+    action = str(data.get('action') or 'switch_model').strip()
+    model = str(data.get('procurement_model') or '').strip()
+    if model not in ALLOWED_PROCUREMENT_MODELS:
+        return jsonify({'error': '不支持的采购 AI 模型'}), 400
+    current = load_ai_settings()
+    old_model = current.get('procurement_model') or ''
+    current_status = _get_ai_switch_status()
+    if current_status.get('status') == 'running':
+        return jsonify({'error': '模型正在切换中，请稍后再试'}), 409
+
+    task_id = str(uuid.uuid4())
+    if action == 'disable':
+        _set_ai_switch_status(
+            id=task_id,
+            status='running',
+            phase='stopping_old',
+            message='本地 AI 功能停用任务已开始',
+            from_model=old_model,
+            to_model='',
+            started_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            finished_at='',
+            error='',
+        )
+        Thread(target=_run_ai_disable, args=(task_id, old_model), daemon=True).start()
+        return jsonify({
+            'enabled': current.get('enabled', True),
+            'procurement_model': old_model,
+            'available_procurement_models': ALLOWED_PROCUREMENT_MODELS,
+            'updated_at': current.get('updated_at', ''),
+            'switch_status': _get_ai_switch_status(),
+        })
+
+    if action == 'enable':
+        _set_ai_switch_status(
+            id=task_id,
+            status='running',
+            phase='starting_new',
+            message='本地 AI 功能启用任务已开始',
+            from_model=old_model,
+            to_model=old_model,
+            started_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            finished_at='',
+            error='',
+        )
+        Thread(target=_run_ai_enable, args=(task_id, old_model), daemon=True).start()
+        return jsonify({
+            'enabled': current.get('enabled', True),
+            'procurement_model': old_model,
+            'available_procurement_models': ALLOWED_PROCUREMENT_MODELS,
+            'updated_at': current.get('updated_at', ''),
+            'switch_status': _get_ai_switch_status(),
+        })
+
+    if action != 'switch_model':
+        return jsonify({'error': '不支持的 AI 操作'}), 400
+
+    _set_ai_switch_status(
+        id=task_id,
+        status='running',
+        phase='queued',
+        message='模型切换任务已开始',
+        from_model=old_model,
+        to_model=model,
+        started_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        finished_at='',
+        error='',
+    )
+    Thread(target=_run_ai_model_switch, args=(task_id, old_model, model), daemon=True).start()
+    return jsonify({
+        'enabled': current.get('enabled', True),
+        'procurement_model': old_model,
+        'available_procurement_models': ALLOWED_PROCUREMENT_MODELS,
+        'updated_at': current.get('updated_at', ''),
+        'switch_status': _get_ai_switch_status(),
+    })
+
+
+@system_bp.route('/ai-settings/switch-status', methods=['GET'])
+@token_required
+def get_ai_switch_status_api(current_user):
+    settings = load_ai_settings()
+    return jsonify({
+        'enabled': settings.get('enabled', True),
+        'procurement_model': settings.get('procurement_model'),
+        'available_procurement_models': ALLOWED_PROCUREMENT_MODELS,
+        'updated_at': settings.get('updated_at', ''),
+        'switch_status': _get_ai_switch_status(),
+    })
 
 def _resolve_upload_url_to_path(file_url):
     raw = str(file_url or '').strip()

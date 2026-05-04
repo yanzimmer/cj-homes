@@ -126,6 +126,30 @@ html.dark .card-box {
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
 }
 
+.public-theme-toggle {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 20;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  color: var(--text-main);
+  box-shadow: var(--card-shadow);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.public-theme-toggle:hover {
+  color: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+}
+
 /* Animations */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }

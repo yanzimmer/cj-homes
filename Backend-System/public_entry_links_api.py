@@ -1,4 +1,3 @@
-# 该文件负责提供维修、采购、库存三类业务的公开填写链接、公开图片上传与无登录提交接口。
 import json
 import os
 import secrets
@@ -11,7 +10,14 @@ from auth_api import token_required
 from common import BASE_DIR, connect
 from inventory_sync_service import dump_inventory_usages, list_warehouse_stock_options, validate_inventory_usages
 from procurement_api import _dump_procurement_images, _to_float, ensure_procurement_schema
-from repair_records_api import _dump_repair_images, ensure_repair_records_schema
+from repair_records_api import (
+    _dump_repair_images,
+    _get_primary_room_no,
+    _normalize_repair_scope_type,
+    _normalize_room_nos_text,
+    _resolve_repair_building,
+    ensure_repair_records_schema,
+)
 from warehouse_api import _dump_warehouse_images, ensure_warehouse_schema
 
 
@@ -61,6 +67,52 @@ def _business_exists(business_type):
 
 def _now_text():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _format_report_by_option(building, room_no, name):
+    building_text = str(building or "").strip()
+    room_text = str(room_no or "").strip()
+    name_text = str(name or "").strip()
+    if not name_text:
+        return ""
+    room_part = room_text
+    if building_text and room_text:
+        normalized_room = room_text.replace("栋", "").replace("_", "-")
+        prefixes = [f"{building_text}-", f"{building_text}栋-", building_text]
+        for prefix in prefixes:
+            if normalized_room.startswith(prefix):
+                room_part = normalized_room[len(prefix):].lstrip("-")
+                break
+    if building_text and room_part:
+        return f"{building_text}-{room_part}-{name_text}"
+    if room_text:
+        return f"{room_text}-{name_text}"
+    return name_text
+
+
+def _list_public_tenant_names():
+    conn = connect()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT DISTINCT r.building, r.room_no, t.name
+            FROM tenants t
+            LEFT JOIN rooms r ON t.room_id = r.id
+            WHERE name IS NOT NULL AND TRIM(name) <> ''
+            ORDER BY r.room_no, t.name COLLATE NOCASE
+            """
+        )
+        options = []
+        seen = set()
+        for row in cur.fetchall():
+            label = _format_report_by_option(row[0], row[1], row[2])
+            if label and label not in seen:
+                seen.add(label)
+                options.append(label)
+        return options
+    finally:
+        conn.close()
 
 
 def _get_link_with_count(business_type):
@@ -152,22 +204,16 @@ def _create_repair_from_public(data):
     ensure_repair_records_schema()
     conn = connect()
     cur = conn.cursor()
-    building = str(data.get("building") or "").strip()
-    room_no = str(data.get("room_no") or "").strip()
-    if not building or not room_no:
+    scope_type = _normalize_repair_scope_type(data.get("scope_type"))
+    room_nos_text = _normalize_room_nos_text(data.get("room_nos"), data.get("room_no"))
+    room_no = _get_primary_room_no(scope_type, data.get("room_no"), room_nos_text)
+    building = _resolve_repair_building(cur, room_no, data.get("building"))
+    if scope_type == "单个房间" and not room_no:
         conn.close()
-        raise ValueError("请填写楼栋和房间号")
-    cur.execute(
-        "SELECT building, room_no FROM rooms WHERE building = ? AND room_no = ? LIMIT 1",
-        (building, room_no),
-    )
-    room = cur.fetchone()
-    if not room:
-        cur.execute("SELECT building, room_no FROM rooms WHERE room_no = ? LIMIT 1", (room_no,))
-        room = cur.fetchone()
-    if not room:
+        raise ValueError("单个房间维修必须填写房间号")
+    if scope_type == "多个房间" and not room_nos_text:
         conn.close()
-        raise ValueError("房间不存在")
+        raise ValueError("多个房间维修必须填写房间号")
 
     repair_type = str(data.get("repair_type") or "").strip()
     description = str(data.get("description") or "").strip()
@@ -192,14 +238,17 @@ def _create_repair_from_public(data):
     cur.execute(
         """
         INSERT INTO repair_records (
-            building, room_no, repair_type, description, report_date, report_by, status,
+            building, room_no, scope_type, room_nos, location_text, repair_type, description, report_date, report_by, status,
             repair_date, repair_cost, amount, repair_person, payment_person, remarks, inventory_usages,
             repair_image_before, repair_image_after, repair_image, payment_images
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', '[]', ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            room[0],
-            room[1],
+            building,
+            room_no,
+            scope_type,
+            room_nos_text,
+            "",
             repair_type,
             description,
             report_date,
@@ -212,6 +261,9 @@ def _create_repair_from_public(data):
             payment_person,
             str(data.get("remarks") or "").strip(),
             dump_inventory_usages(inventory_usages),
+            "[]",
+            "[]",
+            "[]",
             _dump_repair_images(payment_images),
         ),
     )
@@ -472,6 +524,7 @@ def api_get_public_entry_form(business_type, token):
     if business_type == "repair":
         payload["inventory_options"] = list_warehouse_stock_options()
         payload["room_options"] = _list_public_room_options()
+        payload["tenant_names"] = _list_public_tenant_names()
     return jsonify(payload)
 
 

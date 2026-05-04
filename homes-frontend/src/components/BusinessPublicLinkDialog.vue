@@ -75,7 +75,8 @@ const emit = defineEmits(['update:modelValue'])
 const link = ref(null)
 const creating = ref(false)
 
-const buildUrl = (token) => `${window.location.origin}/entry/${props.businessType}/${token}`
+const PUBLIC_APP_ORIGIN = (import.meta.env.VITE_PUBLIC_APP_ORIGIN || window.location.origin).replace(/\/$/, '')
+const buildUrl = (token) => `${PUBLIC_APP_ORIGIN}/entry/${props.businessType}/${token}`
 
 const withQr = async (item) => {
   if (!item?.token) return null
@@ -198,8 +199,9 @@ watch(
 
 .link-card {
   padding: 12px;
-  border: 1px solid var(--surface-border, #dbe4f0);
-  border-radius: 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  background: var(--surface-muted);
 }
 
 .link-meta {
@@ -218,8 +220,9 @@ watch(
   width: 132px;
   height: 132px;
   display: block;
-  border-radius: 10px;
-  border: 1px solid var(--surface-border, #dbe4f0);
+  border-radius: 8px;
+  border: 1px solid var(--surface-border);
+  background: #ffffff;
 }
 
 .link-url {
@@ -227,6 +230,7 @@ watch(
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   word-break: break-all;
+  color: var(--text-regular);
 }
 
 .link-actions {

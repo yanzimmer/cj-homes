@@ -1,4 +1,3 @@
-# 该文件负责初始化通知配置文件并在需要时迁移旧配置。
 import os
 import json
 import argparse

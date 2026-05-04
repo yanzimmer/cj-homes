@@ -1,4 +1,3 @@
-# 该文件负责执行数据库与配置数据的迁移、导入导出及兼容处理。
 import json
 import sqlite3
 import argparse

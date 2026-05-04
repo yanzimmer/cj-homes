@@ -1,4 +1,3 @@
-# 该文件负责处理管理员登录、令牌校验与密码修改等认证相关接口。
 import hashlib
 from datetime import datetime, timedelta
 from functools import wraps

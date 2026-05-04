@@ -132,6 +132,63 @@
       <div class="system-grid-item">
         <div class="card-box h-100 system-card">
           <div class="card-header">
+            <el-icon class="icon"><Cpu /></el-icon>
+            <h3>本地 AI 模型配置</h3>
+          </div>
+          <div class="card-content">
+            <div class="description">
+              设置采购管理页和维修记录页 “AI 输入” 使用的本地 Ollama 模型。4b 更稳，2b 更均衡，0.8b 更快更省内存。
+            </div>
+
+            <el-form label-position="top" class="ocr-settings-form">
+              <el-form-item label="本地 AI 功能">
+                <el-switch
+                  v-model="aiSettings.enabled"
+                  :disabled="isAiSwitching"
+                  active-text="启用"
+                  inactive-text="停用"
+                  @change="toggleAiEnabled"
+                />
+              </el-form-item>
+              <el-form-item label="采购 AI 模型">
+                <el-select v-model="aiSettings.procurement_model" style="width: 100%" :disabled="isAiSwitching || !aiSettings.enabled">
+                  <el-option
+                    v-for="model in aiSettings.available_procurement_models"
+                    :key="model"
+                    :label="model"
+                    :value="model"
+                  />
+                </el-select>
+              </el-form-item>
+              <div class="feature-hint">
+                当前支持 qwen3.5:4b、qwen3.5:2b 和 qwen3.5:0.8b。停用时会停止当前模型，启用/切换时会启动所选模型。
+              </div>
+              <div class="ocr-status-row">
+                <el-tag :type="aiSwitchStatusTagType">
+                  {{ aiSwitchStatusLabel }}
+                </el-tag>
+                <span class="ocr-status-text">
+                  {{ aiSettings.enabled ? (aiSwitchStatus.message || '本地 AI 功能已启用') : (aiSwitchStatus.message || '本地 AI 功能已停用') }}
+                </span>
+              </div>
+              <div v-if="aiSwitchStatus.status === 'running'" class="upload-progress-wrap">
+                <el-progress :percentage="aiSwitchProgress" :indeterminate="true" :stroke-width="8" />
+              </div>
+              <div v-if="aiSwitchStatus.error" class="feature-hint warning-text">{{ aiSwitchStatus.error }}</div>
+
+              <div class="action-area">
+                <el-button type="primary" :loading="savingAiSettings || isAiSwitching" @click="saveAiSettings">
+                  切换 AI 模型
+                </el-button>
+              </div>
+            </el-form>
+          </div>
+        </div>
+      </div>
+
+      <div class="system-grid-item">
+        <div class="card-box h-100 system-card">
+          <div class="card-header">
             <el-icon class="icon"><Key /></el-icon>
             <h3>阿里云 OCR 配置</h3>
           </div>
@@ -220,8 +277,8 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
-import { Download, Upload, UploadFilled, Document, Refresh, Delete, MagicStick, Setting, Key } from '@element-plus/icons-vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { Download, Upload, UploadFilled, Document, Refresh, Delete, MagicStick, Setting, Key, Cpu } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { systemApi } from '../api'
 import { uploadFileByChunks } from '../utils/chunkUploader'
@@ -236,6 +293,8 @@ const roomFeatureOptions = ref([])
 const newRoomFeature = ref('')
 const savingRoomFeatures = ref(false)
 const savingOcrSettings = ref(false)
+const savingAiSettings = ref(false)
+let aiSwitchPollTimer = null
 const ocrSettings = ref({
   access_key_id: '',
   access_key_secret: '',
@@ -246,6 +305,108 @@ const ocrSettings = ref({
   enabled: false,
   reason: '',
 })
+const aiSettings = ref({
+  enabled: true,
+  procurement_model: 'qwen3.5:4b',
+  available_procurement_models: ['qwen3.5:4b', 'qwen3.5:2b', 'qwen3.5:0.8b'],
+  updated_at: '',
+})
+const aiSwitchStatus = ref({
+  status: 'idle',
+  phase: '',
+  message: '未执行切换',
+  from_model: '',
+  to_model: '',
+  started_at: '',
+  finished_at: '',
+  error: '',
+})
+const isAiSwitching = computed(() => aiSwitchStatus.value.status === 'running')
+const aiSwitchProgress = computed(() => {
+  if (aiSwitchStatus.value.phase === 'stopping_old') return 35
+  if (aiSwitchStatus.value.phase === 'starting_new') return 75
+  if (aiSwitchStatus.value.phase === 'completed') return 100
+  return isAiSwitching.value ? 20 : 0
+})
+const aiSwitchStatusLabel = computed(() => {
+  const status = aiSwitchStatus.value.status
+  if (status === 'running') return '切换中'
+  if (status === 'completed') return '已完成'
+  if (status === 'failed') return '失败'
+  return '空闲'
+})
+const aiSwitchStatusTagType = computed(() => {
+  const status = aiSwitchStatus.value.status
+  if (status === 'running') return 'warning'
+  if (status === 'completed') return 'success'
+  if (status === 'failed') return 'danger'
+  return 'info'
+})
+const getAiActionSuccessMessage = () => {
+  const phase = aiSwitchStatus.value.phase
+  if (phase === 'disabled') return 'AI 功能已停用'
+  if (phase === 'enabled') return 'AI 功能已启用'
+  return 'AI 模型切换完成'
+}
+const getAiActionFailureMessage = () => {
+  const phase = aiSwitchStatus.value.phase
+  if (phase === 'disabled') return 'AI 功能停用失败'
+  if (phase === 'enabled') return 'AI 功能启用失败'
+  return 'AI 模型切换失败'
+}
+
+const applyAiSettingsResponse = (data = {}) => {
+  aiSettings.value = {
+    enabled: data?.enabled !== false,
+    procurement_model: data?.procurement_model || 'qwen3.5:4b',
+    available_procurement_models: data?.available_procurement_models || ['qwen3.5:4b', 'qwen3.5:2b', 'qwen3.5:0.8b'],
+    updated_at: data?.updated_at || '',
+  }
+  if (data?.switch_status) {
+    aiSwitchStatus.value = {
+      status: data.switch_status.status || 'idle',
+      phase: data.switch_status.phase || '',
+      message: data.switch_status.message || '',
+      from_model: data.switch_status.from_model || '',
+      to_model: data.switch_status.to_model || '',
+      started_at: data.switch_status.started_at || '',
+      finished_at: data.switch_status.finished_at || '',
+      error: data.switch_status.error || '',
+    }
+  }
+}
+
+const stopAiSwitchPolling = () => {
+  if (aiSwitchPollTimer) {
+    clearInterval(aiSwitchPollTimer)
+    aiSwitchPollTimer = null
+  }
+}
+
+const pollAiSwitchStatus = async () => {
+  try {
+    const response = await systemApi.getAiSwitchStatus()
+    applyAiSettingsResponse(response?.data || {})
+    if (aiSwitchStatus.value.status === 'completed') {
+      stopAiSwitchPolling()
+      savingAiSettings.value = false
+      ElMessage.success(getAiActionSuccessMessage())
+    } else if (aiSwitchStatus.value.status === 'failed') {
+      stopAiSwitchPolling()
+      savingAiSettings.value = false
+      ElMessage.error(aiSwitchStatus.value.error || getAiActionFailureMessage())
+    }
+  } catch (error) {
+    stopAiSwitchPolling()
+    savingAiSettings.value = false
+    ElMessage.error(error?.response?.data?.error || '获取 AI 模型切换状态失败')
+  }
+}
+
+const startAiSwitchPolling = () => {
+  stopAiSwitchPolling()
+  aiSwitchPollTimer = setInterval(pollAiSwitchStatus, 1500)
+}
 
 const fetchRoomFeatureOptions = async () => {
   try {
@@ -299,6 +460,48 @@ const saveOcrSettings = async () => {
   } finally {
     savingOcrSettings.value = false
   }
+}
+
+const fetchAiSettings = async () => {
+  try {
+    const response = await systemApi.getAiSettings()
+    applyAiSettingsResponse(response?.data || {})
+    if (aiSwitchStatus.value.status === 'running') {
+      savingAiSettings.value = true
+      startAiSwitchPolling()
+    }
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '加载 AI 模型配置失败')
+  }
+}
+
+const runAiAction = async (action, successMessage) => {
+  savingAiSettings.value = true
+  try {
+    const response = await systemApi.updateAiSettings({
+      action,
+      procurement_model: aiSettings.value.procurement_model,
+    })
+    applyAiSettingsResponse(response?.data || {})
+    ElMessage.success(successMessage)
+    startAiSwitchPolling()
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || 'AI 操作失败')
+    await fetchAiSettings()
+    savingAiSettings.value = false
+  }
+}
+
+const toggleAiEnabled = async (value) => {
+  await runAiAction(value ? 'enable' : 'disable', value ? 'AI 功能启用已开始' : 'AI 功能停用已开始')
+}
+
+const saveAiSettings = async () => {
+  if (!aiSettings.value.enabled) {
+    ElMessage.warning('请先启用本地 AI 功能，再切换模型')
+    return
+  }
+  await runAiAction('switch_model', 'AI 模型切换已开始')
 }
 
 const addRoomFeature = () => {
@@ -499,6 +702,11 @@ const handleSeed = () => {
 onMounted(() => {
   fetchRoomFeatureOptions()
   fetchOcrSettings()
+  fetchAiSettings()
+})
+
+onBeforeUnmount(() => {
+  stopAiSwitchPolling()
 })
 </script>
 

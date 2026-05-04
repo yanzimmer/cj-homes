@@ -1,4 +1,3 @@
-# 该文件负责封装阿里云身份证 OCR 调用与结果字段解析。
 import io
 import json
 import re

@@ -26,7 +26,7 @@
           </el-radio-button>
         </el-radio-group>
 
-        <el-button class="toolbar-btn" type="primary" @click="openAddDialog">新增合同</el-button>
+        <el-button class="toolbar-btn" type="primary" @click="openAddDialog">新增</el-button>
         <el-button
           class="toolbar-btn"
           type="danger"
@@ -45,24 +45,41 @@
       style="width: 100%"
       :max-height="tableMaxHeight"
       @selection-change="handleSelectionChange"
+      @sort-change="handleSortChange"
       row-key="id"
       :reserve-selection="true"
       ref="templatesTableRef"
     >
-      <el-table-column type="selection" width="55" />
-      <el-table-column prop="id" label="合同ID" min-width="80" sortable show-overflow-tooltip />
-      <el-table-column prop="name" label="合同名称" min-width="180" sortable show-overflow-tooltip />
-      <el-table-column prop="description" label="合同说明" min-width="240" sortable show-overflow-tooltip />
-      <el-table-column prop="updated_at" label="更新时间" min-width="160" sortable show-overflow-tooltip />
-      <el-table-column label="操作" min-width="560" fixed="right">
+      <el-table-column type="selection" width="42" />
+      <el-table-column prop="__sequence" label="序号" width="66" align="center" sortable="custom" show-overflow-tooltip>
+        <template #default="{ $index }">
+          {{ contractTemplateRowStart + $index + 1 }}
+        </template>
+      </el-table-column>
+      <el-table-column prop="name" label="合同名称" min-width="140" sortable="custom" show-overflow-tooltip />
+      <el-table-column prop="description" label="合同说明" min-width="180" sortable="custom" show-overflow-tooltip />
+      <el-table-column prop="updated_at" label="更新时间" width="150" sortable="custom" show-overflow-tooltip />
+      <el-table-column label="操作" width="170" fixed="right">
         <template #default="scope">
-          <el-button size="small" @click="openEditDialog(scope.row.id)">编辑</el-button>
-          <el-button size="small" type="success" @click="openPreview(scope.row.id)">预览</el-button>
-          <el-button size="small" type="warning" @click="openPrintPage(scope.row.id)">打印</el-button>
-          <el-button size="small" type="warning" @click="exportPdfById(scope.row.id)">导出PDF</el-button>
-          <el-button size="small" @click="exportHTMLById(scope.row.id)">导出HTML</el-button>
-          <el-button size="small" @click="exportDocById(scope.row.id)">导出Word(.doc)</el-button>
-          <el-button size="small" type="danger" @click="handleDelete(scope.row.id)">删除</el-button>
+          <div class="table-actions-row">
+            <el-button size="small" @click="openEditDialog(scope.row.id)">编辑</el-button>
+            <el-dropdown trigger="click">
+              <el-button size="small">
+                更多
+                <el-icon style="margin-left: 4px"><MoreFilled /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item @click="openPreview(scope.row.id)">预览</el-dropdown-item>
+                  <el-dropdown-item @click="openPrintPage(scope.row.id)">打印</el-dropdown-item>
+                  <el-dropdown-item @click="exportPdfById(scope.row.id)">导出PDF</el-dropdown-item>
+                  <el-dropdown-item @click="exportHTMLById(scope.row.id)">导出HTML</el-dropdown-item>
+                  <el-dropdown-item @click="exportDocById(scope.row.id)">导出Word(.doc)</el-dropdown-item>
+                  <el-dropdown-item @click="handleDelete(scope.row.id)">删除</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -262,8 +279,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { contractTemplatesApi, tenantsApi, roomsApi, contractsApi, notifyApi } from '../api/index'
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
-import { List, Grid, Timer, Document, Printer, Edit, Delete, Search, View } from '@element-plus/icons-vue'
-import { consumeAiDraft } from '../utils/aiDrafts'
+import { List, Grid, Timer, Document, Printer, Edit, Delete, Search, View, MoreFilled } from '@element-plus/icons-vue'
 
 const currentView = ref('table') // 'table', 'grid', 'timeline'
 const templates = ref([])
@@ -413,7 +429,10 @@ const fetchTemplates = async () => {
   loading.value = true
   try {
     const { data } = await contractTemplatesApi.listTemplates()
-    templates.value = data.templates || []
+    templates.value = (data.templates || []).map((item, index) => ({
+      ...item,
+      __sequence: index + 1
+    }))
   } catch (e) {
     ElMessage.error('加载合同列表失败')
     console.error(e)
@@ -462,11 +481,34 @@ const groupedTemplatesByDate = computed(() => {
 // 分页
 const currentPage = ref(1)
 const pageSize = ref(20)
+const contractTemplateRowStart = computed(() => (currentPage.value - 1) * pageSize.value)
+const sortBy = ref('')
+const sortOrder = ref('')
 const pagedTemplates = computed(() => {
+  let list = [...(filteredTemplates.value || [])]
+  if (sortBy.value) {
+    list.sort((a, b) => {
+      let aValue = a[sortBy.value]
+      let bValue = b[sortBy.value]
+      if (aValue === undefined || aValue === null) aValue = ''
+      if (bValue === undefined || bValue === null) bValue = ''
+      if (sortBy.value === '__sequence' || (!isNaN(aValue) && !isNaN(bValue))) {
+        return sortOrder.value === 'ascending' ? Number(aValue) - Number(bValue) : Number(bValue) - Number(aValue)
+      }
+      return sortOrder.value === 'ascending'
+        ? String(aValue).localeCompare(String(bValue))
+        : String(bValue).localeCompare(String(aValue))
+    })
+  }
   const start = (currentPage.value - 1) * pageSize.value
   const end = currentPage.value * pageSize.value
-  return (filteredTemplates.value || []).slice(start, end)
+  return list.slice(start, end)
 })
+
+const handleSortChange = ({ prop, order }) => {
+  sortBy.value = prop || ''
+  sortOrder.value = order || ''
+}
 
 const handleSizeChange = (size) => {
   pageSize.value = size
@@ -570,22 +612,6 @@ const openAddDialog = () => {
   // 预加载租户列表，便于在合同名称中联想选择租户姓名
   loadTenantOptions()
   dialogVisible.value = true
-}
-
-const applyContractTemplateDraft = () => {
-  const draft = consumeAiDraft('contract_template')
-  if (!draft) return
-  openAddDialog()
-  tplForm.value = {
-    name: String(draft.name || ''),
-    description: String(draft.description || ''),
-    content_html: String(draft.content_html || defaultSample()),
-    default_landlord: String(draft.default_landlord || tplForm.value.default_landlord || ''),
-  }
-  if (tplForm.value.default_landlord) {
-    vars.value.landlord = tplForm.value.default_landlord
-  }
-  ElMessage.success('AI 草稿已带入合同模板表单')
 }
 
 const openEditDialog = async (id) => {
@@ -985,7 +1011,6 @@ onMounted(async () => {
   window.addEventListener('resize', handleResize)
   await fetchTemplates()
   await loadDefaultLandlord()
-  applyContractTemplateDraft()
 })
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
@@ -1047,11 +1072,41 @@ onUnmounted(() => {
 :deep(.templates-table .el-table__header-wrapper th.el-table__cell) {
   font-weight: 700;
   color: var(--text-main);
-  height: 48px;
+  height: 42px;
+  padding: 6px 4px;
 }
 
 :deep(.templates-table .el-table__body-wrapper td.el-table__cell) {
-  padding: 12px 0;
+  padding: 8px 2px;
+  font-size: 13px;
+}
+
+:deep(.templates-table .el-button--small) {
+  padding: 6px 10px;
+}
+
+.table-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  justify-content: center;
+}
+
+.table-actions-row > * {
+  flex: 0 0 78px;
+}
+
+.table-actions-row :deep(.el-button) {
+  width: 100%;
+  min-width: 0;
+  justify-content: center;
+}
+
+.table-actions-row :deep(.el-dropdown) {
+  display: inline-flex;
+  width: 100%;
 }
 
 :deep(.templates-table .el-table__fixed-right::before),
