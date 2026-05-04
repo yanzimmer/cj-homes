@@ -1,6 +1,6 @@
 import logging
 import os
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flasgger import Swagger
 
@@ -21,6 +21,7 @@ from public_entry_links_api import public_entry_bp, ensure_public_entry_schema
 from warehouse_api import warehouse_bp, ensure_warehouse_schema
 from upload_api import upload_bp
 import forgot_password as fp
+from audit_logs import ensure_audit_logs_schema, record_audit_log, should_audit_request
 
 
 app = Flask(__name__)
@@ -65,6 +66,14 @@ swagger = Swagger(app)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 app.logger.setLevel(logging.INFO)
+ensure_audit_logs_schema()
+
+
+@app.after_request
+def write_audit_log(response):
+    if should_audit_request(request.method, request.path):
+        record_audit_log(response=response)
+    return response
 
 
 # 鍒濆鍖栨壘鍥炲瘑鐮佹ā鍧楋紙濡傚瓨鍦ㄥ垯杩涜鍒濆鍖栵級

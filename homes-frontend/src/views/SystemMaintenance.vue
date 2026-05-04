@@ -254,6 +254,58 @@
 
     <div class="system-danger-section">
       <div class="system-grid-item">
+        <div class="card-box h-100 system-card">
+          <div class="card-header">
+            <el-icon class="icon"><Document /></el-icon>
+            <h3>系统操作日志</h3>
+          </div>
+          <div class="card-content">
+            <div class="log-toolbar">
+              <el-input
+                v-model="logQuery.keyword"
+                placeholder="搜索用户、路径、操作或内容"
+                clearable
+                @keyup.enter="fetchSystemLogs"
+              />
+              <el-select v-model="logQuery.module" placeholder="模块" clearable>
+                <el-option label="系统" value="system" />
+                <el-option label="登录" value="login" />
+                <el-option label="房间" value="rooms" />
+                <el-option label="租户" value="tenants" />
+                <el-option label="维修" value="repair-records" />
+                <el-option label="采购" value="procurements" />
+                <el-option label="库存" value="warehouse" />
+                <el-option label="公开链接" value="public-entry" />
+              </el-select>
+              <el-button type="primary" :loading="logsLoading" @click="fetchSystemLogs">查询</el-button>
+            </div>
+
+            <el-table :data="systemLogs" v-loading="logsLoading" border class="logs-table" empty-text="暂无操作日志">
+              <el-table-column prop="created_at" label="时间" width="160" />
+              <el-table-column prop="username" label="用户" width="100">
+                <template #default="{ row }">{{ row.username || '公开/系统' }}</template>
+              </el-table-column>
+              <el-table-column prop="action" label="操作" width="110" />
+              <el-table-column prop="module" label="模块" width="130" />
+              <el-table-column prop="method" label="方法" width="78" />
+              <el-table-column prop="status_code" label="状态" width="78" />
+              <el-table-column prop="path" label="路径" min-width="220" show-overflow-tooltip />
+              <el-table-column prop="ip_address" label="IP" width="130" />
+            </el-table>
+
+            <el-pagination
+              class="logs-pagination"
+              layout="total, prev, pager, next"
+              :total="logPagination.total"
+              :page-size="logPagination.page_size"
+              :current-page="logPagination.page"
+              @current-change="handleLogPageChange"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div class="system-grid-item">
         <div class="card-box danger-zone system-card danger-card">
           <div class="card-header">
             <el-icon class="icon danger"><Delete /></el-icon>
@@ -305,6 +357,17 @@ const newRoomFeature = ref('')
 const savingRoomFeatures = ref(false)
 const savingOcrSettings = ref(false)
 const savingAiSettings = ref(false)
+const logsLoading = ref(false)
+const systemLogs = ref([])
+const logQuery = ref({
+  keyword: '',
+  module: '',
+})
+const logPagination = ref({
+  page: 1,
+  page_size: 20,
+  total: 0,
+})
 let aiSwitchPollTimer = null
 const ocrSettings = ref({
   access_key_id: '',
@@ -557,6 +620,32 @@ const saveRoomFeatures = async () => {
   }
 }
 
+const fetchSystemLogs = async () => {
+  logsLoading.value = true
+  try {
+    const response = await systemApi.listLogs({
+      page: logPagination.value.page,
+      page_size: logPagination.value.page_size,
+      keyword: logQuery.value.keyword,
+      module: logQuery.value.module,
+    })
+    systemLogs.value = response?.data?.logs || []
+    logPagination.value = {
+      ...logPagination.value,
+      ...(response?.data?.pagination || {}),
+    }
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '加载系统日志失败')
+  } finally {
+    logsLoading.value = false
+  }
+}
+
+const handleLogPageChange = (page) => {
+  logPagination.value.page = page
+  fetchSystemLogs()
+}
+
 const handleExport = async () => {
   try {
     exporting.value = true
@@ -728,6 +817,7 @@ onMounted(() => {
   fetchRoomFeatureOptions()
   fetchOcrSettings()
   fetchAiSettings()
+  fetchSystemLogs()
 })
 
 onBeforeUnmount(() => {
@@ -883,6 +973,22 @@ onBeforeUnmount(() => {
   margin-top: 14px;
 }
 
+.log-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 160px auto;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.logs-table {
+  width: 100%;
+}
+
+.logs-pagination {
+  margin-top: 12px;
+  justify-content: flex-end;
+}
+
 :deep(.el-upload-dragger) {
   background-color: var(--bg-color);
   border-color: var(--el-border-color);
@@ -926,6 +1032,10 @@ onBeforeUnmount(() => {
 
 @media (max-width: 768px) {
   .system-top-grid .card-content {
+    grid-template-columns: 1fr;
+  }
+
+  .log-toolbar {
     grid-template-columns: 1fr;
   }
 
