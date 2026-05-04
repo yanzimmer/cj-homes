@@ -171,6 +171,9 @@
               <div class="feature-hint">
                 当前支持 qwen3.5:4b、qwen3.5:2b 和 qwen3.5:0.8b。Ollama 和后端同机时使用 http://127.0.0.1:11434；远程部署时填写 http://另一台机器IP:11434。
               </div>
+              <div v-if="!isLocalOllamaEndpoint" class="feature-hint warning-text">
+                当前是远程 Ollama 地址，本系统无法关闭远程机器上的模型，只能切换当前调用的模型和地址。
+              </div>
               <div class="ocr-status-row">
                 <el-tag :type="aiSwitchStatusTagType">
                   {{ aiSwitchStatusLabel }}
@@ -331,6 +334,17 @@ const aiSwitchStatus = ref({
   error: '',
 })
 const isAiSwitching = computed(() => aiSwitchStatus.value.status === 'running')
+const isLocalOllamaEndpoint = computed(() => {
+  const raw = String(aiSettings.value.ollama_base_url || '').trim().toLowerCase()
+  if (!raw) return true
+  try {
+    const value = raw.includes('://') ? raw : `http://${raw}`
+    const host = new URL(value).hostname.toLowerCase()
+    return ['', 'localhost', '127.0.0.1', '::1'].includes(host)
+  } catch (_) {
+    return false
+  }
+})
 const aiSwitchProgress = computed(() => {
   if (aiSwitchStatus.value.phase === 'stopping_old') return 35
   if (aiSwitchStatus.value.phase === 'starting_new') return 75

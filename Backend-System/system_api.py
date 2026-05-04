@@ -4,11 +4,13 @@ import sqlite3
 import zipfile
 import io
 import shutil
+import socket
 import subprocess
 import time
 import urllib.error
 import urllib.request
 import uuid
+from urllib.parse import urlparse
 from threading import Lock, Thread
 from datetime import datetime
 from flask import Blueprint, request, jsonify, send_file, current_app
@@ -63,6 +65,25 @@ def _get_ai_switch_status():
         return dict(_ai_switch_status)
 
 
+def _is_local_ollama_url(value):
+    raw = str(value or '').strip()
+    if not raw:
+        return True
+    parsed = urlparse(raw if '://' in raw else f'http://{raw}')
+    host = (parsed.hostname or '').strip().lower()
+    if host in ('', 'localhost', '127.0.0.1', '::1'):
+        return True
+    try:
+        local_hosts = {socket.gethostname().lower()}
+        local_hosts.add(socket.getfqdn().lower())
+        local_ips = {'127.0.0.1', '::1'}
+        for info in socket.getaddrinfo(socket.gethostname(), None):
+            local_ips.add(info[4][0])
+        return host in local_hosts or host in local_ips
+    except Exception:
+        return False
+
+
 def _ollama_generate(payload, timeout=AI_SWITCH_TIMEOUT_SECONDS):
     settings = load_ai_settings()
     ollama_base_url = settings.get('ollama_base_url') or OLLAMA_BASE_URL
@@ -104,12 +125,20 @@ def _warm_ollama_model(model):
 
 
 def _run_ai_model_switch(task_id, old_model, new_model):
+    settings = load_ai_settings()
+    is_local_ollama = _is_local_ollama_url(settings.get('ollama_base_url'))
     started_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     _set_ai_switch_status(
         id=task_id,
         status='running',
         phase='stopping_old',
-        message=f'正在停止旧模型 {old_model}' if old_model and old_model != new_model else '无需停止旧模型',
+        message=(
+            f'正在停止旧模型 {old_model}'
+            if is_local_ollama and old_model and old_model != new_model
+            else '远程 Ollama 无法关闭旧模型，只切换调用模型'
+            if not is_local_ollama and old_model and old_model != new_model
+            else '无需停止旧模型'
+        ),
         from_model=old_model,
         to_model=new_model,
         started_at=started_at,
@@ -117,13 +146,13 @@ def _run_ai_model_switch(task_id, old_model, new_model):
         error='',
     )
     try:
-        if old_model and old_model != new_model:
+        if is_local_ollama and old_model and old_model != new_model:
             _stop_ollama_model(old_model)
 
         _set_ai_switch_status(
             status='running',
             phase='starting_new',
-            message=f'正在启动新模型 {new_model}',
+            message=f'正在调用并加载模型 {new_model}',
         )
         _warm_ollama_model(new_model)
 
@@ -131,7 +160,11 @@ def _run_ai_model_switch(task_id, old_model, new_model):
         _set_ai_switch_status(
             status='completed',
             phase='completed',
-            message=f'已切换到 {new_model}',
+            message=(
+                f'已切换到 {new_model}'
+                if is_local_ollama
+                else f'已切换到 {new_model}；远程 Ollama 无法从本系统关闭旧模型'
+            ),
             finished_at=saved.get('updated_at') or datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             error='',
         )
@@ -146,12 +179,20 @@ def _run_ai_model_switch(task_id, old_model, new_model):
 
 
 def _run_ai_disable(task_id, current_model):
+    settings = load_ai_settings()
+    is_local_ollama = _is_local_ollama_url(settings.get('ollama_base_url'))
     started_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     _set_ai_switch_status(
         id=task_id,
         status='running',
         phase='stopping_old',
-        message=f'正在停止模型 {current_model}' if current_model else '正在停用本地 AI 功能',
+        message=(
+            f'正在停止模型 {current_model}'
+            if is_local_ollama and current_model
+            else '远程 Ollama 无法关闭模型，将只停用系统 AI 功能'
+            if not is_local_ollama
+            else '正在停用本地 AI 功能'
+        ),
         from_model=current_model,
         to_model='',
         started_at=started_at,
@@ -159,13 +200,17 @@ def _run_ai_disable(task_id, current_model):
         error='',
     )
     try:
-        if current_model:
+        if is_local_ollama and current_model:
             _stop_ollama_model(current_model)
         saved = save_ai_settings({'enabled': False})
         _set_ai_switch_status(
             status='completed',
             phase='disabled',
-            message='本地 AI 功能已停用',
+            message=(
+                '本地 AI 功能已停用'
+                if is_local_ollama
+                else 'AI 功能已停用；远程 Ollama 模型无法从本系统关闭'
+            ),
             finished_at=saved.get('updated_at') or datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             error='',
         )
