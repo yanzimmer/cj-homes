@@ -22,6 +22,7 @@ from warehouse_api import warehouse_bp, ensure_warehouse_schema
 from upload_api import upload_bp
 import forgot_password as fp
 from audit_logs import ensure_audit_logs_schema, record_audit_log, should_audit_request
+from log_config import configure_logging
 
 
 app = Flask(__name__)
@@ -65,7 +66,8 @@ app.config['SWAGGER'] = {
 swagger = Swagger(app)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-app.logger.setLevel(logging.INFO)
+log_paths = configure_logging(app)
+app.logger.info(f"后端文件日志目录: {log_paths['log_dir']}")
 ensure_audit_logs_schema()
 
 
@@ -73,6 +75,12 @@ ensure_audit_logs_schema()
 def write_audit_log(response):
     if should_audit_request(request.method, request.path):
         record_audit_log(response=response)
+        app.logger.info(
+            "操作日志: %s %s -> %s",
+            request.method,
+            request.path,
+            response.status_code,
+        )
     return response
 
 

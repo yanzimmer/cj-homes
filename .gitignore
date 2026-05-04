@@ -6,6 +6,8 @@ Backend-System/.env
 Backend-System/config/ai_settings.json
 Backend-System/config/ocr_settings.json
 Backend-System/config/room_feature_options.json
+Backend-System/logs/*
+!Backend-System/logs/.gitkeep
 Backend-System/static/uploads/*
 !Backend-System/static/uploads/room_meters/
 !Backend-System/static/uploads/room_meters/**
