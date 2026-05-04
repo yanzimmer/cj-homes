@@ -410,55 +410,6 @@ def get_ai_switch_status_api(current_user):
     })
 
 
-@system_bp.route('/logs', methods=['GET'])
-@token_required
-def list_system_logs(current_user):
-    page = max(1, int(request.args.get('page') or 1))
-    page_size = min(100, max(1, int(request.args.get('page_size') or 20)))
-    keyword = str(request.args.get('keyword') or '').strip()
-    module = str(request.args.get('module') or '').strip()
-    offset = (page - 1) * page_size
-
-    where = ["1=1"]
-    params = []
-    if keyword:
-        like = f"%{keyword}%"
-        where.append("(username LIKE ? OR action LIKE ? OR path LIKE ? OR request_summary LIKE ?)")
-        params.extend([like, like, like, like])
-    if module:
-        where.append("module = ?")
-        params.append(module)
-    where_sql = " AND ".join(where)
-
-    conn = connect()
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute(f"SELECT COUNT(*) AS total FROM audit_logs WHERE {where_sql}", params)
-    total = int((cur.fetchone() or {})["total"] or 0)
-    cur.execute(
-        f"""
-        SELECT id, created_at, username, method, path, action, module, status_code,
-               ip_address, user_agent, request_summary, error
-        FROM audit_logs
-        WHERE {where_sql}
-        ORDER BY id DESC
-        LIMIT ? OFFSET ?
-        """,
-        params + [page_size, offset],
-    )
-    logs = [dict(row) for row in cur.fetchall()]
-    conn.close()
-    return jsonify({
-        "logs": logs,
-        "pagination": {
-            "page": page,
-            "page_size": page_size,
-            "total": total,
-            "total_pages": max(1, (total + page_size - 1) // page_size),
-        },
-    })
-
-
 def _resolve_upload_url_to_path(file_url):
     raw = str(file_url or '').strip()
     if raw == '':
@@ -887,7 +838,7 @@ def reset_system(current_user):
         tables_to_clear = [
             row[0]
             for row in cursor.fetchall()
-            if row[0] not in EXCLUDED_SQLITE_TABLES and row[0] not in ("admins", "audit_logs")
+            if row[0] not in EXCLUDED_SQLITE_TABLES and row[0] != "admins"
         ]
         
         for table in tables_to_clear:

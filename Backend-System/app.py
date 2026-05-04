@@ -1,10 +1,11 @@
 import logging
 import os
+import time
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flasgger import Swagger
 
-from common import SECRET_KEY, JWT_EXPIRATION_DELTA
+from common import SECRET_KEY, JWT_EXPIRATION_DELTA, connect
 from contract_templates_api import templates_bp, ensure_contract_templates_schema
 from contracts_api import contracts_bp, ensure_contracts_schema
 from auth_api import auth_bp
@@ -21,7 +22,6 @@ from public_entry_links_api import public_entry_bp, ensure_public_entry_schema
 from warehouse_api import warehouse_bp, ensure_warehouse_schema
 from upload_api import upload_bp
 import forgot_password as fp
-from audit_logs import ensure_audit_logs_schema, record_audit_log, should_audit_request
 from log_config import configure_logging
 
 
@@ -68,20 +68,40 @@ swagger = Swagger(app)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 log_paths = configure_logging(app)
 app.logger.info(f"后端文件日志目录: {log_paths['log_dir']}")
-ensure_audit_logs_schema()
+
+
+def drop_legacy_audit_logs_table():
+    try:
+        conn = connect()
+        cur = conn.cursor()
+        cur.execute("DROP TABLE IF EXISTS audit_logs")
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f"清理旧数据库操作日志表失败: {e}")
+
+
+drop_legacy_audit_logs_table()
 
 
 @app.after_request
-def write_audit_log(response):
-    if should_audit_request(request.method, request.path):
-        record_audit_log(response=response)
-        app.logger.info(
-            "操作日志: %s %s -> %s",
-            request.method,
-            request.path,
-            response.status_code,
-        )
+def write_request_log(response):
+    started_at = getattr(request, "_started_at", None)
+    duration_ms = int((time.time() - started_at) * 1000) if started_at else 0
+    app.logger.info(
+        "接口请求: %s %s -> %s %sms ip=%s",
+        request.method,
+        request.path,
+        response.status_code,
+        duration_ms,
+        request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip(),
+    )
     return response
+
+
+@app.before_request
+def mark_request_start():
+    request._started_at = time.time()
 
 
 # 鍒濆鍖栨壘鍥炲瘑鐮佹ā鍧楋紙濡傚瓨鍦ㄥ垯杩涜鍒濆鍖栵級

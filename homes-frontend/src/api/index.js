@@ -197,7 +197,6 @@ export const systemApi = {
   getAiSettings: () => apiClient.get('/system/ai-settings'),
   updateAiSettings: (payload) => apiClient.put('/system/ai-settings', payload),
   getAiSwitchStatus: () => apiClient.get('/system/ai-settings/switch-status'),
-  listLogs: (params = {}) => apiClient.get('/system/logs', { params }),
   importData: (fileOrUrl) => {
     if (typeof fileOrUrl === 'string') {
       return apiClient.post('/system/import', { file_url: fileOrUrl }, {
