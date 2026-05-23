@@ -37,7 +37,7 @@
 
       <!-- 导入数据 -->
       <div class="system-grid-item">
-        <div class="card-box h-100 system-card">
+        <div class="card-box h-100 system-card import-card">
           <div class="card-header">
             <el-icon class="icon"><Upload /></el-icon>
             <h3>数据导入</h3>
@@ -84,6 +84,85 @@
 
               <div v-if="importing || importUploadProgress > 0" class="upload-progress-wrap">
                 <el-progress :percentage="importUploadProgress" :stroke-width="8" />
+              </div>
+            </div>
+
+            <div class="rollback-box">
+              <div class="rollback-header">
+                <div>
+                  <div>系统快照</div>
+                  <div class="rollback-subtitle">快照统一存放在专用文件夹，支持手动创建、导入前自动留档，以及按版本回滚。</div>
+                </div>
+                <el-tag :type="snapshots.length ? 'warning' : 'info'" size="small">
+                  {{ snapshots.length ? `${snapshots.length} 份快照` : '暂无快照' }}
+                </el-tag>
+              </div>
+              <div class="action-area rollback-action">
+                <el-button
+                  type="primary"
+                  plain
+                  :disabled="isSnapshotTaskRunning || importing"
+                  :loading="isCreatingSnapshot"
+                  @click="handleCreateSnapshot"
+                >
+                  <el-icon class="el-icon--left"><Document /></el-icon>
+                  立即创建快照
+                </el-button>
+                <el-button
+                  type="danger"
+                  plain
+                  :disabled="!selectedSnapshot || isSnapshotTaskRunning || importing"
+                  :loading="isRestoringSnapshot"
+                  @click="handleRollbackImport"
+                >
+                  <el-icon class="el-icon--left"><Refresh /></el-icon>
+                  一键回滚
+                </el-button>
+              </div>
+
+              <div v-if="latestSnapshot" class="rollback-meta">
+                <div>最新快照：{{ latestSnapshot.created_at || '未知时间' }}</div>
+                <div>来源：{{ snapshotTypeLabel(latestSnapshot) }} · {{ latestSnapshot.source_name || '未命名快照' }}</div>
+                <div>大小：{{ latestSnapshot.size_text || '未知' }}</div>
+              </div>
+
+              <div v-if="snapshotTaskStatus.status !== 'idle'" class="snapshot-task-box">
+                <div class="snapshot-task-head">
+                  <el-tag :type="snapshotTaskStatusTagType" size="small">{{ snapshotTaskStatusLabel }}</el-tag>
+                  <span class="snapshot-task-text">{{ snapshotTaskStatus.message || '正在处理快照任务' }}</span>
+                </div>
+                <div v-if="isSnapshotTaskRunning" class="upload-progress-wrap">
+                  <el-progress :percentage="snapshotTaskStatus.progress || 0" :stroke-width="8" />
+                </div>
+                <div v-if="snapshotTaskStatus.error" class="feature-hint warning-text">{{ snapshotTaskStatus.error }}</div>
+              </div>
+
+              <div v-if="snapshots.length" class="snapshot-list">
+                <div
+                  v-for="item in snapshots"
+                  :key="item.id"
+                  class="snapshot-row"
+                  :class="[
+                    { selected: selectedSnapshotId === item.id },
+                    `snapshot-row-${snapshotTypeClassName(item)}`
+                  ]"
+                  @click="selectedSnapshotId = item.id"
+                >
+                  <span class="snapshot-radio" :class="{ checked: selectedSnapshotId === item.id }"></span>
+                  <span class="snapshot-row-main">
+                    <span class="snapshot-row-title">
+                      <el-tag size="small" :type="snapshotTypeTagType(item)" effect="plain">{{ snapshotTypeLabel(item) }}</el-tag>
+                      <span class="snapshot-title-text">{{ item.source_name || '未命名快照' }}</span>
+                    </span>
+                    <span class="snapshot-row-subtitle">{{ item.created_at || '未知时间' }} · {{ item.size_text || '未知大小' }}</span>
+                  </span>
+                  <span class="snapshot-row-tools">
+                    <el-button link type="danger" :disabled="isSnapshotTaskRunning || importing" @click.stop="handleDeleteSnapshot(item)">删除</el-button>
+                  </span>
+                </div>
+              </div>
+              <div v-else class="feature-hint">
+                还没有可用快照。你可以先手动创建一份，后续每次导入前系统也会自动新增一份导入前快照。
               </div>
             </div>
           </div>
@@ -365,6 +444,21 @@ const resetting = ref(false)
 const seeding = ref(false)
 const selectedFile = ref(null)
 const importUploadProgress = ref(0)
+const snapshots = ref([])
+const selectedSnapshotId = ref('')
+const snapshotTaskStatus = ref({
+  id: '',
+  action: '',
+  status: 'idle',
+  phase: '',
+  message: '未执行快照任务',
+  progress: 0,
+  snapshot_id: '',
+  snapshot_name: '',
+  started_at: '',
+  finished_at: '',
+  error: '',
+})
 const roomFeatureOptions = ref([])
 const newRoomFeature = ref('')
 const savingRoomFeatures = ref(false)
@@ -380,6 +474,7 @@ const savingUtilityAccounts = ref(false)
 const savingOcrSettings = ref(false)
 const savingAiSettings = ref(false)
 let aiSwitchPollTimer = null
+let snapshotTaskPollTimer = null
 const ocrSettings = ref({
   access_key_id: '',
   access_key_secret: '',
@@ -439,6 +534,43 @@ const aiSwitchStatusTagType = computed(() => {
   if (status === 'failed') return 'danger'
   return 'info'
 })
+const latestSnapshot = computed(() => snapshots.value[0] || null)
+const selectedSnapshot = computed(() => snapshots.value.find(item => item.id === selectedSnapshotId.value) || null)
+const isSnapshotTaskRunning = computed(() => snapshotTaskStatus.value.status === 'running')
+const isCreatingSnapshot = computed(() => isSnapshotTaskRunning.value && snapshotTaskStatus.value.action === 'create')
+const isRestoringSnapshot = computed(() => isSnapshotTaskRunning.value && snapshotTaskStatus.value.action === 'restore')
+const snapshotTaskStatusLabel = computed(() => {
+  const status = snapshotTaskStatus.value.status
+  if (status === 'running') return snapshotTaskStatus.value.action === 'restore' ? '回滚中' : '创建中'
+  if (status === 'completed') return '已完成'
+  if (status === 'failed') return '失败'
+  return '空闲'
+})
+const snapshotTaskStatusTagType = computed(() => {
+  const status = snapshotTaskStatus.value.status
+  if (status === 'running') return 'warning'
+  if (status === 'completed') return 'success'
+  if (status === 'failed') return 'danger'
+  return 'info'
+})
+const snapshotTypeLabel = (snapshot) => {
+  const type = String(snapshot?.snapshot_type || '').trim()
+  if (type === 'import_auto') return '导入前自动快照'
+  if (type === 'legacy') return '旧版迁移快照'
+  return '手动快照'
+}
+const snapshotTypeTagType = (snapshot) => {
+  const type = String(snapshot?.snapshot_type || '').trim()
+  if (type === 'import_auto') return 'warning'
+  if (type === 'legacy') return 'info'
+  return 'success'
+}
+const snapshotTypeClassName = (snapshot) => {
+  const type = String(snapshot?.snapshot_type || '').trim()
+  if (type === 'import_auto') return 'auto'
+  if (type === 'legacy') return 'legacy'
+  return 'manual'
+}
 const getAiActionSuccessMessage = () => {
   const phase = aiSwitchStatus.value.phase
   if (phase === 'disabled') return 'AI 功能已停用'
@@ -504,6 +636,74 @@ const pollAiSwitchStatus = async () => {
 const startAiSwitchPolling = () => {
   stopAiSwitchPolling()
   aiSwitchPollTimer = setInterval(pollAiSwitchStatus, 1500)
+}
+
+const applySnapshotTaskStatus = (data = {}) => {
+  snapshotTaskStatus.value = {
+    id: data?.id || '',
+    action: data?.action || '',
+    status: data?.status || 'idle',
+    phase: data?.phase || '',
+    message: data?.message || '未执行快照任务',
+    progress: Number(data?.progress || 0),
+    snapshot_id: data?.snapshot_id || '',
+    snapshot_name: data?.snapshot_name || '',
+    started_at: data?.started_at || '',
+    finished_at: data?.finished_at || '',
+    error: data?.error || '',
+  }
+}
+
+const stopSnapshotTaskPolling = () => {
+  if (snapshotTaskPollTimer) {
+    clearInterval(snapshotTaskPollTimer)
+    snapshotTaskPollTimer = null
+  }
+}
+
+const fetchSnapshots = async ({ silent = false } = {}) => {
+  try {
+    const response = await systemApi.listSnapshots()
+    snapshots.value = Array.isArray(response?.data?.snapshots) ? response.data.snapshots : []
+    if (!selectedSnapshotId.value || !snapshots.value.some(item => item.id === selectedSnapshotId.value)) {
+      selectedSnapshotId.value = snapshots.value[0]?.id || ''
+    }
+  } catch (error) {
+    if (!silent) {
+      ElMessage.error(error?.response?.data?.error || '加载系统快照列表失败')
+    }
+  }
+}
+
+const pollSnapshotTaskStatus = async () => {
+  try {
+    const response = await systemApi.getSnapshotTaskStatus()
+    applySnapshotTaskStatus(response?.data || {})
+    if (snapshotTaskStatus.value.status === 'completed') {
+      stopSnapshotTaskPolling()
+      await fetchSnapshots({ silent: true })
+      if (snapshotTaskStatus.value.snapshot_id) {
+        selectedSnapshotId.value = snapshotTaskStatus.value.snapshot_id
+      }
+      ElMessage.success(snapshotTaskStatus.value.message || '快照任务已完成')
+      if (snapshotTaskStatus.value.action === 'restore') {
+        setTimeout(() => {
+          window.location.reload()
+        }, 1500)
+      }
+    } else if (snapshotTaskStatus.value.status === 'failed') {
+      stopSnapshotTaskPolling()
+      ElMessage.error(snapshotTaskStatus.value.error || snapshotTaskStatus.value.message || '快照任务失败')
+    }
+  } catch (error) {
+    stopSnapshotTaskPolling()
+    ElMessage.error(error?.response?.data?.error || '获取快照任务状态失败')
+  }
+}
+
+const startSnapshotTaskPolling = () => {
+  stopSnapshotTaskPolling()
+  snapshotTaskPollTimer = setInterval(pollSnapshotTaskStatus, 1200)
 }
 
 const fetchRoomFeatureOptions = async () => {
@@ -762,8 +962,12 @@ const handleImport = () => {
       if (!fileUrl) {
         throw new Error('上传成功但未返回 file_url')
       }
-      await systemApi.importData(fileUrl)
+      await systemApi.importData({
+        file_url: fileUrl,
+        source_name: selectedFile.value?.name || '',
+      })
       importUploadProgress.value = 100
+      await fetchSnapshots({ silent: true })
       ElMessage.success('系统数据导入成功')
       selectedFile.value = null
       // Optional: Refresh page or logout
@@ -776,6 +980,69 @@ const handleImport = () => {
       ElMessage.error('导入失败: ' + (error.response?.data?.error || error.message))
     } finally {
       importing.value = false
+    }
+  }).catch(() => {})
+}
+
+const handleCreateSnapshot = async () => {
+  try {
+    const response = await systemApi.createSnapshot()
+    applySnapshotTaskStatus(response?.data || {})
+    startSnapshotTaskPolling()
+    ElMessage.success('系统快照创建已开始')
+  } catch (error) {
+    console.error(error)
+    ElMessage.error(error?.response?.data?.error || '创建快照失败')
+  }
+}
+
+const handleRollbackImport = () => {
+  if (!selectedSnapshot.value) {
+    ElMessage.warning('当前没有可回滚的系统快照')
+    return
+  }
+
+  ElMessageBox.confirm(
+    `此操作将把系统恢复到所选快照“${selectedSnapshot.value.source_name || selectedSnapshot.value.created_at || selectedSnapshot.value.id}”对应的状态，当前数据会被覆盖。是否确认回滚？`,
+    '确认回滚快照',
+    {
+      confirmButtonText: '确认回滚',
+      cancelButtonText: '取消',
+      type: 'warning',
+      confirmButtonClass: 'el-button--danger'
+    }
+  ).then(async () => {
+    try {
+      const response = await systemApi.restoreSnapshot(selectedSnapshot.value.id)
+      applySnapshotTaskStatus(response?.data || {})
+      startSnapshotTaskPolling()
+      ElMessage.success('快照回滚已开始')
+    } catch (error) {
+      console.error(error)
+      ElMessage.error('回滚失败: ' + (error.response?.data?.error || error.message))
+    }
+  }).catch(() => {})
+}
+
+const handleDeleteSnapshot = async (snapshot) => {
+  if (!snapshot?.id) return
+  ElMessageBox.confirm(
+    `确认删除快照“${snapshot.source_name || snapshot.created_at || snapshot.id}”？删除后无法恢复。`,
+    '删除快照',
+    {
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+      confirmButtonClass: 'el-button--danger'
+    }
+  ).then(async () => {
+    try {
+      await systemApi.deleteSnapshot(snapshot.id)
+      await fetchSnapshots({ silent: true })
+      ElMessage.success('快照已删除')
+    } catch (error) {
+      console.error(error)
+      ElMessage.error(error?.response?.data?.error || '删除快照失败')
     }
   }).catch(() => {})
 }
@@ -846,6 +1113,13 @@ const handleSeed = () => {
 }
 
 onMounted(() => {
+  fetchSnapshots({ silent: true })
+  systemApi.getSnapshotTaskStatus().then((response) => {
+    applySnapshotTaskStatus(response?.data || {})
+    if (snapshotTaskStatus.value.status === 'running') {
+      startSnapshotTaskPolling()
+    }
+  }).catch(() => {})
   fetchRoomFeatureOptions()
   fetchUtilityAccountOptions()
   fetchOcrSettings()
@@ -854,6 +1128,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopAiSwitchPolling()
+  stopSnapshotTaskPolling()
 })
 </script>
 
@@ -988,6 +1263,8 @@ onBeforeUnmount(() => {
 
 .upload-area {
   margin-top: 0;
+  width: 100%;
+  min-width: 0;
 }
 
 .selected-file {
@@ -1003,6 +1280,163 @@ onBeforeUnmount(() => {
 
 .upload-progress-wrap {
   margin-top: 14px;
+}
+
+.rollback-box {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px dashed var(--surface-border, var(--el-border-color));
+  border-radius: 12px;
+  background: var(--surface-muted, var(--el-fill-color-lighter));
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.rollback-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-main);
+  font-weight: 700;
+}
+
+.rollback-subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.rollback-meta {
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.rollback-action {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.snapshot-task-box {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--surface-border, var(--el-border-color-light));
+}
+
+.snapshot-task-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.snapshot-task-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.snapshot-list {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 320px;
+  overflow: auto;
+  min-width: 0;
+}
+
+.snapshot-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--surface-border, var(--el-border-color-light));
+  background: var(--card-bg, #fff);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.snapshot-row.selected {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.15);
+}
+
+.snapshot-row-auto {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.28);
+}
+
+.snapshot-row-manual {
+  background: rgba(34, 197, 94, 0.06);
+}
+
+.snapshot-row-legacy {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.snapshot-radio {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--el-border-color);
+  flex: 0 0 auto;
+}
+
+.snapshot-radio.checked {
+  border-color: var(--el-color-primary);
+  background: radial-gradient(circle at center, var(--el-color-primary) 0 45%, transparent 46%);
+}
+
+.snapshot-row-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.snapshot-row-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-main);
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.snapshot-title-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.snapshot-row-subtitle {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.snapshot-row-tools {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
 }
 
 :deep(.el-upload-dragger) {
@@ -1037,6 +1471,14 @@ onBeforeUnmount(() => {
   align-items: center;
 }
 
+.system-top-grid .import-card .card-content {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  min-width: 0;
+}
+
 .system-top-grid .description {
   margin-bottom: 0;
 }
@@ -1044,6 +1486,17 @@ onBeforeUnmount(() => {
 .system-top-grid .action-area,
 .system-top-grid .upload-area {
   width: min(420px, 100%);
+}
+
+.system-top-grid .import-card .upload-area,
+.system-top-grid .import-card .action-area,
+.system-top-grid .import-card .rollback-box {
+  width: 100%;
+  max-width: none;
+}
+
+.system-top-grid .import-card .card-content > * {
+  min-width: 0;
 }
 
 @media (max-width: 768px) {

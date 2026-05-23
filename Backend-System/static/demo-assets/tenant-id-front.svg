@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="600" viewBox="0 0 960 600">
+  <rect width="960" height="600" fill="#f3f6fb"/>
+  <rect x="36" y="36" width="888" height="528" rx="28" fill="#ffffff" stroke="#cbd5e1" stroke-width="6"/>
+  <rect x="72" y="86" width="190" height="240" rx="20" fill="#dbeafe"/>
+  <circle cx="167" cy="162" r="54" fill="#93c5fd"/>
+  <rect x="118" y="228" width="98" height="54" rx="20" fill="#60a5fa"/>
+  <text x="308" y="150" font-family="Arial, sans-serif" font-size="34" fill="#0f172a">Demo ID Card</text>
+  <text x="308" y="220" font-family="Arial, sans-serif" font-size="24" fill="#475569">Name: Zhang San</text>
+  <text x="308" y="270" font-family="Arial, sans-serif" font-size="24" fill="#475569">Gender: Male</text>
+  <text x="308" y="320" font-family="Arial, sans-serif" font-size="24" fill="#475569">Nation: Han</text>
+  <text x="308" y="370" font-family="Arial, sans-serif" font-size="24" fill="#475569">ID: 11010519920315001X</text>
+  <text x="72" y="470" font-family="Arial, sans-serif" font-size="22" fill="#64748b">Front side sample for tenant preview</text>
+</svg>

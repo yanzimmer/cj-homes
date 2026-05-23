@@ -16,6 +16,14 @@ def sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _demo_asset_path(filename: str) -> str:
+    return f"/static/demo-assets/{filename}"
+
+
+def _dump_json_list(values) -> str:
+    return json.dumps(values or [], ensure_ascii=False)
+
+
 def ensure_tables():
     """Create all required tables and ensure compatible columns exist."""
     conn = connect()
@@ -231,12 +239,17 @@ def ensure_tables():
             amount REAL NOT NULL DEFAULT 0,
             payer TEXT DEFAULT '',
             remarks TEXT DEFAULT '',
+            bill_images TEXT DEFAULT '[]',
             created_at DATETIME DEFAULT (DATETIME('now')),
             updated_at DATETIME DEFAULT (DATETIME('now')),
             UNIQUE (utility_type, subject, year, month)
         )
         """
     )
+    cur.execute("PRAGMA table_info(utility_bills)")
+    utility_cols = {row[1] for row in cur.fetchall()}
+    if "bill_images" not in utility_cols:
+        cur.execute("ALTER TABLE utility_bills ADD COLUMN bill_images TEXT DEFAULT '[]'")
     cur.execute("DROP TABLE IF EXISTS utility_bill_notes")
 
     # rent ledger
@@ -283,9 +296,12 @@ def ensure_tables():
         """
         CREATE TABLE IF NOT EXISTS warehouse_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            procurement_date TEXT,
             item_name TEXT NOT NULL,
+            specification TEXT,
             category TEXT,
             quantity REAL NOT NULL DEFAULT 0,
+            unit_price REAL DEFAULT 0,
             unit TEXT,
             location TEXT,
             image TEXT,
@@ -295,6 +311,14 @@ def ensure_tables():
         )
         """
     )
+    cur.execute("PRAGMA table_info(warehouse_items)")
+    warehouse_cols = {row[1] for row in cur.fetchall()}
+    if "procurement_date" not in warehouse_cols:
+        cur.execute("ALTER TABLE warehouse_items ADD COLUMN procurement_date TEXT")
+    if "specification" not in warehouse_cols:
+        cur.execute("ALTER TABLE warehouse_items ADD COLUMN specification TEXT")
+    if "unit_price" not in warehouse_cols:
+        cur.execute("ALTER TABLE warehouse_items ADD COLUMN unit_price REAL DEFAULT 0")
 
     # self checkin links
     cur.execute(
@@ -414,18 +438,92 @@ def seed_demo_data():
         print("ℹ️ 跳过演示数据：当前数据库已有业务记录")
         return False
 
+    demo_assets = {
+        "tenant_front": _demo_asset_path("tenant-id-front.svg"),
+        "tenant_back": _demo_asset_path("tenant-id-back.svg"),
+        "repair_before": _demo_asset_path("repair-before.svg"),
+        "repair_after": _demo_asset_path("repair-after.svg"),
+        "repair_payment": _demo_asset_path("repair-payment.svg"),
+        "procurement_led": _demo_asset_path("procurement-led-bulb.svg"),
+        "procurement_hose": _demo_asset_path("procurement-hose.svg"),
+        "utility_bill": _demo_asset_path("utility-bill.svg"),
+        "rent_payment": _demo_asset_path("rent-payment.svg"),
+        "water_meter": _demo_asset_path("room-water-meter.svg"),
+        "electric_meter": _demo_asset_path("room-electric-meter.svg"),
+    }
+
     cur.execute("PRAGMA table_info(rooms)")
     room_cols = {row[1] for row in cur.fetchall()}
     room_has_features = "features_json" in room_cols
     room_has_description = "description" in room_cols
+    room_has_water_meter = "water_meter_img" in room_cols
+    room_has_electricity_meter = "electricity_meter_img" in room_cols
 
     rooms = [
-        {"building": "A栋", "floor": 1, "room_no": "A101", "room_type": "单人间", "price": 198.0, "deposit": 198.0, "description": "朝南采光好", "features_json": json.dumps(["床", "热水器"], ensure_ascii=False)},
-        {"building": "A栋", "floor": 1, "room_no": "A102", "room_type": "双人间", "price": 258.0, "deposit": 258.0, "description": "带独立卫浴", "features_json": json.dumps(["床", "热水器", "冰箱"], ensure_ascii=False)},
-        {"building": "B栋", "floor": 2, "room_no": "B201", "room_type": "套房", "price": 428.0, "deposit": 428.0, "description": "拎包入住", "features_json": json.dumps(["床", "热水器", "冰箱", "抽油烟机"], ensure_ascii=False)},
-        {"building": "B栋", "floor": 2, "room_no": "B202", "room_type": "单人间", "price": 218.0, "deposit": 218.0, "description": "近楼梯口", "features_json": json.dumps(["床"], ensure_ascii=False)},
-        {"building": "C栋", "floor": 3, "room_no": "C301", "room_type": "双人间", "price": 318.0, "deposit": 318.0, "description": "新装修", "features_json": json.dumps(["床", "热水器", "空调"], ensure_ascii=False)},
-        {"building": "C栋", "floor": 3, "room_no": "C302", "room_type": "单人间", "price": 228.0, "deposit": 228.0, "description": "带阳台", "features_json": json.dumps(["床", "热水器"], ensure_ascii=False)},
+        {
+            "building": "A栋",
+            "floor": 1,
+            "room_no": "A101",
+            "room_type": "单人间",
+            "price": 198.0,
+            "deposit": 198.0,
+            "description": "朝南采光好",
+            "features_json": json.dumps(["床", "热水器"], ensure_ascii=False),
+            "water_meter_img": demo_assets["water_meter"],
+            "electricity_meter_img": demo_assets["electric_meter"],
+        },
+        {
+            "building": "A栋",
+            "floor": 1,
+            "room_no": "A102",
+            "room_type": "双人间",
+            "price": 258.0,
+            "deposit": 258.0,
+            "description": "带独立卫浴",
+            "features_json": json.dumps(["床", "热水器", "冰箱"], ensure_ascii=False),
+        },
+        {
+            "building": "B栋",
+            "floor": 2,
+            "room_no": "B201",
+            "room_type": "套房",
+            "price": 428.0,
+            "deposit": 428.0,
+            "description": "拎包入住",
+            "features_json": json.dumps(["床", "热水器", "冰箱", "抽油烟机"], ensure_ascii=False),
+            "water_meter_img": demo_assets["water_meter"],
+            "electricity_meter_img": demo_assets["electric_meter"],
+        },
+        {
+            "building": "B栋",
+            "floor": 2,
+            "room_no": "B202",
+            "room_type": "单人间",
+            "price": 218.0,
+            "deposit": 218.0,
+            "description": "近楼梯口",
+            "features_json": json.dumps(["床"], ensure_ascii=False),
+        },
+        {
+            "building": "C栋",
+            "floor": 3,
+            "room_no": "C301",
+            "room_type": "双人间",
+            "price": 318.0,
+            "deposit": 318.0,
+            "description": "新装修",
+            "features_json": json.dumps(["床", "热水器", "空调"], ensure_ascii=False),
+        },
+        {
+            "building": "C栋",
+            "floor": 3,
+            "room_no": "C302",
+            "room_type": "单人间",
+            "price": 228.0,
+            "deposit": 228.0,
+            "description": "带阳台",
+            "features_json": json.dumps(["床", "热水器"], ensure_ascii=False),
+        },
     ]
     for room in rooms:
         columns = ["building", "floor", "room_no", "room_type", "price", "deposit", "status"]
@@ -436,14 +534,17 @@ def seed_demo_data():
         if room_has_features:
             columns.append("features_json")
             values.append(room["features_json"])
+        if room_has_water_meter and room.get("water_meter_img"):
+            columns.append("water_meter_img")
+            values.append(room["water_meter_img"])
+        if room_has_electricity_meter and room.get("electricity_meter_img"):
+            columns.append("electricity_meter_img")
+            values.append(room["electricity_meter_img"])
         placeholders = ", ".join(["?"] * len(columns))
-        cur.execute(
-            f"INSERT INTO rooms ({', '.join(columns)}) VALUES ({placeholders})",
-            values,
-        )
+        cur.execute(f"INSERT INTO rooms ({', '.join(columns)}) VALUES ({placeholders})", values)
 
     cur.execute("SELECT id, room_no FROM rooms")
-    room_map = {r[1]: r[0] for r in cur.fetchall()}
+    room_map = {row[1]: row[0] for row in cur.fetchall()}
 
     tenants = [
         {
@@ -452,11 +553,16 @@ def seed_demo_data():
             "nation": "汉族",
             "birth_date": "1992-03-15",
             "id_card": "11010519920315001X",
+            "address": "贵州省从江县示例路 8 号",
+            "front_img": demo_assets["tenant_front"],
+            "back_img": demo_assets["tenant_back"],
             "phone": "13800000001",
+            "emergency_contact_name": "张建国",
+            "emergency_contact_phone": "13800009991",
             "check_in_date": "2025-01-01",
             "check_out_date": "2026-12-31",
             "room_no": "A101",
-            "status": "在租",
+            "status": "在住",
             "remarks": "长期租",
         },
         {
@@ -465,39 +571,59 @@ def seed_demo_data():
             "nation": "汉族",
             "birth_date": "1995-08-20",
             "id_card": "110105199508200029",
+            "address": "贵州省从江县新区 16 号",
+            "front_img": demo_assets["tenant_front"],
+            "back_img": demo_assets["tenant_back"],
             "phone": "13800000002",
+            "emergency_contact_name": "李阿姨",
+            "emergency_contact_phone": "13800009992",
             "check_in_date": "2025-06-01",
             "check_out_date": "2026-06-01",
             "room_no": "B201",
-            "status": "在租",
+            "status": "在住",
             "remarks": "公司入住",
         },
     ]
 
-    for t in tenants:
-        room_id = room_map.get(t["room_no"])
+    for tenant in tenants:
+        room_id = room_map.get(tenant["room_no"])
         cur.execute(
             """
             INSERT INTO tenants (
                 name, gender, nation, birth_date, id_card, address, front_img, back_img,
                 phone, emergency_contact_name, emergency_contact_phone,
                 check_in_date, check_out_date, room_id, remarks, status
-            ) VALUES (?, ?, ?, ?, ?, '', '', '', ?, '', '', ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                t["name"],
-                t["gender"],
-                t.get("nation", "汉族"),
-                t.get("birth_date"),
-                t["id_card"],
-                t["phone"],
-                t["check_in_date"],
-                t["check_out_date"],
+                tenant["name"],
+                tenant["gender"],
+                tenant.get("nation", "汉族"),
+                tenant.get("birth_date"),
+                tenant["id_card"],
+                tenant.get("address", ""),
+                tenant.get("front_img", ""),
+                tenant.get("back_img", ""),
+                tenant["phone"],
+                tenant.get("emergency_contact_name", ""),
+                tenant.get("emergency_contact_phone", ""),
+                tenant["check_in_date"],
+                tenant["check_out_date"],
                 room_id,
-                t.get("remarks", ""),
-                t.get("status", "在租"),
+                tenant.get("remarks", ""),
+                tenant.get("status", "在住"),
             ),
         )
+
+    cur.execute("SELECT id, name, room_id, id_card FROM tenants")
+    tenant_map = {
+        row[1]: {
+            "id": row[0],
+            "room_id": row[2],
+            "id_card": row[3],
+        }
+        for row in cur.fetchall()
+    }
 
     demo_procurements = [
         {
@@ -509,6 +635,7 @@ def seed_demo_data():
             "unit": "盏",
             "total_amount": 60.0,
             "remarks": "四月首批照明补货",
+            "procurement_images": [demo_assets["procurement_led"]],
         },
         {
             "procurement_date": "2026-04-03",
@@ -519,15 +646,15 @@ def seed_demo_data():
             "unit": "根",
             "total_amount": 72.0,
             "remarks": "维修常备材料",
+            "procurement_images": [demo_assets["procurement_hose"]],
         },
     ]
-    procurement_ids = []
     for item in demo_procurements:
         cur.execute(
             """
             INSERT INTO procurements (
                 procurement_date, item_name, specification, quantity, unit_price, unit, total_amount, remarks, procurement_images
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]')
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 item["procurement_date"],
@@ -538,10 +665,10 @@ def seed_demo_data():
                 item["unit"],
                 item["total_amount"],
                 item["remarks"],
+                _dump_json_list(item.get("procurement_images")),
             ),
         )
         procurement_id = cur.lastrowid
-        procurement_ids.append(procurement_id)
         sync_procurement_create(
             conn,
             procurement_id,
@@ -558,21 +685,20 @@ def seed_demo_data():
         ("LED灯泡",),
     )
     led_item = cur.fetchone()
-    led_usage_payload = dump_inventory_usages([
-        {
-            "warehouse_item_id": led_item[0],
-            "item_name": led_item[1],
-            "specification": led_item[2],
-            "quantity": 2,
-            "unit": led_item[4],
-            "location": led_item[5] or "",
-        }
-    ]) if led_item else "[]"
+    led_usage_payload = dump_inventory_usages(
+        [
+            {
+                "warehouse_item_id": led_item[0],
+                "item_name": led_item[1],
+                "specification": led_item[2],
+                "quantity": 2,
+                "unit": led_item[4],
+                "location": led_item[5] or "",
+            }
+        ]
+    ) if led_item else "[]"
     if led_item:
-        cur.execute(
-            "UPDATE warehouse_items SET quantity = quantity - 2 WHERE id = ?",
-            (led_item[0],),
-        )
+        cur.execute("UPDATE warehouse_items SET quantity = quantity - 2 WHERE id = ?", (led_item[0],))
 
     cur.execute(
         """
@@ -580,7 +706,7 @@ def seed_demo_data():
             building, room_no, repair_type, description, report_date, report_by,
             status, repair_date, repair_cost, amount, repair_person, payment_person, remarks, inventory_usages,
             repair_image_before, repair_image_after, repair_image, payment_images
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', '[]', '[]')
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             "A栋",
@@ -597,6 +723,10 @@ def seed_demo_data():
             "王店长",
             "已从库存领用 2 盏灯泡",
             led_usage_payload,
+            _dump_json_list([demo_assets["repair_before"]]),
+            _dump_json_list([demo_assets["repair_after"]]),
+            _dump_json_list([demo_assets["repair_after"]]),
+            _dump_json_list([demo_assets["repair_payment"]]),
         ),
     )
 
@@ -606,7 +736,7 @@ def seed_demo_data():
             building, room_no, repair_type, description, report_date, report_by,
             status, repair_date, repair_cost, amount, repair_person, payment_person, remarks, inventory_usages,
             repair_image_before, repair_image_after, repair_image, payment_images
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', '[]', '[]', '[]')
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             "C栋",
@@ -622,6 +752,11 @@ def seed_demo_data():
             "",
             "",
             "已登记待处理",
+            "[]",
+            _dump_json_list([demo_assets["repair_before"]]),
+            "[]",
+            _dump_json_list([demo_assets["repair_before"]]),
+            "[]",
         ),
     )
 
@@ -629,7 +764,167 @@ def seed_demo_data():
     if cur.fetchone()[0] == 0:
         cur.execute(
             "INSERT INTO contract_templates (name, description, content_html, updated_at) VALUES (?, ?, ?, DATETIME('now'))",
-            ("标准租赁合同", "默认模板", "<h1>租赁合同</h1><p>示例模板内容</p>"),
+            (
+                "标准租赁合同",
+                "默认模板",
+                (
+                    "<h1>房屋租赁合同</h1>"
+                    "<p>甲方（出租方）：从江房屋登记系统演示业主</p>"
+                    "<p>乙方（承租方）：{{tenant_name}}</p>"
+                    "<p>身份证号：{{id_card}}</p>"
+                    "<p>房间号：{{room_no}}</p>"
+                    "<p>租期：{{start_date}} 至 {{end_date}}</p>"
+                    "<p>租金：{{rent}} 元/月</p>"
+                    "<p>备注：本合同为演示数据，用于系统功能展示。</p>"
+                ),
+            ),
+        )
+    cur.execute("SELECT id FROM contract_templates ORDER BY id ASC LIMIT 1")
+    contract_template_row = cur.fetchone()
+    contract_template_id = contract_template_row[0] if contract_template_row else None
+
+    if contract_template_id:
+        contracts = [
+            {"tenant_name": "张三", "room_no": "A101", "start_date": "2025-01-01", "end_date": "2026-12-31", "rent": 198.0},
+            {"tenant_name": "李四", "room_no": "B201", "start_date": "2025-06-01", "end_date": "2026-06-01", "rent": 428.0},
+        ]
+        for item in contracts:
+            tenant_info = tenant_map.get(item["tenant_name"])
+            room_id = room_map.get(item["room_no"])
+            if not tenant_info or not room_id:
+                continue
+            rendered_html = (
+                "<h1>房屋租赁合同</h1>"
+                f"<p>承租人：{item['tenant_name']}</p>"
+                f"<p>身份证号：{tenant_info['id_card']}</p>"
+                f"<p>房间号：{item['room_no']}</p>"
+                f"<p>起租日期：{item['start_date']}</p>"
+                f"<p>到期日期：{item['end_date']}</p>"
+                f"<p>月租金：{item['rent']:.2f} 元</p>"
+            )
+            cur.execute(
+                """
+                INSERT INTO contracts (
+                    tenant_id, room_id, template_id, tenant_name, id_card, room_no, start_date, end_date, rent, rendered_html, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
+                """,
+                (
+                    tenant_info["id"],
+                    room_id,
+                    contract_template_id,
+                    item["tenant_name"],
+                    tenant_info["id_card"],
+                    item["room_no"],
+                    item["start_date"],
+                    item["end_date"],
+                    item["rent"],
+                    rendered_html,
+                ),
+            )
+
+    demo_moves = [
+        ("张三", "C302", "A101", "2025-01-01", "从临时房调到朝南房间"),
+        ("李四", "A102", "B201", "2025-06-01", "公司入住，升级到套房"),
+    ]
+    for tenant_name, old_room_no, new_room_no, move_date, remarks in demo_moves:
+        tenant_info = tenant_map.get(tenant_name)
+        old_room_id = room_map.get(old_room_no)
+        new_room_id = room_map.get(new_room_no)
+        if not tenant_info or not old_room_id or not new_room_id:
+            continue
+        cur.execute(
+            """
+            INSERT INTO tenant_moves (tenant_id, old_room_id, new_room_id, move_date, remarks)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (tenant_info["id"], old_room_id, new_room_id, move_date, remarks),
+        )
+
+    utility_bills = [
+        ("electricity", "191-A", 2026, 1, 126.50, "姑妈交", "一月电费", [demo_assets["utility_bill"]]),
+        ("electricity", "191-A", 2026, 2, 138.20, "姑妈交", "二月电费", [demo_assets["utility_bill"]]),
+        ("electricity", "205-B", 2026, 3, 176.80, "黎从交", "三月电费", [demo_assets["utility_bill"]]),
+        ("electricity", "205-B", 2026, 4, 188.35, "黎从交", "四月电费", [demo_assets["utility_bill"]]),
+        ("water", "338-B", 2026, 1, 48.60, "姑妈交", "一月水费", [demo_assets["utility_bill"]]),
+        ("water", "338-B", 2026, 2, 52.40, "姑妈交", "二月水费", [demo_assets["utility_bill"]]),
+        ("water", "361-A", 2026, 3, 66.20, "黎从交", "三月水费", [demo_assets["utility_bill"]]),
+        ("water", "361-A", 2026, 4, 71.30, "黎从交", "四月水费", [demo_assets["utility_bill"]]),
+    ]
+    for utility_type, subject, year, month, amount, payer, remarks, bill_images in utility_bills:
+        cur.execute(
+            """
+            INSERT INTO utility_bills (
+                utility_type, subject, year, month, amount, payer, remarks, bill_images, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
+            """,
+            (utility_type, subject, year, month, amount, payer, remarks, _dump_json_list(bill_images)),
+        )
+
+    rent_entries = [
+        ("张三", "A栋", "A101", "2025-01-01", "2026-12-31", 198.0, "月", 1, "2026-01-01", "2026-01-31", 198.0, 198.0, "已交", "2026-01-03", "财务小杨", "微信", "按时交租", [demo_assets["rent_payment"]]),
+        ("张三", "A栋", "A101", "2025-01-01", "2026-12-31", 198.0, "月", 2, "2026-02-01", "2026-02-28", 198.0, 198.0, "已交", "2026-02-02", "财务小杨", "现金", "春节前已结清", [demo_assets["rent_payment"]]),
+        ("张三", "A栋", "A101", "2025-01-01", "2026-12-31", 198.0, "月", 3, "2026-03-01", "2026-03-31", 198.0, 0.0, "未交", "", "", "", "待催收", []),
+        ("李四", "B栋", "B201", "2025-06-01", "2026-06-01", 428.0, "月", 10, "2026-03-01", "2026-03-31", 428.0, 428.0, "已交", "2026-03-05", "财务小杨", "银行转账", "公司统一打款", [demo_assets["rent_payment"]]),
+        ("李四", "B栋", "B201", "2025-06-01", "2026-06-01", 428.0, "月", 11, "2026-04-01", "2026-04-30", 428.0, 200.0, "部分已交", "2026-04-06", "财务小杨", "银行转账", "本月先付部分，余款待补", [demo_assets["rent_payment"]]),
+        ("李四", "B栋", "B201", "2025-06-01", "2026-06-01", 428.0, "月", 12, "2026-05-01", "2026-05-31", 428.0, 0.0, "未交", "", "", "", "尚未到款", []),
+    ]
+    for (
+        tenant_name,
+        building,
+        room_no,
+        lease_start,
+        lease_end,
+        rent_amount,
+        rent_unit,
+        period_index,
+        period_start,
+        period_end,
+        due_amount,
+        actual_amount,
+        status,
+        payment_date,
+        payment_person,
+        payment_method,
+        remarks,
+        payment_images,
+    ) in rent_entries:
+        tenant_info = tenant_map.get(tenant_name)
+        room_id = room_map.get(room_no)
+        if not tenant_info:
+            continue
+        period_label = f"第{period_index}期 {'年租' if rent_unit == '年' else '月租'} {period_start} ~ {period_end}"
+        cur.execute(
+            """
+            INSERT INTO rent_ledger_entries (
+                tenant_id, room_id, building, room_no, tenant_name, lease_start, lease_end,
+                rent_amount, rent_unit, period_index, period_label, period_start, period_end,
+                due_amount, actual_amount, status, payment_date, payment_person, payment_method, remarks,
+                payment_images, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
+            """,
+            (
+                tenant_info["id"],
+                room_id,
+                building,
+                room_no,
+                tenant_name,
+                lease_start,
+                lease_end,
+                rent_amount,
+                rent_unit,
+                period_index,
+                period_label,
+                period_start,
+                period_end,
+                due_amount,
+                actual_amount,
+                status,
+                payment_date,
+                payment_person,
+                payment_method,
+                remarks,
+                _dump_json_list(payment_images),
+            ),
         )
 
     cur.execute(
@@ -696,7 +991,7 @@ def seed_demo_data():
             WHEN EXISTS (
                 SELECT 1 FROM tenants t
                 WHERE t.room_id = rooms.id
-                  AND t.status = '在租'
+                  AND t.status = '在住'
                   AND DATE('now') BETWEEN t.check_in_date AND t.check_out_date
             ) THEN '已入住'
             ELSE '空闲'
@@ -706,7 +1001,7 @@ def seed_demo_data():
 
     conn.commit()
     conn.close()
-    print("✅ 已插入演示数据：房间、租户、维修、采购、库存、公开链接、自助入住和合同模板")
+    print("✅ 已插入演示数据：房间、租户、合同、搬迁、水电费、收租台账、维修、采购、库存、公开链接、自助入住和合同模板")
     return True
 
 

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="600" viewBox="0 0 960 600">
+  <rect width="960" height="600" fill="#ecfdf5"/>
+  <rect x="40" y="40" width="880" height="520" rx="28" fill="#ffffff" stroke="#86efac" stroke-width="6"/>
+  <text x="72" y="130" font-family="Arial, sans-serif" font-size="34" fill="#166534">Repair After</text>
+  <rect x="120" y="190" width="720" height="250" rx="24" fill="#bbf7d0"/>
+  <circle cx="480" cy="315" r="88" fill="#22c55e"/>
+  <circle cx="480" cy="315" r="48" fill="#fef08a"/>
+  <text x="72" y="500" font-family="Arial, sans-serif" font-size="22" fill="#15803d">Issue resolved photo placeholder</text>
+</svg>

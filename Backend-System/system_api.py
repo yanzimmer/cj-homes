@@ -10,6 +10,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+import tempfile
 from urllib.parse import urlparse
 from threading import Lock, Thread
 from datetime import datetime
@@ -28,12 +29,18 @@ PROJECT_ROOT = os.path.dirname(BASE_DIR)
 CONFIG_DIR = os.path.join(BASE_DIR, 'config')
 UPLOADS_DIR = os.path.join(BASE_DIR, 'static', 'uploads')
 SQL_DIR = os.path.join(BASE_DIR, 'sql')
+SNAPSHOTS_DIR = os.path.join(BASE_DIR, 'snapshots', 'system')
+LEGACY_ROLLBACK_DIR = os.path.join(BASE_DIR, 'tmp', 'system_import_rollback')
+LEGACY_ROLLBACK_ZIP_PATH = os.path.join(LEGACY_ROLLBACK_DIR, 'last_import_rollback.zip')
+LEGACY_ROLLBACK_META_PATH = os.path.join(LEGACY_ROLLBACK_DIR, 'last_import_rollback.json')
 EXPORT_INTERVAL_SECONDS = 120
 _export_lock = Lock()
+_restore_lock = Lock()
 _last_export_ts = 0.0
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://127.0.0.1:11434').rstrip('/')
 AI_SWITCH_TIMEOUT_SECONDS = int(os.getenv('AI_SWITCH_TIMEOUT_SECONDS', '120'))
 _ai_switch_lock = Lock()
+_snapshot_task_lock = Lock()
 _ai_switch_status = {
     'id': '',
     'status': 'idle',
@@ -41,6 +48,19 @@ _ai_switch_status = {
     'message': '未执行切换',
     'from_model': '',
     'to_model': '',
+    'started_at': '',
+    'finished_at': '',
+    'error': '',
+}
+_snapshot_task_status = {
+    'id': '',
+    'action': '',
+    'status': 'idle',
+    'phase': '',
+    'message': '未执行快照任务',
+    'progress': 0,
+    'snapshot_id': '',
+    'snapshot_name': '',
     'started_at': '',
     'finished_at': '',
     'error': '',
@@ -64,6 +84,17 @@ def _set_ai_switch_status(**updates):
 def _get_ai_switch_status():
     with _ai_switch_lock:
         return dict(_ai_switch_status)
+
+
+def _set_snapshot_task_status(**updates):
+    with _snapshot_task_lock:
+        _snapshot_task_status.update(updates)
+        return dict(_snapshot_task_status)
+
+
+def _get_snapshot_task_status():
+    with _snapshot_task_lock:
+        return dict(_snapshot_task_status)
 
 
 def _is_local_ollama_url(value):
@@ -499,6 +530,520 @@ def _collect_env_files():
     files.sort(key=lambda item: item[1])
     return files
 
+
+def _format_size(size_bytes):
+    units = ['B', 'KB', 'MB', 'GB', 'TB']
+    size = float(max(0, int(size_bytes or 0)))
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            return f'{size:.1f} {unit}' if unit != 'B' else f'{int(size)} B'
+        size /= 1024
+    return f'{int(size_bytes or 0)} B'
+
+
+def _snapshot_zip_path(snapshot_id):
+    return os.path.join(SNAPSHOTS_DIR, f'{snapshot_id}.zip')
+
+
+def _snapshot_meta_path(snapshot_id):
+    return os.path.join(SNAPSHOTS_DIR, f'{snapshot_id}.json')
+
+
+def _make_snapshot_id():
+    return f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+
+
+def _ensure_snapshots_dir():
+    os.makedirs(SNAPSHOTS_DIR, exist_ok=True)
+
+
+def _progress_reporter(callback, phase, progress, message):
+    if callback:
+        callback(phase, progress, message)
+
+
+def _collect_relative_files(base_dir):
+    results = []
+    if not os.path.isdir(base_dir):
+        return results
+    for root, _, files in os.walk(base_dir):
+        for filename in files:
+            file_path = os.path.join(root, filename)
+            rel_path = os.path.relpath(file_path, base_dir)
+            results.append((file_path, rel_path))
+    results.sort(key=lambda item: item[1])
+    return results
+
+
+def _write_system_snapshot_zip(target_path, progress_callback=None):
+    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+    config_files = _collect_relative_files(CONFIG_DIR)
+    upload_files = _collect_relative_files(UPLOADS_DIR)
+    env_files = _collect_env_files()
+    total_items = 1 + len(config_files) + len(upload_files) + len(env_files) + (1 if env_files else 0)
+    done = 0
+
+    def mark(phase, message):
+        nonlocal done
+        done += 1
+        progress = min(99, max(1, int(done * 100 / max(total_items, 1))))
+        _progress_reporter(progress_callback, phase, progress, message)
+
+    _progress_reporter(progress_callback, 'prepare', 1, '正在整理数据库与文件')
+    db_data = _dump_db_to_dict()
+    db_json = json.dumps(db_data, ensure_ascii=False, indent=2)
+
+    with zipfile.ZipFile(target_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr('database.json', db_json)
+        mark('database', '数据库已写入快照')
+
+        for file_path, rel_path in config_files:
+            zf.write(file_path, os.path.join('config', rel_path))
+            mark('config', f'已写入配置文件 {os.path.basename(rel_path)}')
+
+        for file_path, rel_path in upload_files:
+            zf.write(file_path, os.path.join('uploads', rel_path))
+            mark('uploads', f'已写入上传文件 {os.path.basename(rel_path)}')
+
+        if env_files:
+            zf.writestr(
+                'env_files_manifest.json',
+                json.dumps([rel_path for _, rel_path in env_files], ensure_ascii=False, indent=2),
+            )
+            mark('env_manifest', '环境配置清单已写入快照')
+            for file_path, rel_path in env_files:
+                zf.write(file_path, os.path.join('env_files', rel_path))
+                mark('env', f'已写入环境配置 {os.path.basename(rel_path)}')
+
+    _progress_reporter(progress_callback, 'completed', 100, '系统快照已生成')
+
+
+def _read_snapshot_meta(snapshot_id):
+    zip_path = _snapshot_zip_path(snapshot_id)
+    if not os.path.isfile(zip_path):
+        return None
+
+    payload = {
+        'id': snapshot_id,
+        'created_at': '',
+        'source_name': '',
+        'snapshot_type': 'manual',
+        'size_bytes': 0,
+        'size_text': '',
+        'file_name': os.path.basename(zip_path),
+    }
+    meta_path = _snapshot_meta_path(snapshot_id)
+    if os.path.isfile(meta_path):
+        try:
+            with open(meta_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                payload['created_at'] = str(data.get('created_at') or '').strip()
+                payload['source_name'] = str(data.get('source_name') or '').strip()
+                payload['snapshot_type'] = str(data.get('snapshot_type') or '').strip() or payload['snapshot_type']
+        except Exception:
+            pass
+
+    try:
+        payload['size_bytes'] = os.path.getsize(zip_path)
+    except OSError:
+        payload['size_bytes'] = 0
+    payload['size_text'] = _format_size(payload['size_bytes'])
+
+    if not payload['created_at']:
+        try:
+            payload['created_at'] = datetime.fromtimestamp(os.path.getmtime(zip_path)).strftime('%Y-%m-%d %H:%M:%S')
+        except OSError:
+            payload['created_at'] = ''
+    return payload
+
+
+def _migrate_legacy_snapshot_if_needed():
+    if not os.path.isfile(LEGACY_ROLLBACK_ZIP_PATH):
+        return
+    _ensure_snapshots_dir()
+    snapshot_id = _make_snapshot_id()
+    target_zip = _snapshot_zip_path(snapshot_id)
+    target_meta = _snapshot_meta_path(snapshot_id)
+    source_name = '旧版迁移快照'
+    snapshot_type = 'legacy'
+    created_at = ''
+    if os.path.isfile(LEGACY_ROLLBACK_META_PATH):
+        try:
+            with open(LEGACY_ROLLBACK_META_PATH, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                source_name = str(data.get('source_name') or '').strip() or source_name
+                snapshot_type = str(data.get('snapshot_type') or '').strip() or snapshot_type
+                created_at = str(data.get('created_at') or '').strip()
+        except Exception:
+            pass
+    if not created_at:
+        try:
+            created_at = datetime.fromtimestamp(os.path.getmtime(LEGACY_ROLLBACK_ZIP_PATH)).strftime('%Y-%m-%d %H:%M:%S')
+        except OSError:
+            created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        os.replace(LEGACY_ROLLBACK_ZIP_PATH, target_zip)
+        with open(target_meta, 'w', encoding='utf-8') as f:
+            json.dump({
+                'id': snapshot_id,
+                'created_at': created_at,
+                'source_name': source_name,
+                'snapshot_type': snapshot_type,
+            }, f, ensure_ascii=False, indent=2)
+        if os.path.exists(LEGACY_ROLLBACK_META_PATH):
+            os.remove(LEGACY_ROLLBACK_META_PATH)
+    except Exception:
+        pass
+
+
+def _list_snapshots():
+    _ensure_snapshots_dir()
+    _migrate_legacy_snapshot_if_needed()
+    snapshots = []
+    for filename in os.listdir(SNAPSHOTS_DIR):
+        if not filename.endswith('.zip'):
+            continue
+        snapshot_id = filename[:-4]
+        payload = _read_snapshot_meta(snapshot_id)
+        if payload:
+            snapshots.append(payload)
+    snapshots.sort(key=lambda item: (item.get('created_at') or '', item.get('id') or ''), reverse=True)
+    return snapshots
+
+
+def _latest_snapshot():
+    snapshots = _list_snapshots()
+    return snapshots[0] if snapshots else None
+
+
+def _load_last_import_rollback_status():
+    latest = _latest_snapshot()
+    if not latest:
+        return {
+            'available': False,
+            'created_at': '',
+            'source_name': '',
+            'size_bytes': 0,
+            'size_text': '',
+            'snapshot_id': '',
+            'count': 0,
+        }
+    payload = dict(latest)
+    payload['available'] = True
+    payload['snapshot_id'] = latest['id']
+    payload['count'] = len(_list_snapshots())
+    return payload
+
+
+def _delete_snapshot(snapshot_id):
+    zip_path = _snapshot_zip_path(snapshot_id)
+    meta_path = _snapshot_meta_path(snapshot_id)
+    if not os.path.isfile(zip_path):
+        raise FileNotFoundError('快照不存在')
+    os.remove(zip_path)
+    if os.path.exists(meta_path):
+        os.remove(meta_path)
+
+
+def _write_snapshot_metadata(snapshot_id, created_at, source_name, snapshot_type='manual'):
+    with open(_snapshot_meta_path(snapshot_id), 'w', encoding='utf-8') as f:
+        json.dump({
+            'id': snapshot_id,
+            'created_at': created_at,
+            'source_name': str(source_name or '').strip(),
+            'snapshot_type': str(snapshot_type or 'manual').strip(),
+        }, f, ensure_ascii=False, indent=2)
+
+
+def _create_snapshot_archive(source_name='', snapshot_type='manual', progress_callback=None):
+    _ensure_snapshots_dir()
+    snapshot_id = _make_snapshot_id()
+    created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    temp_snapshot_fd, temp_snapshot_path = tempfile.mkstemp(prefix='homes_snapshot_', suffix='.zip')
+    target_zip_path = _snapshot_zip_path(snapshot_id)
+    try:
+        os.close(temp_snapshot_fd)
+        _write_system_snapshot_zip(temp_snapshot_path, progress_callback=progress_callback)
+        os.replace(temp_snapshot_path, target_zip_path)
+        _write_snapshot_metadata(snapshot_id, created_at, source_name, snapshot_type=snapshot_type)
+        payload = _read_snapshot_meta(snapshot_id) or {
+            'id': snapshot_id,
+            'created_at': created_at,
+            'source_name': str(source_name or '').strip(),
+            'snapshot_type': str(snapshot_type or 'manual').strip(),
+            'size_bytes': 0,
+            'size_text': '0 B',
+            'file_name': os.path.basename(target_zip_path),
+        }
+        return payload
+    finally:
+        if os.path.exists(temp_snapshot_path):
+            os.remove(temp_snapshot_path)
+
+
+def _clear_last_import_rollback():
+    latest = _latest_snapshot()
+    if latest:
+        _delete_snapshot(latest['id'])
+
+
+def _save_last_import_rollback(temp_zip_path, source_name='', snapshot_type='manual'):
+    _ensure_snapshots_dir()
+    snapshot_id = _make_snapshot_id()
+    created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    os.replace(temp_zip_path, _snapshot_zip_path(snapshot_id))
+    _write_snapshot_metadata(snapshot_id, created_at, source_name, snapshot_type=snapshot_type)
+
+
+def _create_or_update_snapshot(source_name='', snapshot_type='manual'):
+    return _create_snapshot_archive(source_name=source_name, snapshot_type=snapshot_type)
+
+
+def _safe_extract_target(base_dir, relative_path, label):
+    normalized_rel = os.path.normpath(str(relative_path or ''))
+    if normalized_rel in ('', '.'):
+        raise ValueError(f'{label} 路径不合法')
+    if normalized_rel.startswith('..') or os.path.isabs(normalized_rel):
+        raise ValueError(f'{label} 路径不合法')
+    target_path = os.path.normpath(os.path.join(base_dir, normalized_rel))
+    base_path = os.path.normpath(base_dir)
+    if target_path != base_path and not target_path.startswith(base_path + os.sep):
+        raise ValueError(f'{label} 路径不合法')
+    return target_path
+
+
+def _extract_zip_tree(zf, prefix, target_root, label):
+    extracted = []
+    for member in zf.namelist():
+        if not member.startswith(prefix):
+            continue
+        if member.endswith('/'):
+            continue
+        relative_path = os.path.relpath(member, prefix)
+        target_path = _safe_extract_target(target_root, relative_path, label)
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        with zf.open(member) as source, open(target_path, 'wb') as target:
+            shutil.copyfileobj(source, target)
+        extracted.append(relative_path.replace('\\', '/'))
+    extracted.sort()
+    return extracted
+
+
+def _clear_directory(directory):
+    if os.path.isdir(directory):
+        shutil.rmtree(directory)
+    os.makedirs(directory, exist_ok=True)
+
+
+def _copy_directory_contents(source_dir, target_dir):
+    os.makedirs(target_dir, exist_ok=True)
+    if not os.path.isdir(source_dir):
+        return
+    for current_root, dirnames, filenames in os.walk(source_dir):
+        rel_root = os.path.relpath(current_root, source_dir)
+        dest_root = target_dir if rel_root == '.' else os.path.join(target_dir, rel_root)
+        os.makedirs(dest_root, exist_ok=True)
+        for dirname in dirnames:
+            os.makedirs(os.path.join(dest_root, dirname), exist_ok=True)
+        for filename in filenames:
+            shutil.copy2(os.path.join(current_root, filename), os.path.join(dest_root, filename))
+
+
+def _snapshot_directory(source_dir, snapshot_dir):
+    if os.path.isdir(source_dir):
+        shutil.copytree(source_dir, snapshot_dir)
+        return True
+    return False
+
+
+def _load_env_manifest(zf):
+    if 'env_files_manifest.json' not in zf.namelist():
+        return None
+    with zf.open('env_files_manifest.json') as manifest_file:
+        data = json.load(manifest_file)
+    if not isinstance(data, list):
+        raise ValueError('备份文件中的环境配置清单格式不正确')
+    manifest = []
+    for item in data:
+        text = str(item or '').strip().replace('\\', '/')
+        if text == '':
+            continue
+        if text in manifest:
+            continue
+        manifest.append(text)
+    return manifest
+
+
+def _current_exportable_env_paths():
+    return [rel_path for _, rel_path in _collect_env_files()]
+
+
+def _clear_exportable_env_files(rel_paths):
+    for rel_path in rel_paths or []:
+        target_path = _safe_extract_target(PROJECT_ROOT, rel_path, '环境配置文件')
+        if os.path.isfile(target_path):
+            os.remove(target_path)
+
+
+def _snapshot_env_files(snapshot_root):
+    manifest = []
+    for abs_path, rel_path in _collect_env_files():
+        manifest.append(rel_path)
+        target_path = _safe_extract_target(snapshot_root, rel_path, '环境配置文件')
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        shutil.copy2(abs_path, target_path)
+    return manifest
+
+
+def _restore_env_files_from_staging(staging_root, manifest):
+    _clear_exportable_env_files(_current_exportable_env_paths())
+    for rel_path in manifest or []:
+        source_path = _safe_extract_target(staging_root, rel_path, '环境配置文件')
+        if not os.path.isfile(source_path):
+            raise FileNotFoundError(f'备份文件缺少环境配置文件: {rel_path}')
+        target_path = _safe_extract_target(PROJECT_ROOT, rel_path, '环境配置文件')
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        shutil.copy2(source_path, target_path)
+
+
+def _snapshot_live_db(snapshot_path):
+    os.makedirs(os.path.dirname(snapshot_path), exist_ok=True)
+    source_conn = connect()
+    try:
+        backup_conn = sqlite3.connect(snapshot_path)
+        try:
+            source_conn.backup(backup_conn)
+            backup_conn.commit()
+        finally:
+            backup_conn.close()
+    finally:
+        source_conn.close()
+
+
+def _restore_live_db(snapshot_path):
+    if not os.path.isfile(snapshot_path):
+        raise FileNotFoundError('数据库快照不存在，无法回滚')
+    target_conn = connect()
+    try:
+        source_conn = sqlite3.connect(snapshot_path)
+        try:
+            source_conn.backup(target_conn)
+            target_conn.commit()
+        finally:
+            source_conn.close()
+    finally:
+        target_conn.close()
+
+
+def _prepare_import_staging(zip_path, progress_callback=None):
+    staging_root = tempfile.mkdtemp(prefix='homes_import_stage_')
+    db_data = None
+    env_manifest = []
+    try:
+        _progress_reporter(progress_callback, 'reading', 8, '正在读取快照文件')
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            names = set(zf.namelist())
+            if 'database.json' not in names:
+                raise ValueError('备份文件缺少 database.json，无法恢复数据库')
+            with zf.open('database.json') as db_file:
+                db_data = json.load(db_file)
+
+            config_stage_dir = os.path.join(staging_root, 'config')
+            uploads_stage_dir = os.path.join(staging_root, 'uploads')
+            env_stage_dir = os.path.join(staging_root, 'env_files')
+            _progress_reporter(progress_callback, 'extracting', 22, '正在解压配置与上传文件')
+            _extract_zip_tree(zf, 'config/', config_stage_dir, '配置文件')
+            _extract_zip_tree(zf, 'uploads/', uploads_stage_dir, '上传文件')
+            extracted_env_paths = _extract_zip_tree(zf, 'env_files/', env_stage_dir, '环境配置文件')
+            env_manifest = _load_env_manifest(zf)
+            if env_manifest is None:
+                env_manifest = extracted_env_paths
+            else:
+                missing_env_paths = [rel_path for rel_path in env_manifest if rel_path not in extracted_env_paths]
+                if missing_env_paths:
+                    raise ValueError(f'备份文件缺少环境配置文件: {missing_env_paths[0]}')
+        _progress_reporter(progress_callback, 'staged', 35, '快照内容已准备完成')
+
+        return {
+            'root': staging_root,
+            'db_data': db_data,
+            'config_dir': os.path.join(staging_root, 'config'),
+            'uploads_dir': os.path.join(staging_root, 'uploads'),
+            'env_dir': os.path.join(staging_root, 'env_files'),
+            'env_manifest': env_manifest,
+        }
+    except Exception:
+        shutil.rmtree(staging_root, ignore_errors=True)
+        raise
+
+
+def _apply_staged_import(staging, progress_callback=None):
+    rollback_root = tempfile.mkdtemp(prefix='homes_import_rollback_')
+    db_snapshot_path = os.path.join(rollback_root, 'db_snapshot.sqlite3')
+    config_snapshot_dir = os.path.join(rollback_root, 'config')
+    uploads_snapshot_dir = os.path.join(rollback_root, 'uploads')
+    env_snapshot_dir = os.path.join(rollback_root, 'env_files')
+    env_snapshot_manifest = []
+    config_snapshot_exists = False
+    uploads_snapshot_exists = False
+    db_snapshot_ready = False
+
+    try:
+        _progress_reporter(progress_callback, 'backup_current', 42, '正在备份当前系统状态')
+        _snapshot_live_db(db_snapshot_path)
+        db_snapshot_ready = True
+        config_snapshot_exists = _snapshot_directory(CONFIG_DIR, config_snapshot_dir)
+        uploads_snapshot_exists = _snapshot_directory(UPLOADS_DIR, uploads_snapshot_dir)
+        env_snapshot_manifest = _snapshot_env_files(env_snapshot_dir)
+
+        _progress_reporter(progress_callback, 'restore_db', 58, '正在恢复数据库')
+        success, msg = _restore_db_from_dict(staging['db_data'])
+        if not success:
+            raise RuntimeError(f'数据库恢复失败: {msg}')
+
+        _progress_reporter(progress_callback, 'restore_config', 72, '正在恢复配置文件')
+        _clear_directory(CONFIG_DIR)
+        _copy_directory_contents(staging['config_dir'], CONFIG_DIR)
+
+        _progress_reporter(progress_callback, 'restore_uploads', 86, '正在恢复上传文件')
+        _clear_directory(UPLOADS_DIR)
+        _copy_directory_contents(staging['uploads_dir'], UPLOADS_DIR)
+
+        _progress_reporter(progress_callback, 'restore_env', 96, '正在恢复环境配置')
+        _restore_env_files_from_staging(staging['env_dir'], staging['env_manifest'])
+        _progress_reporter(progress_callback, 'completed', 100, '系统状态恢复完成')
+    except Exception:
+        rollback_errors = []
+        if db_snapshot_ready:
+            try:
+                _restore_live_db(db_snapshot_path)
+            except Exception as rollback_error:
+                rollback_errors.append(f'数据库回滚失败: {rollback_error}')
+        try:
+            _clear_directory(CONFIG_DIR)
+            if config_snapshot_exists:
+                _copy_directory_contents(config_snapshot_dir, CONFIG_DIR)
+        except Exception as rollback_error:
+            rollback_errors.append(f'配置回滚失败: {rollback_error}')
+        try:
+            _clear_directory(UPLOADS_DIR)
+            if uploads_snapshot_exists:
+                _copy_directory_contents(uploads_snapshot_dir, UPLOADS_DIR)
+        except Exception as rollback_error:
+            rollback_errors.append(f'上传文件回滚失败: {rollback_error}')
+        try:
+            _restore_env_files_from_staging(env_snapshot_dir, env_snapshot_manifest)
+        except Exception as rollback_error:
+            rollback_errors.append(f'环境配置文件回滚失败: {rollback_error}')
+
+        if rollback_errors:
+            raise RuntimeError('导入失败，且回滚不完整：' + '；'.join(rollback_errors))
+        raise
+    finally:
+        shutil.rmtree(rollback_root, ignore_errors=True)
+
 def _dump_db_to_dict():
     """Dump entire database to a dictionary."""
     conn = connect()
@@ -610,6 +1155,80 @@ def _restore_db_from_dict(data, force=True):
         cursor.execute("PRAGMA foreign_keys = ON")
         conn.close()
 
+
+def _run_create_snapshot_job(task_id, source_name, snapshot_type):
+    def report(phase, progress, message):
+        _set_snapshot_task_status(
+            phase=phase,
+            progress=progress,
+            message=message,
+        )
+
+    try:
+        snapshot = _create_snapshot_archive(source_name=source_name, snapshot_type=snapshot_type, progress_callback=report)
+        _set_snapshot_task_status(
+            status='completed',
+            phase='completed',
+            progress=100,
+            message='系统快照已创建',
+            snapshot_id=snapshot.get('id', ''),
+            snapshot_name=snapshot.get('source_name', ''),
+            finished_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            error='',
+        )
+    except Exception as e:
+        _set_snapshot_task_status(
+            status='failed',
+            phase='failed',
+            progress=0,
+            message='创建快照失败',
+            finished_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            error=str(e),
+        )
+    finally:
+        _restore_lock.release()
+
+
+def _run_restore_snapshot_job(task_id, snapshot_id):
+    staging = None
+
+    def report(phase, progress, message):
+        _set_snapshot_task_status(
+            phase=phase,
+            progress=progress,
+            message=message,
+        )
+
+    try:
+        snapshot = _read_snapshot_meta(snapshot_id)
+        if not snapshot:
+            raise FileNotFoundError('快照不存在')
+        staging = _prepare_import_staging(_snapshot_zip_path(snapshot_id), progress_callback=report)
+        _apply_staged_import(staging, progress_callback=report)
+        _set_snapshot_task_status(
+            status='completed',
+            phase='completed',
+            progress=100,
+            message='已回滚到所选快照对应的系统状态',
+            snapshot_id=snapshot.get('id', ''),
+            snapshot_name=snapshot.get('source_name', ''),
+            finished_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            error='',
+        )
+    except Exception as e:
+        _set_snapshot_task_status(
+            status='failed',
+            phase='failed',
+            progress=0,
+            message='回滚快照失败',
+            finished_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            error=str(e),
+        )
+    finally:
+        if staging and staging.get('root'):
+            shutil.rmtree(staging['root'], ignore_errors=True)
+        _restore_lock.release()
+
 @system_bp.route('/export', methods=['GET'])
 @token_required
 def export_system_data(current_user):
@@ -682,6 +1301,131 @@ def export_system_data(current_user):
     finally:
         _export_lock.release()
 
+
+@system_bp.route('/import-rollback-status', methods=['GET'])
+@token_required
+def get_import_rollback_status_api(current_user):
+    return jsonify(_load_last_import_rollback_status())
+
+
+@system_bp.route('/snapshot-task-status', methods=['GET'])
+@token_required
+def get_snapshot_task_status_api(current_user):
+    return jsonify(_get_snapshot_task_status())
+
+
+@system_bp.route('/snapshots', methods=['GET'])
+@token_required
+def list_snapshots_api(current_user):
+    snapshots = _list_snapshots()
+    return jsonify({
+        'snapshots': snapshots,
+        'count': len(snapshots),
+        'latest_snapshot_id': snapshots[0]['id'] if snapshots else '',
+    })
+
+
+@system_bp.route('/snapshots', methods=['POST'])
+@token_required
+def create_snapshot_async_api(current_user):
+    current_status = _get_snapshot_task_status()
+    if current_status.get('status') == 'running':
+        return jsonify({'error': '已有快照任务正在执行，请稍后再试'}), 409
+    if not _restore_lock.acquire(blocking=False):
+        return jsonify({'error': '系统正在执行导入、回滚或创建快照，请稍后再试'}), 429
+
+    task_id = str(uuid.uuid4())
+    _set_snapshot_task_status(
+        id=task_id,
+        action='create',
+        status='running',
+        phase='queued',
+        message='系统快照创建任务已开始',
+        progress=1,
+        snapshot_id='',
+        snapshot_name='手动创建',
+        started_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        finished_at='',
+        error='',
+    )
+    try:
+        Thread(target=_run_create_snapshot_job, args=(task_id, '手动创建', 'manual'), daemon=True).start()
+    except Exception:
+        _restore_lock.release()
+        raise
+    return jsonify(_get_snapshot_task_status())
+
+
+@system_bp.route('/snapshots/<snapshot_id>/restore', methods=['POST'])
+@token_required
+def restore_snapshot_async_api(current_user, snapshot_id):
+    snapshot = _read_snapshot_meta(snapshot_id)
+    if not snapshot:
+        return jsonify({'error': '快照不存在'}), 404
+    current_status = _get_snapshot_task_status()
+    if current_status.get('status') == 'running':
+        return jsonify({'error': '已有快照任务正在执行，请稍后再试'}), 409
+    if not _restore_lock.acquire(blocking=False):
+        return jsonify({'error': '系统正在执行导入、回滚或创建快照，请稍后再试'}), 429
+
+    task_id = str(uuid.uuid4())
+    _set_snapshot_task_status(
+        id=task_id,
+        action='restore',
+        status='running',
+        phase='queued',
+        message='快照回滚任务已开始',
+        progress=1,
+        snapshot_id=snapshot.get('id', ''),
+        snapshot_name=snapshot.get('source_name', ''),
+        started_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        finished_at='',
+        error='',
+    )
+    try:
+        Thread(target=_run_restore_snapshot_job, args=(task_id, snapshot_id), daemon=True).start()
+    except Exception:
+        _restore_lock.release()
+        raise
+    return jsonify(_get_snapshot_task_status())
+
+
+@system_bp.route('/snapshots/<snapshot_id>', methods=['DELETE'])
+@token_required
+def delete_snapshot_api(current_user, snapshot_id):
+    current_status = _get_snapshot_task_status()
+    if current_status.get('status') == 'running':
+        return jsonify({'error': '快照任务执行中，暂时不能删除快照'}), 409
+    try:
+        _delete_snapshot(snapshot_id)
+        snapshots = _list_snapshots()
+        return jsonify({
+            'message': '快照已删除',
+            'snapshots': snapshots,
+            'count': len(snapshots),
+        }), 200
+    except FileNotFoundError as e:
+        return jsonify({'error': str(e)}), 404
+
+
+@system_bp.route('/snapshot', methods=['POST'])
+@token_required
+def create_system_snapshot_api(current_user):
+    return create_snapshot_async_api(current_user)
+
+
+@system_bp.route('/import-rollback', methods=['POST'])
+@token_required
+def rollback_last_import_api(current_user):
+    latest = _latest_snapshot()
+    if not latest:
+        return jsonify({'error': '当前没有可回滚的系统快照'}), 404
+    try:
+        return restore_snapshot_async_api(current_user, latest['id'])
+    except Exception as e:
+        current_app.logger.error(f"Rollback start failed: {e}")
+        return jsonify({'error': f'启动回滚失败: {str(e)}'}), 500
+
 @system_bp.route('/import', methods=['POST'])
 @token_required
 def import_system_data(current_user):
@@ -713,12 +1457,18 @@ def import_system_data(current_user):
         description: Import successful
     """
     temp_zip_path = os.path.join(BASE_DIR, f"temp_import_{int(time.time() * 1000)}.zip")
+    staging = None
+    source_name = ''
+
+    if not _restore_lock.acquire(blocking=False):
+        return jsonify({'error': '系统正在执行导入、回滚或创建快照，请稍后再试'}), 429
 
     try:
         if 'file' in request.files:
             file = request.files['file']
             if not file.filename.lower().endswith('.zip'):
                 return jsonify({'error': '文件格式错误，请上传 ZIP 备份文件'}), 400
+            source_name = str(file.filename or '').strip()
             file.save(temp_zip_path)
         else:
             data = request.get_json(silent=True) or {}
@@ -726,52 +1476,13 @@ def import_system_data(current_user):
             if not file_url:
                 return jsonify({'error': '未找到备份文件'}), 400
             source_zip_path = _resolve_upload_url_to_path(file_url)
+            source_name = str(data.get('source_name') or '').strip() or os.path.basename(source_zip_path)
             shutil.copyfile(source_zip_path, temp_zip_path)
 
-        with zipfile.ZipFile(temp_zip_path, 'r') as zf:
-            # 1. Restore Database
-            if 'database.json' in zf.namelist():
-                with zf.open('database.json') as f:
-                    db_data = json.load(f)
-                    success, msg = _restore_db_from_dict(db_data)
-                    if not success:
-                        raise Exception(f"数据库恢复失败: {msg}")
-
-            # 2. Restore Configs
-            for member in zf.namelist():
-                if member.startswith('config/'):
-                    # Skip directory entries
-                    if member.endswith('/'):
-                        continue
-
-                    target_path = os.path.join(CONFIG_DIR, os.path.relpath(member, 'config'))
-                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                    with zf.open(member) as source, open(target_path, 'wb') as target:
-                        shutil.copyfileobj(source, target)
-
-            # 3. Restore Uploads
-            for member in zf.namelist():
-                if member.startswith('uploads/'):
-                    # Skip directory entries
-                    if member.endswith('/'):
-                        continue
-
-                    target_path = os.path.join(UPLOADS_DIR, os.path.relpath(member, 'uploads'))
-                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                    with zf.open(member) as source, open(target_path, 'wb') as target:
-                        shutil.copyfileobj(source, target)
-
-            for member in zf.namelist():
-                if member.startswith('env_files/'):
-                    if member.endswith('/'):
-                        continue
-                    relative_path = os.path.relpath(member, 'env_files')
-                    target_path = os.path.normpath(os.path.join(PROJECT_ROOT, relative_path))
-                    if not target_path.startswith(PROJECT_ROOT):
-                        raise ValueError('环境配置文件路径不合法')
-                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                    with zf.open(member) as source, open(target_path, 'wb') as target:
-                        shutil.copyfileobj(source, target)
+        staging = _prepare_import_staging(temp_zip_path)
+        snapshot_source_name = f'导入前自动创建（{source_name}）' if source_name else '导入前自动创建'
+        _create_or_update_snapshot(source_name=snapshot_source_name, snapshot_type='import_auto')
+        _apply_staged_import(staging)
 
         return jsonify({"message": "系统数据导入成功"}), 200
 
@@ -784,8 +1495,11 @@ def import_system_data(current_user):
         current_app.logger.error(f"Import failed: {e}")
         return jsonify({"error": f"导入系统数据失败: {str(e)}"}), 500
     finally:
+        if staging and staging.get('root'):
+            shutil.rmtree(staging['root'], ignore_errors=True)
         if os.path.exists(temp_zip_path):
             os.remove(temp_zip_path)
+        _restore_lock.release()
 try:
     from init_scripts.init_hotel_db import seed_demo_data
 except ImportError:

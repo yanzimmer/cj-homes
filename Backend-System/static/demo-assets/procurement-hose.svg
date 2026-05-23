@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="600" viewBox="0 0 960 600">
+  <rect width="960" height="600" fill="#f0fdf4"/>
+  <rect x="40" y="40" width="880" height="520" rx="28" fill="#ffffff" stroke="#86efac" stroke-width="6"/>
+  <text x="72" y="130" font-family="Arial, sans-serif" font-size="34" fill="#166534">Procurement Item</text>
+  <path d="M220 340 C320 170, 640 170, 740 340" fill="none" stroke="#16a34a" stroke-width="34" stroke-linecap="round"/>
+  <circle cx="220" cy="340" r="28" fill="#14532d"/>
+  <circle cx="740" cy="340" r="28" fill="#14532d"/>
+  <text x="72" y="500" font-family="Arial, sans-serif" font-size="22" fill="#15803d">Water hose purchase sample</text>
+</svg>

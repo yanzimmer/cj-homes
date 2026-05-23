@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="600" viewBox="0 0 960 600">
+  <rect width="960" height="600" fill="#eff6ff"/>
+  <rect x="70" y="60" width="820" height="480" rx="28" fill="#ffffff" stroke="#93c5fd" stroke-width="6"/>
+  <text x="110" y="130" font-family="Arial, sans-serif" font-size="34" fill="#1d4ed8">Water Meter</text>
+  <rect x="210" y="220" width="540" height="150" rx="30" fill="#bfdbfe"/>
+  <text x="265" y="320" font-family="Courier New, monospace" font-size="72" fill="#0f172a">001248.6</text>
+</svg>

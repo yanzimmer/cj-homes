@@ -44,7 +44,7 @@ def api_list_moves(current_user):
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT tm.id, t.name, rf.room_no, rt.room_no, tm.move_date
+        SELECT tm.id, t.name, rf.room_no, rt.room_no, tm.move_date, COALESCE(tm.remarks, '')
         FROM tenant_moves tm
         JOIN tenants t ON tm.tenant_id=t.id
         JOIN rooms rf ON tm.old_room_id=rf.id
@@ -63,6 +63,7 @@ def api_list_moves(current_user):
             'from_room': row[2],
             'to_room': row[3],
             'move_date': row[4],
+            'reason': row[5],
         })
 
     return jsonify({'moves': moves})
@@ -113,6 +114,7 @@ def api_move_tenant(current_user):
 
     move_type = data.get('move_type', 1)
     to_room = data.get('to_room')
+    reason = str(data.get('reason') or '').strip()
 
     if not to_room:
         return jsonify({'error': '缺少目标房间参数'}), 400
@@ -159,10 +161,10 @@ def api_move_tenant(current_user):
 
             cursor.execute(
                 """
-                INSERT INTO tenant_moves (tenant_id, old_room_id, new_room_id, move_date)
-                VALUES (?, ?, ?, DATE('now'))
+                INSERT INTO tenant_moves (tenant_id, old_room_id, new_room_id, move_date, remarks)
+                VALUES (?, ?, ?, DATE('now'), ?)
                 """,
-                (tenant_id, from_room_id, to_room_id),
+                (tenant_id, from_room_id, to_room_id, reason),
             )
 
             moved_tenants.append(
@@ -208,10 +210,10 @@ def api_move_tenant(current_user):
 
                 cursor.execute(
                     """
-                    INSERT INTO tenant_moves (tenant_id, old_room_id, new_room_id, move_date)
-                    VALUES (?, ?, ?, DATE('now'))
+                    INSERT INTO tenant_moves (tenant_id, old_room_id, new_room_id, move_date, remarks)
+                    VALUES (?, ?, ?, DATE('now'), ?)
                     """,
-                    (tenant_id, from_room_id, to_room_id),
+                    (tenant_id, from_room_id, to_room_id, reason),
                 )
 
                 moved_tenants.append(

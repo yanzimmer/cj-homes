@@ -205,6 +205,13 @@ export const dashboardApi = {
 
 export const systemApi = {
   exportData: () => apiClient.get('/system/export', { responseType: 'blob' }),
+  getImportRollbackStatus: () => apiClient.get('/system/import-rollback-status'),
+  getSnapshotTaskStatus: () => apiClient.get('/system/snapshot-task-status'),
+  listSnapshots: () => apiClient.get('/system/snapshots'),
+  createSnapshot: () => apiClient.post('/system/snapshots'),
+  restoreSnapshot: (snapshotId) => apiClient.post(`/system/snapshots/${snapshotId}/restore`),
+  deleteSnapshot: (snapshotId) => apiClient.delete(`/system/snapshots/${snapshotId}`),
+  rollbackLastImport: () => apiClient.post('/system/import-rollback'),
   getRoomFeatureOptions: () => apiClient.get('/system/room-feature-options'),
   updateRoomFeatureOptions: (payload) => apiClient.put('/system/room-feature-options', payload),
   getUtilityAccountOptions: () => apiClient.get('/system/utility-account-options'),
@@ -217,6 +224,11 @@ export const systemApi = {
   importData: (fileOrUrl) => {
     if (typeof fileOrUrl === 'string') {
       return apiClient.post('/system/import', { file_url: fileOrUrl }, {
+        timeout: 60000 // 导入可能需要较长时间
+      })
+    }
+    if (fileOrUrl && typeof fileOrUrl === 'object' && !(fileOrUrl instanceof File)) {
+      return apiClient.post('/system/import', fileOrUrl, {
         timeout: 60000 // 导入可能需要较长时间
       })
     }
