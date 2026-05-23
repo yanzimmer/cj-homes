@@ -28,7 +28,7 @@ repair_bp = Blueprint("repair_records", __name__, url_prefix="/api")
 MAX_REPAIR_IMAGES = 50
 VALID_REPAIR_IMAGE_TYPES = {"before", "after"}
 REPAIR_SCOPE_TYPES = {"单个房间", "多个房间", "公共区域", "整层", "整栋", "楼栋"}
-REPAIR_TYPES = {"水电维修", "家具维修", "电器维修", "其他"}
+REPAIR_TYPES = {"水电维修", "家具维修", "电器维修", "清洁费用", "其他"}
 REPAIR_STATUS_VALUES = {"待处理", "处理中", "已完成"}
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
 REPAIR_AI_TIMEOUT_SECONDS = int(os.getenv("REPAIR_AI_TIMEOUT_SECONDS", "120"))
@@ -155,7 +155,7 @@ def _build_repair_ai_prompt(user_text, image_count):
 - description 要整理成简洁、完整的问题描述，不要照抄整段原文。
 - 楼栋和房间号可从“A栋301”“A-301”“3楼公共区域”“整栋水管”等自然语言里推断。
 - scope_type 只能是：单个房间、多个房间、公共区域、整层、整栋、楼栋；无法判断时用“单个房间”。
-- repair_type 只能是：水电维修、家具维修、电器维修、其他；无法判断时用“其他”。
+- repair_type 只能是：水电维修、家具维修、电器维修、清洁费用、其他；无法判断时用“其他”。
 - status 只能是：待处理、处理中、已完成；无法判断时用“待处理”。
 - 日期无法判断时 report_date 用今天日期；repair_date 不确定就留空。
 - 金额不知道填 0。

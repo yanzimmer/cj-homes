@@ -1,16 +1,8 @@
 <template>
   <div class="public-page">
-    <button
-      class="public-theme-toggle"
-      type="button"
-      :title="isDark ? '切换到亮色模式' : '切换到暗色模式'"
-      @click="togglePublicTheme"
-    >
-      <el-icon>
-        <Sunny v-if="isDark" />
-        <Moon v-else />
-      </el-icon>
-    </button>
+    <div class="public-theme-toggle">
+      <ThemeModeSwitch floating />
+    </div>
     <div class="public-card">
       <div class="header">
         <h2>{{ currentConfig.title }}</h2>
@@ -95,6 +87,7 @@
               <el-option label="水电维修" value="水电维修" />
               <el-option label="家具维修" value="家具维修" />
               <el-option label="电器维修" value="电器维修" />
+              <el-option label="清洁费用" value="清洁费用" />
               <el-option label="其他" value="其他" />
             </el-select>
           </el-form-item>
@@ -353,9 +346,9 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Moon, Sunny } from '@element-plus/icons-vue'
 import { publicBusinessEntryApi, procurementApi, repairRecordsApi } from '../api'
-import { applyTheme, getPreferredTheme, toggleTheme } from '../utils/theme'
+import ThemeModeSwitch from '../components/ThemeModeSwitch.vue'
+import { applyTheme, getPreferredTheme } from '../utils/theme'
 
 const BUSINESS_CONFIGS = {
   repair: { title: '维修记录填写', subtitle: '通过公开填写链接快速提交维修记录。' },
@@ -379,7 +372,6 @@ const loading = ref(true)
 const submitting = ref(false)
 const error = ref('')
 const formRef = ref(null)
-const isDark = ref(false)
 const imageInputRef = ref(null)
 const paymentImageInputRef = ref(null)
 const uploading = ref(false)
@@ -398,15 +390,6 @@ const aiDialog = reactive({
   text: '',
   images: []
 })
-
-const syncPublicThemeState = () => {
-  isDark.value = document.documentElement.classList.contains('dark')
-}
-
-const togglePublicTheme = () => {
-  toggleTheme({ transition: true })
-  syncPublicThemeState()
-}
 
 const parsePublicBuildingModel = (value, scopeType) => {
   if (scopeType !== '单个房间') {
@@ -930,7 +913,6 @@ const submitForm = async () => {
 
 onMounted(() => {
   applyTheme(getPreferredTheme())
-  syncPublicThemeState()
   fetchFormInfo()
 })
 

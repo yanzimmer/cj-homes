@@ -16,13 +16,13 @@
         </el-input>
         <el-button class="toolbar-btn" type="primary" @click="handleSearch">搜索</el-button>
         <el-button class="toolbar-btn" type="primary" @click="openDialog('add')">新增</el-button>
-        <el-button class="toolbar-btn" type="success" @click="linkDialogVisible = true">填写链接</el-button>
-        <el-button class="toolbar-btn" type="danger" :disabled="selectedItems.length === 0" @click="handleBatchDelete">批量删除</el-button>
+        <el-button class="toolbar-btn" type="success" @click="linkDialogVisible = true">链接</el-button>
+        <el-button class="toolbar-btn" type="danger" :disabled="selectedItems.length === 0" @click="handleBatchDelete">删除</el-button>
       </div>
     </div>
 
     <div class="table-panel">
-      <el-table class="warehouse-table" :data="items" v-loading="loading" border stripe style="width: 100%" @selection-change="handleSelectionChange">
+      <el-table class="warehouse-table" :data="items" v-loading="loading" border style="width: 100%" @selection-change="handleSelectionChange">
         <el-table-column type="selection" width="55" />
         <el-table-column label="序号" width="80" align="center">
           <template #default="{ $index }">
@@ -83,7 +83,13 @@
         @current-change="handleCurrentChange"
       />
     </div>
-    <el-dialog :title="dialog.title" v-model="dialog.visible" width="520px" @close="resetForm">
+    <el-drawer
+      :title="dialog.title"
+      v-model="dialog.visible"
+      direction="rtl"
+      size="520px"
+      @close="resetForm"
+    >
     <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
       <el-form-item label="时间" prop="procurement_date">
         <el-date-picker
@@ -157,7 +163,7 @@
         <el-button type="primary" :loading="dialog.submitting" @click="submitForm">确定</el-button>
       </span>
     </template>
-    </el-dialog>
+    </el-drawer>
 
     <BusinessPublicLinkDialog
       v-model="linkDialogVisible"
@@ -423,8 +429,8 @@ const handleBatchDelete = async () => {
   if (!selectedItems.value.length) return
   try {
     await ElMessageBox.confirm(
-      `确定要批量删除选中的 ${selectedItems.value.length} 条库存记录吗？`,
-      '批量删除确认',
+      `确定要删除选中的 ${selectedItems.value.length} 条库存记录吗？`,
+      '删除确认',
       {
         type: 'warning',
         confirmButtonText: '确定删除',
@@ -445,13 +451,13 @@ const handleBatchDelete = async () => {
     await fetchItems()
     selectedItems.value = []
     if (failures.length === 0) {
-      ElMessage.success(`批量删除完成：成功 ${successCount} 条`)
+      ElMessage.success(`删除完成：成功 ${successCount} 条`)
     } else {
-      ElMessage.error(`批量删除完成：成功 ${successCount} 条，失败 ${failures.length} 条`)
+      ElMessage.error(`删除完成：成功 ${successCount} 条，失败 ${failures.length} 条`)
     }
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error('批量删除失败')
+      ElMessage.error('删除失败')
     }
   } finally {
     loading.value = false
@@ -466,6 +472,10 @@ onMounted(() => {
 <style scoped>
 .page-container {
   padding: 20px;
+  background: var(--card-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: 18px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
 }
 
 .page-header {
@@ -489,9 +499,19 @@ onMounted(() => {
   margin-left: 0 !important;
 }
 
+.table-panel {
+  background: var(--card-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: 16px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  padding: 10px 10px 16px;
+}
+
 :deep(.warehouse-table) {
   --el-table-header-bg-color: var(--surface-muted);
   --el-table-tr-bg-color: var(--card-bg);
+  --el-table-bg-color: var(--card-bg);
+  --el-fill-color-blank: var(--card-bg);
   --el-table-row-hover-bg-color: rgba(37, 99, 235, 0.06);
   --el-table-border-color: var(--surface-border);
   border-radius: 12px;

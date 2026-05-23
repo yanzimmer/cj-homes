@@ -1,16 +1,8 @@
 <template>
   <div class="public-checkin-page">
-    <button
-      class="public-theme-toggle"
-      type="button"
-      :title="isDark ? '切换到亮色模式' : '切换到暗色模式'"
-      @click="togglePublicTheme"
-    >
-      <el-icon>
-        <Sunny v-if="isDark" />
-        <Moon v-else />
-      </el-icon>
-    </button>
+    <div class="public-theme-toggle">
+      <ThemeModeSwitch floating />
+    </div>
     <div class="public-checkin-card">
       <div class="header">
         <h2>自助入住登记</h2>
@@ -166,9 +158,9 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Moon, Sunny } from '@element-plus/icons-vue'
 import { publicSelfCheckinApi } from '../api'
-import { applyTheme, getPreferredTheme, toggleTheme } from '../utils/theme'
+import ThemeModeSwitch from '../components/ThemeModeSwitch.vue'
+import { applyTheme, getPreferredTheme } from '../utils/theme'
 
 const route = useRoute()
 const token = String(route.params.token || '')
@@ -183,7 +175,6 @@ const aiImageInputRef = ref(null)
 const recognizingIdCard = ref(false)
 const ocrMessage = ref('')
 const ocrMessageType = ref('success')
-const isDark = ref(false)
 const aiDialog = reactive({
   visible: false,
   loading: false,
@@ -227,15 +218,6 @@ const form = reactive({
 
 const idCardPattern = /^\d{17}[\dXx]$/
 const phonePattern = /^1[3-9]\d{9}$/
-
-const syncPublicThemeState = () => {
-  isDark.value = document.documentElement.classList.contains('dark')
-}
-
-const togglePublicTheme = () => {
-  toggleTheme({ transition: true })
-  syncPublicThemeState()
-}
 
 const deriveBirthDateFromIdCard = (value) => {
   const raw = String(value || '').trim()
@@ -621,7 +603,6 @@ const submitForm = async () => {
 
 onMounted(() => {
   applyTheme(getPreferredTheme())
-  syncPublicThemeState()
   fetchLinkInfo()
   loadDraftFromLocal()
   fetchSubmissionStatus()

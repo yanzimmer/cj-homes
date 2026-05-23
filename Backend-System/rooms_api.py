@@ -13,6 +13,8 @@ from room_feature_config import get_room_feature_options
 
 rooms_bp = Blueprint('rooms', __name__, url_prefix='/api')
 
+ROOM_PRICE_UNITS = {'月', '年'}
+
 
 def _get_rooms_table_columns(conn):
     cursor = conn.cursor()
@@ -32,6 +34,7 @@ def ensure_rooms_schema():
             room_no TEXT UNIQUE NOT NULL,
             room_type TEXT,
             price REAL,
+            price_unit TEXT DEFAULT '月',
             deposit REAL DEFAULT 0,
             status TEXT DEFAULT '空闲',
             description TEXT,
@@ -43,6 +46,9 @@ def ensure_rooms_schema():
         """
     )
     room_columns = _get_rooms_table_columns(conn)
+    if 'price_unit' not in room_columns:
+        cursor.execute("ALTER TABLE rooms ADD COLUMN price_unit TEXT DEFAULT '月'")
+    cursor.execute("UPDATE rooms SET price_unit = '月' WHERE COALESCE(TRIM(price_unit), '') = ''")
     if 'deposit' not in room_columns:
         cursor.execute("ALTER TABLE rooms ADD COLUMN deposit REAL DEFAULT 0")
     if 'features_json' not in room_columns:
@@ -101,6 +107,11 @@ def _parse_room_meter_images(value):
 
 def _dump_room_meter_images(values):
     return json.dumps(_parse_room_meter_images(values), ensure_ascii=False)
+
+
+def _normalize_price_unit(value):
+    text = str(value or '').strip()
+    return text if text in ROOM_PRICE_UNITS else '月'
 
 
 @rooms_bp.route('/rooms/feature-options', methods=['GET'])
@@ -248,6 +259,7 @@ def api_list_rooms(current_user):
         r.building,
         r.room_type,
         r.price,
+        {"COALESCE(r.price_unit, '月')" if 'price_unit' in room_columns else "'月'"} AS price_unit,
         {"COALESCE(r.deposit, 0)" if has_deposit else "0"} AS deposit,
         {"r.description" if has_description else "''"} AS description,
         {"COALESCE(r.features_json, '[]')" if has_features else "'[]'"} AS features_json,
@@ -278,9 +290,9 @@ def api_list_rooms(current_user):
 
     rooms = []
     for row in rows:
-        water_meter_imgs = _parse_room_meter_images(row[8])
-        if not water_meter_imgs and row[9]:
-          water_meter_imgs = _parse_room_meter_images(row[9])
+        water_meter_imgs = _parse_room_meter_images(row[9])
+        if not water_meter_imgs and row[10]:
+          water_meter_imgs = _parse_room_meter_images(row[10])
         rooms.append({
             'id': row[0],
             'room_no': _extract_room_number(row[1], row[2]),
@@ -288,16 +300,17 @@ def api_list_rooms(current_user):
             'building': _normalize_building_code(row[2]),
             'room_type': row[3],
             'price': row[4],
-            'deposit': row[5],
-            'description': row[6],
-            'features': _parse_room_features(row[7]),
+            'price_unit': _normalize_price_unit(row[5]),
+            'deposit': row[6],
+            'description': row[7],
+            'features': _parse_room_features(row[8]),
             'water_meter_imgs': water_meter_imgs,
             'water_meter_img': water_meter_imgs[0] if water_meter_imgs else '',
-            'electricity_meter_img': row[10] or '',
-            'status': row[11],
-            'tenant_count': row[12],
-            'has_water_meter_img': bool(row[13]),
-            'has_electricity_meter_img': bool(row[14]),
+            'electricity_meter_img': row[11] or '',
+            'status': row[12],
+            'tenant_count': row[13],
+            'has_water_meter_img': bool(row[14]),
+            'has_electricity_meter_img': bool(row[15]),
         })
 
     q = (request.args.get('q') or request.args.get('search') or '').strip().lower()
@@ -352,6 +365,7 @@ def api_list_rooms(current_user):
         'building',
         'room_type',
         'price',
+        'price_unit',
         'deposit',
         'description',
         'features',
@@ -384,6 +398,7 @@ def api_get_room(current_user, room_id):
     cursor.execute(
         f"""
         SELECT id, room_no, building, room_type, price,
+               {"COALESCE(price_unit, '月')" if 'price_unit' in room_columns else "'月'"} AS price_unit,
                {"COALESCE(deposit, 0)" if has_deposit else "0"} AS deposit,
                {"description" if has_description else "''"} AS description,
                {"COALESCE(features_json, '[]')" if has_features else "'[]'"} AS features_json,
@@ -399,9 +414,9 @@ def api_get_room(current_user, room_id):
     conn.close()
     if not row:
         return jsonify({'error': f'房间ID {room_id} 不存在'}), 404
-    water_meter_imgs = _parse_room_meter_images(row[8])
-    if not water_meter_imgs and row[9]:
-        water_meter_imgs = _parse_room_meter_images(row[9])
+    water_meter_imgs = _parse_room_meter_images(row[9])
+    if not water_meter_imgs and row[10]:
+        water_meter_imgs = _parse_room_meter_images(row[10])
     return jsonify({
         'room': {
             'id': row[0],
@@ -410,14 +425,15 @@ def api_get_room(current_user, room_id):
             'building': _normalize_building_code(row[2]),
             'room_type': row[3],
             'price': row[4],
-            'deposit': row[5],
-            'description': row[6],
-            'features': _parse_room_features(row[7]),
+            'price_unit': _normalize_price_unit(row[5]),
+            'deposit': row[6],
+            'description': row[7],
+            'features': _parse_room_features(row[8]),
             'water_meter_imgs': water_meter_imgs,
             'water_meter_img': water_meter_imgs[0] if water_meter_imgs else '',
-            'electricity_meter_img': row[10] or '',
+            'electricity_meter_img': row[11] or '',
             'has_water_meter_img': bool(water_meter_imgs),
-            'has_electricity_meter_img': bool(row[10]),
+            'has_electricity_meter_img': bool(row[11]),
         }
     })
 
@@ -700,6 +716,7 @@ def api_add_room(current_user):
     floor = _derive_floor(room_no)
     room_type = data['room_type']
     price = data['price']
+    price_unit = _normalize_price_unit(data.get('price_unit'))
     deposit = data.get('deposit', 0)
     water_meter_img = data.get('water_meter_img', '')
     electricity_meter_img = data.get('electricity_meter_img', '')
@@ -712,6 +729,9 @@ def api_add_room(current_user):
     try:
         insert_columns = ['room_no', 'floor', 'room_type', 'price', 'building']
         insert_values = [room_no, floor, room_type, price, building]
+        if 'price_unit' in room_columns:
+            insert_columns.append('price_unit')
+            insert_values.append(price_unit)
         if 'deposit' in room_columns:
             insert_columns.append('deposit')
             insert_values.append(deposit)
@@ -787,8 +807,10 @@ def api_update_room(current_user, room_id):
 
     conn = connect()
     room_columns = _get_rooms_table_columns(conn)
-    allowed_fields = [field for field in ['room_no', 'room_type', 'price', 'deposit', 'building', 'description', 'water_meter_img', 'electricity_meter_img'] if field in room_columns]
+    allowed_fields = [field for field in ['room_no', 'room_type', 'price', 'price_unit', 'deposit', 'building', 'description', 'water_meter_img', 'electricity_meter_img'] if field in room_columns]
     update_data = {k: v for k, v in data.items() if k in allowed_fields}
+    if 'price_unit' in update_data:
+        update_data['price_unit'] = _normalize_price_unit(update_data.get('price_unit'))
     if 'features_json' in room_columns and 'features' in data:
         update_data['features_json'] = _dump_room_features(data.get('features', []))
 

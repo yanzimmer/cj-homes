@@ -502,8 +502,6 @@ def create_procurement():
             if not procurement_date:
                 return jsonify({'error': 'Missing required field: procurement_date'}), 400
             total_amount = _to_float(data.get('total_amount'), 0)
-            if total_amount <= 0:
-                return jsonify({'error': 'Missing required field: total_amount'}), 400
             batch_no = _next_batch_no(conn, procurement_date, purchase_channel)
 
             normalized_items = []
@@ -527,6 +525,14 @@ def create_procurement():
                 )
             if not normalized_items:
                 return jsonify({'error': 'items 不能为空'}), 400
+
+            if total_amount <= 0:
+                total_amount = round(
+                    sum(_to_float(item.get('quantity'), 0) * _to_float(item.get('unit_price'), 0) for item in normalized_items),
+                    2
+                )
+            if total_amount <= 0:
+                return jsonify({'error': 'Missing required field: total_amount'}), 400
 
             created_ids = []
             has_any_unit_price = any(item['unit_price'] > 0 for item in normalized_items)
@@ -759,6 +765,41 @@ def upload_procurement_image(id):
     except Exception as e:
         conn.close()
         return jsonify({'error': str(e)}), 500
+
+
+@procurement_bp.route('/api/procurements/<int:id>/images', methods=['PUT'])
+def update_procurement_images(id):
+    data = request.json if isinstance(request.json, dict) else {}
+    procurement_images = _extract_procurement_images_from_payload(data)
+
+    conn = connect()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("SELECT id FROM procurements WHERE id = ?", (id,))
+        record = cur.fetchone()
+        if not record:
+            return jsonify({'error': 'Procurement not found'}), 404
+
+        cur.execute(
+            """
+            UPDATE procurements
+            SET procurement_images = ?, updated_at = DATETIME('now')
+            WHERE id = ?
+            """,
+            (_dump_procurement_images(procurement_images), id),
+        )
+        conn.commit()
+        return jsonify({
+            'message': 'Procurement images updated successfully',
+            'procurement_images': procurement_images,
+            'procurement_image': procurement_images[0] if len(procurement_images) > 0 else '',
+        })
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
 
 @procurement_bp.route('/api/procurements/<int:id>', methods=['DELETE'])
 def delete_procurement(id):

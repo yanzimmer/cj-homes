@@ -27,7 +27,7 @@
         </el-radio-group>
 
         <el-button class="toolbar-btn" type="primary" @click="openAddDialog">新增</el-button>
-        <el-button class="toolbar-btn" type="danger" :disabled="selectedRooms.length === 0" :loading="batchDeleting" @click="handleBatchDelete">批量删除</el-button>
+        <el-button class="toolbar-btn" type="danger" :disabled="selectedRooms.length === 0" :loading="batchDeleting" @click="handleBatchDelete">删除</el-button>
         <el-dropdown trigger="click" @command="handleExportCommand">
           <el-button class="toolbar-btn" type="success">
             导出 <el-icon style="margin-left:4px"><Filter /></el-icon>
@@ -80,8 +80,13 @@
                 <template #dropdown>
                   <el-dropdown-menu>
                     <el-dropdown-item command="all">全部</el-dropdown-item>
-                    <el-dropdown-item command="单间">单间</el-dropdown-item>
-                    <el-dropdown-item command="套间">套间</el-dropdown-item>
+                    <el-dropdown-item
+                      v-for="type in roomTypeOptions"
+                      :key="`filter-${type}`"
+                      :command="type"
+                    >
+                      {{ type }}
+                    </el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
@@ -90,7 +95,7 @@
         </el-table-column>
         <el-table-column prop="price" label="价格" width="98" sortable="custom" show-overflow-tooltip>
           <template #default="scope">
-            {{ scope.row.price }} 元/月
+            {{ formatRoomPrice(scope.row) }}
           </template>
         </el-table-column>
         <el-table-column prop="deposit" label="押金" width="88" sortable="custom" show-overflow-tooltip>
@@ -220,7 +225,7 @@
                 </div>
                 <div class="info-row">
                   <span class="label">价格:</span>
-                  <span class="value">¥{{ room.price }}</span>
+                  <span class="value">{{ formatRoomPrice(room) }}</span>
                 </div>
                 <div class="info-row" v-if="room.tenant_count > 0">
                   <span class="label">租户:</span>
@@ -255,8 +260,13 @@
       </div>
     </div>
 
-    <!-- 添加/编辑房间对话框 -->
-    <el-dialog :title="dialogTitle" v-model="dialogVisible" width="620px">
+    <!-- 添加/编辑房间抽屉 -->
+    <el-drawer
+      :title="dialogTitle"
+      v-model="dialogVisible"
+      direction="rtl"
+      size="620px"
+    >
       <input
         ref="roomWaterQrInputRef"
         type="file"
@@ -289,12 +299,26 @@
         </el-form-item>
         <el-form-item label="房间类型" prop="room_type">
           <el-select v-model="roomForm.room_type" placeholder="请选择房间类型" style="width: 100%">
-            <el-option label="单间" value="单间"></el-option>
-            <el-option label="套间" value="套间"></el-option>
+            <el-option
+              v-for="type in roomTypeOptions"
+              :key="`form-${type}`"
+              :label="type"
+              :value="type"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="价格" prop="price">
-          <el-input-number v-model="roomForm.price" :min="0" :precision="2" :step="100"></el-input-number>
+          <div class="price-input-row">
+            <el-input-number v-model="roomForm.price" :min="0" :precision="2" :step="100"></el-input-number>
+            <el-select v-model="roomForm.price_unit" placeholder="周期" class="price-unit-select">
+              <el-option
+                v-for="option in roomPriceUnitOptions"
+                :key="option"
+                :label="option"
+                :value="option"
+              />
+            </el-select>
+          </div>
         </el-form-item>
         <el-form-item label="押金" prop="deposit">
           <el-input-number v-model="roomForm.deposit" :min="0" :precision="2" :step="100"></el-input-number>
@@ -357,7 +381,7 @@
           <el-button type="primary" @click="handleSubmit" :loading="submitting">确定</el-button>
         </span>
       </template>
-    </el-dialog>
+    </el-drawer>
 
     <!-- 退租确认对话框 -->
     <el-dialog title="确认退租" v-model="checkoutDialogVisible" width="400px">
@@ -384,7 +408,7 @@
             <el-descriptions-item label="楼栋">{{ currentRoom.building }}</el-descriptions-item>
             <el-descriptions-item label="楼层">{{ currentRoom.floor }}</el-descriptions-item>
             <el-descriptions-item label="房间类型">{{ currentRoom.room_type }}</el-descriptions-item>
-            <el-descriptions-item label="价格">{{ currentRoom.price }} 元/月</el-descriptions-item>
+            <el-descriptions-item label="价格">{{ formatRoomPrice(currentRoom) }}</el-descriptions-item>
             <el-descriptions-item label="押金">{{ currentRoom.deposit }} 元</el-descriptions-item>
             <el-descriptions-item label="状态">
               <el-tag :type="currentRoom.status === '已入住' ? 'danger' : 'success'">
@@ -533,7 +557,7 @@
                   size="small"
                   type="primary"
                   :disabled="row.status !== 'pending'"
-                  @click="approveSelfCheckinSubmission(row)"
+                  @click="openApproveSelfCheckinDialog(row)"
                 >
                   确认
                 </el-button>
@@ -609,6 +633,61 @@
         </span>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="approveDialogVisible" title="确认入住提交" width="640px">
+      <el-alert
+        :title="selfCheckinRoomTenants.length > 0 ? '当前房间已有租户，可选择新增一条，或补全现有记录。' : '当前房间暂无租户，只能新增租户。'"
+        type="info"
+        :closable="false"
+        show-icon
+        class="approve-dialog-alert"
+      />
+      <el-form label-position="top">
+        <el-form-item label="入库方式">
+          <el-radio-group v-model="approveForm.mode">
+            <el-radio label="create">新增租户</el-radio>
+            <el-radio label="merge" :disabled="selfCheckinRoomTenants.length === 0">补全现有租户</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="approveForm.mode === 'merge'" label="选择要补全的租户">
+          <el-select
+            v-model="approveForm.tenantId"
+            placeholder="请选择现有租户"
+            filterable
+            style="width: 100%"
+          >
+            <el-option
+              v-for="tenant in selfCheckinRoomTenants"
+              :key="tenant.id"
+              :label="formatSelfCheckinTenantOption(tenant)"
+              :value="tenant.id"
+            />
+          </el-select>
+          <div class="self-checkin-approve-tip">
+            建议选择之前只录了姓名、电话或身份证不完整的那条租户记录。
+          </div>
+        </el-form-item>
+      </el-form>
+
+      <div v-if="selfCheckinRoomTenants.length > 0" class="self-checkin-existing-tenants">
+        <div class="self-checkin-existing-tenants__title">当前房间现有租户</div>
+        <el-table :data="selfCheckinRoomTenants" border size="small" max-height="220">
+          <el-table-column prop="name" label="姓名" min-width="90" />
+          <el-table-column prop="status" label="状态" width="90" />
+          <el-table-column prop="phone" label="电话" min-width="120" />
+          <el-table-column prop="id_card" label="身份证号" min-width="170" show-overflow-tooltip />
+        </el-table>
+      </div>
+
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="closeApproveDialog">取消</el-button>
+          <el-button type="primary" :loading="approvingSubmission" @click="confirmApproveSelfCheckinSubmission">
+            确认入库
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 
   <!-- 隐藏打印区域：包含完整的筛选后房间列表，用于 PDF 截图渲染，保证中文显示正确 -->
@@ -635,7 +714,7 @@
           <td>{{ r.building }}</td>
           <td>{{ r.floor }}</td>
           <td>{{ r.room_type }}</td>
-          <td>{{ r.price }}</td>
+          <td>{{ formatRoomPrice(r) }}</td>
           <td>{{ r.status }}</td>
           <td>{{ r.tenant_count }}</td>
           <td>{{ r.description }}</td>
@@ -676,7 +755,7 @@ const pendingRoomMeterFiles = reactive({
   water: [],
   electricity: null
 })
-// 批量选择与删除相关
+// 选择与删除相关
 const roomsTableRef = ref(null)
 const selectedRooms = ref([])
 const batchDeleting = ref(false)
@@ -690,6 +769,8 @@ const statusFilter = ref('all')
 
 // 楼栋选项（A-Z）与合成房间号预览
 const buildingOptions = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i))
+const roomTypeOptions = ['单间', '套间', '门面']
+const roomPriceUnitOptions = ['月', '年']
 const composedRoomNo = computed(() => {
   const letter = (roomForm.building || '').toUpperCase()
   const digits = String(roomForm.room_no || '').replace(/\D/g, '')
@@ -735,10 +816,18 @@ const selfCheckinDialogVisible = ref(false)
 const selfCheckinRoom = ref({})
 const selfCheckinLinks = ref([])
 const selfCheckinSubmissions = ref([])
+const selfCheckinRoomTenants = ref([])
 const creatingSelfCheckinLink = ref(false)
 const refreshingSelfCheckin = ref(false)
 const submissionDetailVisible = ref(false)
 const submissionDetail = ref({})
+const approveDialogVisible = ref(false)
+const approvingSubmission = ref(false)
+const approveTargetSubmission = ref(null)
+const approveForm = reactive({
+  mode: 'create',
+  tenantId: null
+})
 const rejectDialogVisible = ref(false)
 const rejectReason = ref('')
 const rejectingSubmission = ref(false)
@@ -751,6 +840,7 @@ const roomForm = reactive({
   floor: '',
   room_type: '',
   price: 0,
+  price_unit: '月',
   deposit: 0,
   features: [],
   status: '空闲',
@@ -774,6 +864,14 @@ const getWaterMeterImages = (room) => {
   if (Array.isArray(room?.water_meter_imgs) && room.water_meter_imgs.length > 0) return room.water_meter_imgs
   const single = String(room?.water_meter_img || '').trim()
   return single ? [single] : []
+}
+
+const normalizeRoomPriceUnit = (value) => (value === '年' ? '年' : '月')
+
+const formatRoomPrice = (room) => {
+  const price = Number(room?.price || 0)
+  const unit = normalizeRoomPriceUnit(room?.price_unit)
+  return `${price} 元/${unit}`
 }
 
 // 根据房间号自动填充楼层（例如 401 -> 4楼；1001 -> 10楼）
@@ -919,6 +1017,7 @@ const rules = {
   floor: [{ required: true, message: '请输入楼层', trigger: 'blur' }],
   room_type: [{ required: true, message: '请选择房间类型', trigger: 'change' }],
   price: [{ required: true, message: '请输入价格', trigger: 'blur' }],
+  price_unit: [{ required: true, message: '请选择价格周期', trigger: 'change' }],
   deposit: [{ required: true, message: '请输入押金', trigger: 'blur' }],
   status: [{ required: true, message: '请选择状态', trigger: 'change' }]
 }
@@ -941,9 +1040,10 @@ onUnmounted(() => {
 const fetchRooms = async () => {
   loading.value = true
   try {
-    const response = await roomsApi.listRooms({ fields: 'id,room_no,room_display,building,room_type,price,deposit,description,features,status,tenant_count,water_meter_img,electricity_meter_img,has_water_meter_img,has_electricity_meter_img' })
+    const response = await roomsApi.listRooms({ fields: 'id,room_no,room_display,building,room_type,price,price_unit,deposit,description,features,status,tenant_count,water_meter_img,electricity_meter_img,has_water_meter_img,has_electricity_meter_img' })
     rooms.value = (response.data.rooms || []).map((room, index) => ({
       ...room,
+      price_unit: normalizeRoomPriceUnit(room.price_unit),
       __sequence: index + 1
     }))
   } catch (error) {
@@ -1026,11 +1126,20 @@ const handleRoomMeterQrFileChange = (type, event) => {
 
 const buildSelfCheckinUrl = (token) => `${PUBLIC_APP_ORIGIN}/check-in/${token}`
 
+const formatSelfCheckinTenantOption = (tenant) => {
+  const name = tenant?.name || `租户#${tenant?.id || ''}`
+  const status = tenant?.status || '未知状态'
+  const phone = tenant?.phone ? `电话 ${tenant.phone}` : '电话未登记'
+  const idCard = tenant?.id_card ? `证件 ${tenant.id_card}` : '证件未登记'
+  return `${name} · ${status} · ${phone} · ${idCard}`
+}
+
 const fetchSelfCheckinData = async (room) => {
   if (!room?.id) return
-  const [linksRes, submissionsRes] = await Promise.all([
+  const [linksRes, submissionsRes, tenantsRes] = await Promise.all([
     roomsApi.listSelfCheckinLinks(room.id),
     roomsApi.listSelfCheckinSubmissions(room.id),
+    roomsApi.getRoomTenants(room.room_display || room.room_no),
   ])
   const links = linksRes?.data?.links || []
   selfCheckinLinks.value = await Promise.all(
@@ -1040,6 +1149,7 @@ const fetchSelfCheckinData = async (room) => {
     }))
   )
   selfCheckinSubmissions.value = submissionsRes?.data?.submissions || []
+  selfCheckinRoomTenants.value = tenantsRes?.data?.tenants || []
 }
 
 const refreshSelfCheckinData = async () => {
@@ -1144,14 +1254,41 @@ const deleteSelfCheckinLink = async (item) => {
   }
 }
 
-const approveSelfCheckinSubmission = async (row) => {
+const openApproveSelfCheckinDialog = (row) => {
+  approveTargetSubmission.value = row
+  approveForm.mode = 'create'
+  approveForm.tenantId = null
+  approveDialogVisible.value = true
+}
+
+const closeApproveDialog = () => {
+  approveDialogVisible.value = false
+  approveTargetSubmission.value = null
+  approveForm.mode = 'create'
+  approveForm.tenantId = null
+}
+
+const confirmApproveSelfCheckinSubmission = async () => {
+  const row = approveTargetSubmission.value
+  if (!row?.id) return
+  if (approveForm.mode === 'merge' && !approveForm.tenantId) {
+    ElMessage.error('请选择要补全的现有租户')
+    return
+  }
+  approvingSubmission.value = true
   try {
-    await roomsApi.approveSelfCheckinSubmission(row.id)
+    const response = await roomsApi.approveSelfCheckinSubmission(row.id, {
+      mode: approveForm.mode,
+      tenant_id: approveForm.mode === 'merge' ? approveForm.tenantId : undefined,
+    })
     await fetchSelfCheckinData(selfCheckinRoom.value)
     await fetchRooms()
-    ElMessage.success('已确认入租户库')
+    ElMessage.success(response?.data?.message || '已确认入租户库')
+    closeApproveDialog()
   } catch (error) {
     ElMessage.error(error?.response?.data?.error || '确认入库失败')
+  } finally {
+    approvingSubmission.value = false
   }
 }
 
@@ -1171,6 +1308,12 @@ const closeRejectDialog = () => {
   rejectReason.value = ''
   rejectTargetSubmission.value = null
 }
+
+watch(() => approveForm.mode, (mode) => {
+  if (mode !== 'merge') {
+    approveForm.tenantId = null
+  }
+})
 
 const confirmRejectSelfCheckinSubmission = async () => {
   const row = rejectTargetSubmission.value
@@ -1245,6 +1388,7 @@ const resetForm = () => {
   roomForm.floor = ''
   roomForm.room_type = ''
   roomForm.price = 0
+  roomForm.price_unit = '月'
   roomForm.deposit = 0
   roomForm.features = []
   roomForm.status = '空闲'
@@ -1283,12 +1427,14 @@ const openEditDialog = async (room) => {
   }
   roomForm.room_type = room.room_type
   roomForm.price = room.price
+  roomForm.price_unit = normalizeRoomPriceUnit(room.price_unit)
   roomForm.deposit = Number(room.deposit || 0)
   roomForm.features = Array.isArray(room.features) ? room.features : []
   roomForm.status = room.status || '空闲'
   roomForm.description = room.description || ''
   try {
     const detail = await roomsApi.getRoom(room.id)
+    roomForm.price_unit = normalizeRoomPriceUnit(detail?.data?.room?.price_unit || roomForm.price_unit)
     roomForm.water_meter_imgs = detail?.data?.room?.water_meter_imgs || []
     roomForm.water_meter_img = detail?.data?.room?.water_meter_img || ''
     roomForm.electricity_meter_img = detail?.data?.room?.electricity_meter_img || ''
@@ -1363,7 +1509,7 @@ const handleDelete = (room) => {
   }).catch(() => {})
 }
 
-// 批量删除选中的空闲房间
+// 删除选中的空闲房间
 const handleBatchDelete = async () => {
   if (!selectedRooms.value.length) {
     ElMessage.warning('请先勾选要删除的空闲房间')
@@ -1372,7 +1518,7 @@ const handleBatchDelete = async () => {
   const count = selectedRooms.value.length
   const names = selectedRooms.value.map(r => r.room_no).join(', ')
   try {
-    await ElMessageBox.confirm(`确定要删除选中的 ${count} 个房间：${names}？`, '批量删除', {
+    await ElMessageBox.confirm(`确定要删除选中的 ${count} 个房间：${names}？`, '删除', {
       confirmButtonText: '确定',
       cancelButtonText: '取消',
       type: 'warning'
@@ -1385,17 +1531,17 @@ const handleBatchDelete = async () => {
     const success = results.filter(r => r.status === 'fulfilled').length
     const failed = results.filter(r => r.status === 'rejected')
     if (!failed.length) {
-      ElMessage.success(`批量删除完成，成功 ${success} 个`)
+      ElMessage.success(`删除完成，成功 ${success} 个`)
     } else {
       const errMsg = failed.map(f => f.reason?.response?.data?.error || f.reason?.message || '未知错误').join('；')
-      ElMessage.warning(`批量删除部分失败：成功 ${success} 个，失败 ${failed.length} 个。原因：${errMsg}`)
+      ElMessage.warning(`删除部分失败：成功 ${success} 个，失败 ${failed.length} 个。原因：${errMsg}`)
     }
     await fetchRooms()
     if (roomsTableRef.value) roomsTableRef.value.clearSelection()
     selectedRooms.value = []
   } catch (e) {
-    console.error('批量删除异常：', e)
-    ElMessage.error('批量删除失败')
+    console.error('删除异常：', e)
+    ElMessage.error('删除失败')
   } finally {
     batchDeleting.value = false
   }
@@ -1416,7 +1562,7 @@ const getExportRows = () => {
     楼栋: r.building ?? '',
     楼层: r.floor ?? '',
     房间类型: r.room_type ?? '',
-    价格: r.price ?? '',
+    价格: formatRoomPrice(r),
     状态: r.status ?? '',
     租户数量: r.tenant_count ?? '',
     描述: r.description ?? ''
@@ -1518,6 +1664,10 @@ const exportToPDF = async () => {
 <style scoped>
 .rooms-container {
   padding: 20px;
+  background: var(--card-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: 18px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
 }
 
 .page-header {
@@ -1654,6 +1804,30 @@ const exportToPDF = async () => {
   white-space: nowrap;
 }
 
+.approve-dialog-alert,
+.reject-dialog-alert {
+  margin-bottom: 16px;
+}
+
+.self-checkin-approve-tip {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.self-checkin-existing-tenants {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.self-checkin-existing-tenants__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
 .hidden-file-input {
   display: none;
 }
@@ -1688,6 +1862,18 @@ const exportToPDF = async () => {
   height: 64px;
   border-radius: 8px;
   border: 1px solid var(--surface-border, #dbe4f0);
+}
+
+.price-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.price-unit-select {
+  width: 110px;
+  flex: 0 0 110px;
 }
 
 .room-meter-form-block {

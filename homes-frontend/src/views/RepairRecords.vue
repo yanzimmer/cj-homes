@@ -17,7 +17,7 @@
         <el-button class="toolbar-btn" type="primary" @click="openAddDialog">新增</el-button>
         <el-button class="toolbar-btn" type="primary" plain @click="openAiDialog">AI 输入</el-button>
         <el-button class="toolbar-btn" type="success" @click="linkDialogVisible = true">链接</el-button>
-        <el-button class="toolbar-btn" type="danger" :disabled="multipleSelection.length === 0" @click="confirmBatchDelete">批量删除</el-button>
+        <el-button class="toolbar-btn" type="danger" :disabled="multipleSelection.length === 0" @click="confirmBatchDelete">删除</el-button>
         <el-dropdown trigger="click" @command="handleExportCommand">
           <el-button class="toolbar-btn" type="success">
             导出 <el-icon style="margin-left:4px"><Filter /></el-icon>
@@ -80,6 +80,7 @@
                   <el-dropdown-item command="水电维修">水电维修</el-dropdown-item>
                   <el-dropdown-item command="家具维修">家具维修</el-dropdown-item>
                   <el-dropdown-item command="电器维修">电器维修</el-dropdown-item>
+                  <el-dropdown-item command="清洁费用">清洁费用</el-dropdown-item>
                   <el-dropdown-item command="其他">其他</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -178,11 +179,12 @@
       />
     </div>
 
-    <!-- 添加/编辑维修记录对话框 -->
-    <el-dialog
+    <!-- 添加/编辑维修记录抽屉 -->
+    <el-drawer
       v-model="dialogVisible"
       :title="isEdit ? '编辑维修记录' : '添加维修记录'"
-      width="50%"
+      direction="rtl"
+      size="720px"
     >
       <el-form :model="recordForm" label-width="100px" :rules="rules" ref="recordFormRef">
         <el-form-item label="维修范围" prop="scope_type">
@@ -259,6 +261,7 @@
             <el-option label="水电维修" value="水电维修" />
             <el-option label="家具维修" value="家具维修" />
             <el-option label="电器维修" value="电器维修" />
+            <el-option label="清洁费用" value="清洁费用" />
             <el-option label="其他" value="其他" />
           </el-select>
         </el-form-item>
@@ -466,7 +469,7 @@
           <el-button type="primary" @click="submitForm">确认</el-button>
         </span>
       </template>
-    </el-dialog>
+    </el-drawer>
 
     <!-- 查看维修记录详情对话框 -->
     <el-dialog
@@ -574,7 +577,7 @@
             :show-file-list="false"
             accept="image/*"
             multiple
-            :limit="4"
+            :limit="20"
             :on-change="handleAiImageChange"
           >
             <el-button type="primary" plain>选择图片</el-button>
@@ -588,7 +591,7 @@
           >
             清空图片
           </el-button>
-          <div class="upload-progress-text">已选 {{ aiDialog.images.length }} / 4</div>
+          <div class="upload-progress-text">已选 {{ aiDialog.images.length }} / 20</div>
           <div v-if="aiDialog.images.length" class="ai-image-list">
             <div v-for="(item, index) in aiDialog.images" :key="item.url" class="ai-image-item">
               <el-image
@@ -1217,8 +1220,8 @@ const openAiDialog = () => {
 
 const handleAiImageChange = (file) => {
   if (!file || !file.raw) return
-  if (aiDialog.images.length >= 4) {
-    ElMessage.warning('最多选择 4 张图片')
+  if (aiDialog.images.length >= 20) {
+    ElMessage.warning('最多选择 20 张图片')
     return
   }
   if (!String(file.raw.type || '').startsWith('image/')) {
@@ -1317,8 +1320,8 @@ const confirmDelete = (row) => {
 const confirmBatchDelete = () => {
   if (!multipleSelection.value.length) return
   ElMessageBox.confirm(
-    `确定要批量删除选中的 ${multipleSelection.value.length} 条维修记录吗？`,
-    '批量删除确认',
+    `确定要删除选中的 ${multipleSelection.value.length} 条维修记录吗？`,
+    '删除确认',
     {
       confirmButtonText: '确定',
       cancelButtonText: '取消',
@@ -1371,10 +1374,10 @@ const batchDeleteRecords = async () => {
   }
 
   if (failures.length === 0) {
-    ElMessage.success(`批量删除完成：成功 ${successCount} 条`)
+    ElMessage.success(`删除完成：成功 ${successCount} 条`)
   } else {
-    ElMessage.error(`批量删除完成：成功 ${successCount} 条，失败 ${failures.length} 条`)
-    console.warn('批量删除失败详情:\n' + failures.join('\n'))
+    ElMessage.error(`删除完成：成功 ${successCount} 条，失败 ${failures.length} 条`)
+    console.warn('删除失败详情:\n' + failures.join('\n'))
   }
 }
 
@@ -1658,7 +1661,10 @@ const handleImportFile = async (file) => {
 <style scoped>
 .repair-records-container {
   padding: 20px;
-  border-radius: 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: 18px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
 }
 
 .page-header {

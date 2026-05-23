@@ -68,6 +68,18 @@ const routes = [
         component: () => import('../views/Warehouse.vue'),
         meta: { requiresAuth: true }
       },
+      {
+        path: 'utility-bills',
+        name: 'UtilityBills',
+        component: () => import('../views/UtilityBills.vue'),
+        meta: { requiresAuth: true }
+      },
+      {
+        path: 'rent-ledger',
+        name: 'RentLedger',
+        component: () => import('../views/RentLedger.vue'),
+        meta: { requiresAuth: true }
+      },
 
       {
         path: 'repair-records',

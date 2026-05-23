@@ -11,7 +11,7 @@
           @clear="handleSearchClear"
         />
         <el-button class="toolbar-btn" type="primary" @click="openMoveDialog">新增</el-button>
-        <el-button class="toolbar-btn" type="danger" :disabled="multipleSelection.length === 0" @click="confirmBatchDelete">批量删除</el-button>
+        <el-button class="toolbar-btn" type="danger" :disabled="multipleSelection.length === 0" @click="confirmBatchDelete">删除</el-button>
         <el-dropdown trigger="click" @command="handleExportCommand">
           <el-button class="toolbar-btn" type="success">
             导出 <el-icon style="margin-left:4px"><Filter /></el-icon>
@@ -67,8 +67,13 @@
       </el-tab-pane>
     </el-tabs>
 
-    <!-- 搬迁对话框 -->
-    <el-dialog title="租户搬迁" v-model="moveDialogVisible" width="500px">
+    <!-- 搬迁抽屉 -->
+    <el-drawer
+      title="租户搬迁"
+      v-model="moveDialogVisible"
+      direction="rtl"
+      size="500px"
+    >
       <el-form :model="moveForm" :rules="moveRules" ref="moveFormRef" label-width="100px">
         <!-- 搬迁方式选择 -->
         <el-form-item label="搬迁方式" prop="move_type">
@@ -131,7 +136,7 @@
           <el-button type="primary" @click="handleMoveSubmit" :loading="submitting">确定</el-button>
         </span>
       </template>
-    </el-dialog>
+    </el-drawer>
   </div>
 
   <!-- 隐藏打印区域：搬迁记录列表，用于 PDF 截图渲染，保证中文显示正确 -->
@@ -491,12 +496,12 @@ const deleteMove = async (id) => {
   }
 }
 
-// 批量删除（顺序执行，聚合提示）
+// 删除（顺序执行，聚合提示）
 const confirmBatchDelete = () => {
   if (!multipleSelection.value.length) return
   ElMessageBox.confirm(
-    `确定要批量删除选中的 ${multipleSelection.value.length} 条搬迁记录吗？`,
-    '批量删除确认',
+    `确定要删除选中的 ${multipleSelection.value.length} 条搬迁记录吗？`,
+    '删除确认',
     {
       confirmButtonText: '确定',
       cancelButtonText: '取消',
@@ -528,10 +533,10 @@ const batchDeleteMoves = async () => {
     loading.value = false
   }
   if (failures.length === 0) {
-    ElMessage.success(`批量删除完成：成功 ${successCount} 项`)
+    ElMessage.success(`删除完成：成功 ${successCount} 项`)
   } else {
-    ElMessage.error(`批量删除完成：成功 ${successCount} 项，失败 ${failures.length} 项`)
-    console.warn('批量删除失败详情：\n' + failures.join('\n'))
+    ElMessage.error(`删除完成：成功 ${successCount} 项，失败 ${failures.length} 项`)
+    console.warn('删除失败详情：\n' + failures.join('\n'))
   }
 }
 
@@ -631,6 +636,10 @@ const exportToPDF = async () => {
 <style scoped>
 .moves-container {
   padding: 20px;
+  background: var(--card-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: 18px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
 }
 
 .page-header {

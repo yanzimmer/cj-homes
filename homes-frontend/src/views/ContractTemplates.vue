@@ -32,7 +32,7 @@
           type="danger"
           :disabled="multipleSelection.length === 0"
           @click="confirmBatchDelete"
-        >批量删除</el-button>
+        >删除</el-button>
       </div>
     </div>
 
@@ -161,8 +161,13 @@
       </div>
     </div>
 
-    <!-- 新增/编辑合同对话框 -->
-    <el-dialog :title="dialogTitle" v-model="dialogVisible" width="900px" top="4vh">
+    <!-- 新增/编辑合同抽屉 -->
+    <el-drawer
+      :title="dialogTitle"
+      v-model="dialogVisible"
+      direction="rtl"
+      size="760px"
+    >
       <div class="narrow-fields">
         <el-form :model="tplForm" :rules="rules" ref="formRef" label-width="120px">
           <el-form-item label="合同名称" prop="name">
@@ -211,7 +216,7 @@
           <el-button type="primary" @click="handleSave" :loading="saving">保存</el-button>
         </span>
       </template>
-    </el-dialog>
+    </el-drawer>
 
     <!-- 预览/打印对话框 -->
     <el-dialog title="预览与导出" v-model="previewVisible" width="980px" top="2vh">
@@ -528,7 +533,7 @@ watch([filteredTemplates, pageSize], () => {
 // 搜索时重置到第一页，提升体验
 watch(searchQuery, () => { currentPage.value = 1 })
 
-// 表格选择与批量删除
+// 表格选择与删除
 const templatesTableRef = ref(null)
 const multipleSelection = ref([])
 const handleSelectionChange = (val) => {
@@ -546,7 +551,7 @@ const confirmBatchDelete = async () => {
   const previewNames = names.slice(0, 6).join('、') + (names.length > 6 ? ' 等' : '')
   try {
     await ElMessageBox.confirm(
-      `确定批量删除以下 ${count} 个合同吗？${previewNames}。删除后将同时删除关联合同，且不可撤销。`,
+      `确定删除以下 ${count} 个合同吗？${previewNames}。删除后将同时删除关联合同，且不可撤销。`,
       '提示',
       {
         type: 'warning',
@@ -564,7 +569,7 @@ const confirmBatchDelete = async () => {
   }
 
   const { ok, fail, errors } = await batchDeleteTemplates(ids)
-  if (ok) ElMessage.success(`批量删除完成：成功 ${ok} 条`) 
+  if (ok) ElMessage.success(`删除完成：成功 ${ok} 条`)
   if (fail) {
     const msg = errors.map(err => `ID ${err.id}: ${err.message}`).join('\n')
     ElMessage.error(`失败 ${fail} 条\n${msg}`)
@@ -1020,6 +1025,10 @@ onUnmounted(() => {
 <style scoped>
 .templates-container {
   padding: 20px;
+  background: var(--card-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: 18px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
 }
 
 .page-header {

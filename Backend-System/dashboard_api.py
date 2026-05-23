@@ -91,6 +91,159 @@ def _load_monthly_procurement_stats(cursor, limit=12):
     ]
 
 
+def _load_monthly_utility_stats(cursor, year):
+    cursor.execute(
+        """
+        SELECT
+            month,
+            utility_type,
+            COALESCE(SUM(COALESCE(amount, 0)), 0) AS total_amount,
+            COUNT(*) AS total_count
+        FROM utility_bills
+        WHERE year = ?
+        GROUP BY month, utility_type
+        ORDER BY month ASC, utility_type ASC
+        """,
+        (year,),
+    )
+    monthly_map = {}
+    electricity_total = 0.0
+    water_total = 0.0
+    record_count = 0
+    for row in cursor.fetchall():
+        month = int(row["month"] or 0)
+        utility_type = str(row["utility_type"] or "")
+        total_amount = round(float(row["total_amount"] or 0), 2)
+        total_count = int(row["total_count"] or 0)
+        monthly = monthly_map.setdefault(
+            month,
+            {
+                "month": f"{year}-{month:02d}",
+                "totalAmount": 0.0,
+                "electricityAmount": 0.0,
+                "waterAmount": 0.0,
+                "recordCount": 0,
+            },
+        )
+        monthly["totalAmount"] = round(monthly["totalAmount"] + total_amount, 2)
+        monthly["recordCount"] += total_count
+        record_count += total_count
+        if utility_type == "electricity":
+            monthly["electricityAmount"] = round(monthly["electricityAmount"] + total_amount, 2)
+            electricity_total = round(electricity_total + total_amount, 2)
+        elif utility_type == "water":
+            monthly["waterAmount"] = round(monthly["waterAmount"] + total_amount, 2)
+            water_total = round(water_total + total_amount, 2)
+
+    monthly_list = []
+    for month in range(1, 13):
+        item = monthly_map.get(
+            month,
+            {
+                "month": f"{year}-{month:02d}",
+                "totalAmount": 0.0,
+                "electricityAmount": 0.0,
+                "waterAmount": 0.0,
+                "recordCount": 0,
+            },
+        )
+        monthly_list.append(item)
+
+    return {
+        "year": year,
+        "totalAmount": round(electricity_total + water_total, 2),
+        "electricityTotal": round(electricity_total, 2),
+        "waterTotal": round(water_total, 2),
+        "recordCount": record_count,
+        "monthly": monthly_list,
+    }
+
+
+def _load_monthly_rent_ledger_stats(cursor, year):
+    cursor.execute(
+        """
+        SELECT
+            substr(period_start, 1, 7) AS month,
+            COUNT(*) AS total_periods,
+            SUM(CASE WHEN status = '已交' THEN 1 ELSE 0 END) AS paid_periods,
+            SUM(CASE WHEN status = '部分已交' THEN 1 ELSE 0 END) AS partial_periods,
+            SUM(CASE WHEN status = '未交' THEN 1 ELSE 0 END) AS unpaid_periods,
+            COALESCE(SUM(COALESCE(due_amount, 0)), 0) AS due_amount,
+            COALESCE(SUM(COALESCE(actual_amount, 0)), 0) AS actual_amount
+        FROM rent_ledger_entries
+        WHERE substr(period_start, 1, 4) = ?
+        GROUP BY substr(period_start, 1, 7)
+        ORDER BY month ASC
+        """,
+        (f"{year:04d}",),
+    )
+
+    monthly_map = {}
+    total_periods = 0
+    paid_periods = 0
+    partial_periods = 0
+    unpaid_periods = 0
+    due_total = 0.0
+    actual_total = 0.0
+
+    for row in cursor.fetchall():
+        month = row["month"] or ""
+        due_amount = round(float(row["due_amount"] or 0), 2)
+        actual_amount = round(float(row["actual_amount"] or 0), 2)
+        outstanding_amount = round(max(due_amount - actual_amount, 0), 2)
+        item = {
+            "month": month,
+            "totalPeriods": int(row["total_periods"] or 0),
+            "paidPeriods": int(row["paid_periods"] or 0),
+            "partialPeriods": int(row["partial_periods"] or 0),
+            "unpaidPeriods": int(row["unpaid_periods"] or 0),
+            "dueAmount": due_amount,
+            "actualAmount": actual_amount,
+            "outstandingAmount": outstanding_amount,
+        }
+        monthly_map[month] = item
+        total_periods += item["totalPeriods"]
+        paid_periods += item["paidPeriods"]
+        partial_periods += item["partialPeriods"]
+        unpaid_periods += item["unpaidPeriods"]
+        due_total = round(due_total + due_amount, 2)
+        actual_total = round(actual_total + actual_amount, 2)
+
+    monthly_list = []
+    for month in range(1, 13):
+        key = f"{year:04d}-{month:02d}"
+        monthly_list.append(
+            monthly_map.get(
+                key,
+                {
+                    "month": key,
+                    "totalPeriods": 0,
+                    "paidPeriods": 0,
+                    "partialPeriods": 0,
+                    "unpaidPeriods": 0,
+                    "dueAmount": 0.0,
+                    "actualAmount": 0.0,
+                    "outstandingAmount": 0.0,
+                },
+            )
+        )
+
+    outstanding_total = round(max(due_total - actual_total, 0), 2)
+    return {
+        "year": year,
+        "recordCount": total_periods,
+        "totalPeriods": total_periods,
+        "paidPeriods": paid_periods,
+        "partialPeriods": partial_periods,
+        "unpaidPeriods": unpaid_periods,
+        "dueTotal": due_total,
+        "actualTotal": actual_total,
+        "outstandingTotal": outstanding_total,
+        "collectionRate": round((actual_total / due_total) * 100) if due_total > 0 else 0,
+        "monthly": monthly_list,
+    }
+
+
 @dashboard_bp.route("/stats", methods=["GET"])
 @token_required
 def api_dashboard_stats(current_user):
@@ -221,6 +374,9 @@ def api_dashboard_stats(current_user):
         procurement_total = int(procurement_row["total"] or 0)
         procurement_total_amount = float(procurement_row["total_amount"] or 0)
         procurement_monthly = _load_monthly_procurement_stats(cursor)
+        utility_year = date.today().year
+        utility_stats = _load_monthly_utility_stats(cursor, utility_year)
+        rent_ledger_stats = _load_monthly_rent_ledger_stats(cursor, utility_year)
         ocr_status = build_ocr_status()
 
         return jsonify(
@@ -253,6 +409,8 @@ def api_dashboard_stats(current_user):
                     "totalAmount": round(procurement_total_amount, 2),
                     "monthly": procurement_monthly,
                 },
+                "utilityBills": utility_stats,
+                "rentLedger": rent_ledger_stats,
                 "expiring": {
                     "count": len(expiring_list),
                     "list": expiring_list,

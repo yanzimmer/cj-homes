@@ -10,8 +10,40 @@ APP_LOG_FILE = os.path.join(LOG_DIR, "app.log")
 ERROR_LOG_FILE = os.path.join(LOG_DIR, "error.log")
 
 
+def _file_handler_path(handler):
+    return getattr(handler, "baseFilename", None)
+
+
+def _remove_file_handlers(logger, file_paths, close=False):
+    for handler in list(logger.handlers):
+        if _file_handler_path(handler) in file_paths:
+            logger.removeHandler(handler)
+            if close:
+                try:
+                    handler.close()
+                except Exception:
+                    pass
+
+
+def _add_handler_once(logger, handler):
+    existing_files = {
+        _file_handler_path(item)
+        for item in logger.handlers
+    }
+    if handler.baseFilename in existing_files:
+        handler.close()
+        return
+    logger.addHandler(handler)
+
+
 def configure_logging(app=None):
     os.makedirs(LOG_DIR, exist_ok=True)
+    log_files = {APP_LOG_FILE, ERROR_LOG_FILE}
+
+    if app is not None:
+        _remove_file_handlers(app.logger, log_files)
+        app.logger.setLevel(logging.INFO)
+        app.logger.propagate = True
 
     formatter = logging.Formatter(
         "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
@@ -44,19 +76,8 @@ def configure_logging(app=None):
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
 
-    existing_files = {
-        getattr(handler, "baseFilename", None)
-        for handler in root_logger.handlers
-    }
     for handler in (app_handler, error_handler):
-        if handler.baseFilename not in existing_files:
-            root_logger.addHandler(handler)
-
-    if app is not None:
-        app.logger.setLevel(logging.INFO)
-        for handler in (app_handler, error_handler):
-            if all(getattr(item, "baseFilename", None) != handler.baseFilename for item in app.logger.handlers):
-                app.logger.addHandler(handler)
+        _add_handler_once(root_logger, handler)
 
     return {
         "log_dir": LOG_DIR,

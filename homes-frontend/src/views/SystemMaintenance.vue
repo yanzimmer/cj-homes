@@ -132,6 +132,71 @@
       <div class="system-grid-item">
         <div class="card-box h-100 system-card">
           <div class="card-header">
+            <el-icon class="icon"><Setting /></el-icon>
+            <h3>水电费账户预设</h3>
+          </div>
+          <div class="card-content">
+            <div class="description">
+              在这里预设水费和电费的常用账户。保存后，水电费录入弹窗会自动提供可搜索下拉选择，也支持继续手动输入新账户。
+            </div>
+
+            <div class="utility-account-grid">
+              <div class="utility-account-group">
+                <div class="feature-editor">
+                  <div class="feature-group-title">电费账户</div>
+                  <div class="feature-input-wrap">
+                    <el-input
+                      v-model="newUtilityAccount.electricity"
+                      placeholder="输入电费账户，例如：191-A"
+                      @keyup.enter="addUtilityAccount('electricity')"
+                    />
+                    <el-button type="primary" :loading="savingUtilityAccounts" @click="addUtilityAccount('electricity')">添加账户</el-button>
+                  </div>
+                </div>
+                <div class="feature-tags">
+                  <el-tag
+                    v-for="item in utilityAccountOptions.electricity"
+                    :key="`electricity-${item}`"
+                    closable
+                    @close="removeUtilityAccount('electricity', item)"
+                  >
+                    {{ item }}
+                  </el-tag>
+                </div>
+              </div>
+
+              <div class="utility-account-group">
+                <div class="feature-editor">
+                  <div class="feature-group-title">水费账户</div>
+                  <div class="feature-input-wrap">
+                    <el-input
+                      v-model="newUtilityAccount.water"
+                      placeholder="输入水费账户，例如：361-A"
+                      @keyup.enter="addUtilityAccount('water')"
+                    />
+                    <el-button type="primary" :loading="savingUtilityAccounts" @click="addUtilityAccount('water')">添加账户</el-button>
+                  </div>
+                </div>
+                <div class="feature-tags">
+                  <el-tag
+                    v-for="item in utilityAccountOptions.water"
+                    :key="`water-${item}`"
+                    closable
+                    @close="removeUtilityAccount('water', item)"
+                  >
+                    {{ item }}
+                  </el-tag>
+                </div>
+              </div>
+            </div>
+            <div class="feature-hint">新增或删除后会自动保存，不需要再额外点保存按钮。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="system-grid-item">
+        <div class="card-box h-100 system-card">
+          <div class="card-header">
             <el-icon class="icon"><Cpu /></el-icon>
             <h3>本地 AI 模型配置</h3>
           </div>
@@ -288,7 +353,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { Download, Upload, UploadFilled, Document, Refresh, Delete, MagicStick, Setting, Key, Cpu } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { systemApi } from '../api'
@@ -303,6 +368,15 @@ const importUploadProgress = ref(0)
 const roomFeatureOptions = ref([])
 const newRoomFeature = ref('')
 const savingRoomFeatures = ref(false)
+const utilityAccountOptions = reactive({
+  electricity: [],
+  water: [],
+})
+const newUtilityAccount = reactive({
+  electricity: '',
+  water: '',
+})
+const savingUtilityAccounts = ref(false)
 const savingOcrSettings = ref(false)
 const savingAiSettings = ref(false)
 let aiSwitchPollTimer = null
@@ -441,6 +515,20 @@ const fetchRoomFeatureOptions = async () => {
   }
 }
 
+const applyUtilityAccountOptions = (data = {}) => {
+  utilityAccountOptions.electricity = Array.isArray(data?.electricity) ? data.electricity : []
+  utilityAccountOptions.water = Array.isArray(data?.water) ? data.water : []
+}
+
+const fetchUtilityAccountOptions = async () => {
+  try {
+    const response = await systemApi.getUtilityAccountOptions()
+    applyUtilityAccountOptions(response?.data || {})
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '加载水电费账户预设失败')
+  }
+}
+
 const fetchOcrSettings = async () => {
   try {
     const response = await systemApi.getOcrSettings()
@@ -554,6 +642,39 @@ const saveRoomFeatures = async () => {
     ElMessage.error(error?.response?.data?.error || '保存房间设施配置失败')
   } finally {
     savingRoomFeatures.value = false
+  }
+}
+
+const addUtilityAccount = (type) => {
+  if (!['electricity', 'water'].includes(type)) return
+  const text = String(newUtilityAccount[type] || '').trim()
+  if (!text) return
+  if (!utilityAccountOptions[type].includes(text)) {
+    utilityAccountOptions[type] = [...utilityAccountOptions[type], text]
+  }
+  newUtilityAccount[type] = ''
+  saveUtilityAccountOptions()
+}
+
+const removeUtilityAccount = (type, item) => {
+  if (!['electricity', 'water'].includes(type)) return
+  utilityAccountOptions[type] = utilityAccountOptions[type].filter(v => v !== item)
+  saveUtilityAccountOptions()
+}
+
+const saveUtilityAccountOptions = async () => {
+  savingUtilityAccounts.value = true
+  try {
+    const response = await systemApi.updateUtilityAccountOptions({
+      electricity: utilityAccountOptions.electricity,
+      water: utilityAccountOptions.water,
+    })
+    applyUtilityAccountOptions(response?.data || {})
+    ElMessage.success('水电费账户预设已保存')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '保存水电费账户预设失败')
+  } finally {
+    savingUtilityAccounts.value = false
   }
 }
 
@@ -726,6 +847,7 @@ const handleSeed = () => {
 
 onMounted(() => {
   fetchRoomFeatureOptions()
+  fetchUtilityAccountOptions()
   fetchOcrSettings()
   fetchAiSettings()
 })
@@ -983,6 +1105,26 @@ onBeforeUnmount(() => {
   color: var(--text-secondary);
 }
 
+.utility-account-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 12px;
+}
+
+.utility-account-group {
+  padding: 14px;
+  border: 1px solid var(--surface-border);
+  border-radius: 14px;
+  background: var(--surface-muted);
+}
+
+.feature-group-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
 .ocr-settings-form {
   display: flex;
   flex-direction: column;
@@ -1025,6 +1167,10 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 768px) {
+  .utility-account-grid {
+    grid-template-columns: 1fr;
+  }
+
   .danger-row {
     flex-direction: column;
     align-items: flex-start;

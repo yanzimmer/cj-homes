@@ -212,6 +212,91 @@
 
       <div class="stat-card-wrapper overview-card">
           <div class="stat-header">
+            <div class="icon-box icon-utility">
+              <el-icon><Coin /></el-icon>
+            </div>
+            <div class="stat-title">水电费</div>
+          </div>
+          <div v-loading="loading.utilityBills" class="stat-body">
+            <div class="main-value">¥{{ Number(stats.utilityBills.totalAmount || 0).toFixed(2) }}</div>
+            <div class="sub-stats">
+              <div class="sub-item">
+                <span class="label">电费</span>
+                <span class="value warning">¥{{ Number(stats.utilityBills.electricityTotal || 0).toFixed(2) }}</span>
+              </div>
+              <div class="sub-item">
+                <span class="label">水费</span>
+                <span class="value primary">¥{{ Number(stats.utilityBills.waterTotal || 0).toFixed(2) }}</span>
+              </div>
+            </div>
+            <div class="progress-area">
+              <div class="progress-label">
+                <span>统计年份</span>
+                <span>{{ stats.utilityBills.year || new Date().getFullYear() }} 年</span>
+              </div>
+              <div class="ocr-status-line">共 {{ stats.utilityBills.recordCount || 0 }} 条月度账单记录</div>
+            </div>
+            <div class="monthly-stats">
+              <div class="monthly-title">按月统计</div>
+              <div v-if="stats.utilityBills.monthly.length" class="monthly-list">
+                <div v-for="item in stats.utilityBills.monthly.slice(0, 4)" :key="item.month" class="monthly-row">
+                  <span class="month">{{ formatMonthLabel(item.month) }}</span>
+                  <span>{{ Number(item.electricityAmount || 0).toFixed(2) }} / {{ Number(item.waterAmount || 0).toFixed(2) }}</span>
+                  <strong>¥{{ Number(item.totalAmount || 0).toFixed(2) }}</strong>
+                </div>
+              </div>
+              <el-empty v-else description="暂无月度数据" :image-size="42" />
+            </div>
+          </div>
+      </div>
+
+      <div class="stat-card-wrapper overview-card">
+          <div class="stat-header">
+            <div class="icon-box icon-rent-ledger">
+              <el-icon><Coin /></el-icon>
+            </div>
+            <div class="stat-title">收租台账</div>
+          </div>
+          <div v-loading="loading.rentLedger" class="stat-body">
+            <div class="main-value">¥{{ Number(stats.rentLedger.dueTotal || 0).toFixed(2) }}</div>
+            <div class="sub-stats">
+              <div class="sub-item">
+                <span class="label">已收</span>
+                <span class="value success">¥{{ Number(stats.rentLedger.actualTotal || 0).toFixed(2) }}</span>
+              </div>
+              <div class="sub-item">
+                <span class="label">待收</span>
+                <span class="value danger">¥{{ Number(stats.rentLedger.outstandingTotal || 0).toFixed(2) }}</span>
+              </div>
+            </div>
+            <div class="progress-area">
+              <div class="progress-label">
+                <span>已交 / 总期次</span>
+                <span>{{ stats.rentLedger.paidPeriods || 0 }} / {{ stats.rentLedger.totalPeriods || 0 }}</span>
+              </div>
+              <el-progress
+                :percentage="stats.rentLedger.collectionRate || 0"
+                :show-text="false"
+                :color="getProgressColor(stats.rentLedger.collectionRate || 0)"
+                :stroke-width="8"
+              />
+            </div>
+            <div class="monthly-stats">
+              <div class="monthly-title">按月统计</div>
+              <div v-if="stats.rentLedger.monthly.length" class="monthly-list">
+                <div v-for="item in stats.rentLedger.monthly.slice(0, 4)" :key="item.month" class="monthly-row">
+                  <span class="month">{{ formatMonthLabel(item.month) }}</span>
+                  <span>{{ item.paidPeriods || 0 }} / {{ item.totalPeriods || 0 }} 期</span>
+                  <strong>¥{{ Number(item.outstandingAmount || 0).toFixed(2) }}</strong>
+                </div>
+              </div>
+              <el-empty v-else description="暂无月度数据" :image-size="42" />
+            </div>
+          </div>
+      </div>
+
+      <div class="stat-card-wrapper overview-card">
+          <div class="stat-header">
             <div class="icon-box icon-info">
               <el-icon><InfoFilled /></el-icon>
             </div>
@@ -247,7 +332,7 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { dashboardApi } from '../api'
 import { ElMessage } from 'element-plus'
-import { House, User, Tools, InfoFilled, Warning } from '@element-plus/icons-vue'
+import { House, User, Tools, InfoFilled, Warning, Coin } from '@element-plus/icons-vue'
 
 // 加载状态
 const loading = reactive({
@@ -256,7 +341,9 @@ const loading = reactive({
   repairs: true,
   expiring: true,
   ocr: true,
-  procurements: true
+  procurements: true,
+  utilityBills: true,
+  rentLedger: true
 })
 
 // 预警天数配置
@@ -293,6 +380,27 @@ const stats = reactive({
   procurements: {
     total: 0,
     totalAmount: 0,
+    monthly: []
+  },
+  rentLedger: {
+    year: new Date().getFullYear(),
+    recordCount: 0,
+    totalPeriods: 0,
+    paidPeriods: 0,
+    partialPeriods: 0,
+    unpaidPeriods: 0,
+    dueTotal: 0,
+    actualTotal: 0,
+    outstandingTotal: 0,
+    collectionRate: 0,
+    monthly: []
+  },
+  utilityBills: {
+    year: new Date().getFullYear(),
+    totalAmount: 0,
+    electricityTotal: 0,
+    waterTotal: 0,
+    recordCount: 0,
     monthly: []
   },
   expiring: {
@@ -358,6 +466,8 @@ const fetchDashboardStats = async () => {
   loading.expiring = true
   loading.ocr = true
   loading.procurements = true
+  loading.rentLedger = true
+  loading.utilityBills = true
   try {
     const { data } = await dashboardApi.getStats()
     advanceDays.value = Number(data?.advance_days || 7)
@@ -366,6 +476,8 @@ const fetchDashboardStats = async () => {
     Object.assign(stats.tenants, data?.tenants || {})
     Object.assign(stats.repairs, data?.repairs || {})
     Object.assign(stats.procurements, data?.procurements || {})
+    Object.assign(stats.rentLedger, data?.rentLedger || {})
+    Object.assign(stats.utilityBills, data?.utilityBills || {})
     Object.assign(stats.expiring, data?.expiring || { count: 0, list: [] })
     Object.assign(stats.ocr, data?.ocr || {})
   } catch (error) {
@@ -378,6 +490,8 @@ const fetchDashboardStats = async () => {
     loading.expiring = false
     loading.ocr = false
     loading.procurements = false
+    loading.rentLedger = false
+    loading.utilityBills = false
   }
 }
 
@@ -541,6 +655,14 @@ html.dark .alert-panel {
 .icon-procurement {
   background-color: rgba(16, 185, 129, 0.1);
   color: #10b981;
+}
+.icon-utility {
+  background-color: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+}
+.icon-rent-ledger {
+  background-color: rgba(37, 99, 235, 0.1);
+  color: var(--el-color-primary);
 }
 
 .stat-title {

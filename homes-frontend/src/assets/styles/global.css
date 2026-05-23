@@ -20,7 +20,8 @@
   --surface-bg: #ffffff;
   --surface-border: #e8edf5;
   --surface-muted: #f8fafc;
-  --sidebar-bg: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  --sidebar-bg: var(--bg-color);
+  --drawer-bg: var(--bg-color);
   --sidebar-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
   --sidebar-divider: rgba(15, 23, 42, 0.08);
   --sidebar-text: #334155;
@@ -56,7 +57,8 @@ html.dark {
   --surface-bg: #111827;
   --surface-border: #253042;
   --surface-muted: #1b2435;
-  --sidebar-bg: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+  --sidebar-bg: var(--bg-color);
+  --drawer-bg: var(--bg-color);
   --sidebar-shadow: 0 12px 30px rgba(2, 6, 23, 0.32);
   --sidebar-divider: rgba(148, 163, 184, 0.18);
   --sidebar-text: #cbd5e1;
@@ -74,6 +76,29 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition: background-color var(--theme-transition-duration), color var(--theme-transition-duration);
+}
+
+.el-drawer {
+  --el-drawer-bg-color: var(--drawer-bg);
+  background: var(--drawer-bg) !important;
+  color: var(--text-main);
+}
+
+.el-drawer__header {
+  color: var(--text-main);
+  border-bottom: 1px solid var(--surface-border);
+  margin-bottom: 0;
+  padding-bottom: 16px;
+}
+
+.el-drawer__body {
+  background: var(--drawer-bg);
+  color: var(--text-main);
+}
+
+.el-drawer__footer {
+  background: var(--drawer-bg);
+  border-top: 1px solid var(--surface-border);
 }
 
 #app {

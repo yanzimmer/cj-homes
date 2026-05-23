@@ -483,8 +483,7 @@ def api_checkout_tenant_by_id(current_user, tenant_id):
 def api_add_tenant(current_user):
     data = request.json
     required_fields = [
-        'name', 'gender', 'id_card', 'phone',
-        'emergency_contact_name', 'emergency_contact_phone',
+        'name', 'phone',
         'check_in_date', 'check_out_date', 'room_no',
     ]
 
@@ -500,6 +499,9 @@ def api_add_tenant(current_user):
     room_id = room[0]
     cursor = conn.cursor()
     remarks = data.get('remarks', '')
+    gender = _clean_text(data.get('gender'))
+    id_card = _clean_text(data.get('id_card')).upper() or None
+    status = _normalize_tenant_status(data.get('status'))
 
     try:
         cursor.execute(
@@ -508,30 +510,99 @@ def api_add_tenant(current_user):
                 name, gender, nation, birth_date, id_card, address, front_img, back_img,
                 phone, emergency_contact_name, emergency_contact_phone,
                 check_in_date, check_out_date, room_id, remarks, status
-            ) VALUES (?, ?, ?, ?, ?, ?, '', '', ?, ?, ?, ?, ?, ?, ?, '在住')
+            ) VALUES (?, ?, ?, ?, ?, ?, '', '', ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data['name'],
-                data['gender'],
+                gender,
                 data.get('nation', '汉族'),
                 data.get('birth_date', None),
-                data['id_card'],
+                id_card,
                 data.get('address', ''),
                 data['phone'],
-                data['emergency_contact_name'],
-                data['emergency_contact_phone'],
+                data.get('emergency_contact_name', ''),
+                data.get('emergency_contact_phone', ''),
                 data['check_in_date'],
                 data['check_out_date'],
                 room_id,
                 remarks,
+                status,
             ),
         )
+        tenant_id = cursor.lastrowid
         _refresh_tenant_statuses(conn)
         _refresh_room_statuses(conn)
         conn.commit()
         conn.close()
 
-        return jsonify({'message': f"租户 {data['name']} 已添加", 'id_card': data['id_card']})
+        return jsonify({'message': f"租户 {data['name']} 已添加", 'id': tenant_id, 'id_card': id_card or ''})
+    except sqlite3.Error as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+
+@tenants_bp.route('/tenants/by-id/<int:tenant_id>', methods=['DELETE'])
+@token_required
+def api_delete_tenant_by_id(current_user, tenant_id):
+    conn = connect()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("SELECT id, status, room_id FROM tenants WHERE id = ? LIMIT 1", (tenant_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'error': f'租户 #{tenant_id} 不存在'}), 404
+        tenant_id, status, room_id = row[0], row[1], row[2]
+        if status != '已退租':
+            conn.close()
+            return jsonify({'error': '在住状态不可删除，请先办理退租'}), 400
+
+        cursor.execute("DELETE FROM tenant_moves WHERE tenant_id = ?", (tenant_id,))
+        moves_deleted = cursor.rowcount
+
+        cursor.execute("DELETE FROM tenants WHERE id = ?", (tenant_id,))
+        if cursor.rowcount == 0:
+            conn.close()
+            return jsonify({'error': f'租户 #{tenant_id} 不存在'}), 404
+
+        conn.commit()
+
+        if room_id is not None:
+            cursor.execute(
+                """
+                UPDATE rooms
+                SET status = CASE
+                    WHEN EXISTS (
+                        SELECT 1 FROM tenants t
+                        WHERE t.room_id = rooms.id
+                          AND t.status = '在住'
+                          AND DATE('now','localtime') BETWEEN t.check_in_date AND t.check_out_date
+                    ) THEN '已入住'
+                    ELSE '空闲'
+                END
+                WHERE id = ?
+                """,
+                (room_id,)
+            )
+        conn.commit()
+        conn.close()
+        msg = f'租户 #{tenant_id} 已删除'
+        if moves_deleted and moves_deleted > 0:
+            msg += f'（已清理搬迁记录 {moves_deleted} 条）'
+        return jsonify({'message': msg})
+    except sqlite3.IntegrityError:
+        try:
+            conn2 = connect()
+            cur2 = conn2.cursor()
+            cur2.execute("SELECT COUNT(*) FROM tenant_moves WHERE tenant_id = ?", (tenant_id,))
+            moves_count = cur2.fetchone()[0]
+            conn2.close()
+            if moves_count > 0:
+                return jsonify({'error': f'租户 #{tenant_id} 存在 {moves_count} 条搬迁记录，无法删除；请先删除或归档相关记录'}), 400
+        except Exception:
+            pass
+        return jsonify({'error': '删除失败：存在关联数据约束（如搬迁记录），请先清理关联数据后再尝试'}), 400
     except sqlite3.Error as e:
         conn.close()
         return jsonify({'error': str(e)}), 500
@@ -662,6 +733,53 @@ def api_update_tenant(current_user, id_card):
         conn.close()
 
         return jsonify({'message': f'租户 {id_card} 信息已更新'})
+    except sqlite3.Error as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+
+@tenants_bp.route('/tenants/by-id/<int:tenant_id>', methods=['PUT'])
+@token_required
+def api_update_tenant_by_id(current_user, tenant_id):
+    data = request.json
+    if not data:
+        return jsonify({'error': '缺少更新数据'}), 400
+
+    allowed_fields = [
+        'name', 'phone', 'emergency_contact_name', 'emergency_contact_phone',
+        'check_in_date', 'check_out_date', 'remarks',
+    ]
+    update_data = {k: v for k, v in data.items() if k in allowed_fields}
+
+    if 'room_no' in data:
+        conn = connect()
+        room = _resolve_room_for_tenant(conn, data.get('room_no'), data.get('building'))
+        if not room:
+            conn.close()
+            return jsonify({'error': f"房间 {data['room_no']} 不存在"}), 404
+        update_data['room_id'] = room[0]
+        conn.close()
+
+    if not update_data:
+        return jsonify({'error': '没有有效的更新字段'}), 400
+
+    conn = connect()
+    cursor = conn.cursor()
+
+    try:
+        for key, value in update_data.items():
+            cursor.execute(f"UPDATE tenants SET {key} = ? WHERE id = ?", (value, tenant_id))
+
+        if cursor.rowcount == 0:
+            conn.close()
+            return jsonify({'error': f'租户 #{tenant_id} 不存在'}), 404
+
+        _refresh_tenant_statuses(conn)
+        _refresh_room_statuses(conn)
+        conn.commit()
+        conn.close()
+
+        return jsonify({'message': f'租户 #{tenant_id} 信息已更新'})
     except sqlite3.Error as e:
         conn.close()
         return jsonify({'error': str(e)}), 500

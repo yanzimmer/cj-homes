@@ -17,6 +17,7 @@ from flask import Blueprint, request, jsonify, send_file, current_app
 from auth_api import token_required
 from common import connect, DB_NAME, BASE_DIR
 from room_feature_config import get_room_feature_options, save_room_feature_options
+from utility_account_config import get_utility_account_options, save_utility_account_options
 from ocr_settings import build_ocr_status, load_ocr_settings, save_ocr_settings
 from local_ai_settings import ALLOWED_PROCUREMENT_MODELS, load_ai_settings, save_ai_settings
 
@@ -272,6 +273,27 @@ def update_room_feature_options_api(current_user):
         return jsonify({'error': 'options 必须是数组'}), 400
     saved = save_room_feature_options(options)
     return jsonify({'options': saved})
+
+
+@system_bp.route('/utility-account-options', methods=['GET'])
+@token_required
+def get_utility_account_options_api(current_user):
+    return jsonify(get_utility_account_options())
+
+
+@system_bp.route('/utility-account-options', methods=['PUT'])
+@token_required
+def update_utility_account_options_api(current_user):
+    data = request.json or {}
+    electricity = data.get('electricity')
+    water = data.get('water')
+    if not isinstance(electricity, list) or not isinstance(water, list):
+        return jsonify({'error': 'electricity 和 water 都必须是数组'}), 400
+    saved = save_utility_account_options({
+        'electricity': electricity,
+        'water': water,
+    })
+    return jsonify(saved)
 
 
 @system_bp.route('/ocr-settings', methods=['GET'])

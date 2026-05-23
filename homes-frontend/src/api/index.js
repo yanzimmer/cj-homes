@@ -79,7 +79,7 @@ export const roomsApi = {
   enableSelfCheckinLink: (linkId) => apiClient.post(`/self-checkin/links/${linkId}/enable`),
   deleteSelfCheckinLink: (linkId) => apiClient.delete(`/self-checkin/links/${linkId}`),
   listSelfCheckinSubmissions: (roomId) => apiClient.get(`/self-checkin/rooms/${roomId}/submissions`),
-  approveSelfCheckinSubmission: (submissionId) => apiClient.post(`/self-checkin/submissions/${submissionId}/approve`),
+  approveSelfCheckinSubmission: (submissionId, payload = {}) => apiClient.post(`/self-checkin/submissions/${submissionId}/approve`, payload),
   rejectSelfCheckinSubmission: (submissionId, payload) => apiClient.post(`/self-checkin/submissions/${submissionId}/reject`, payload),
   deleteSelfCheckinSubmission: (submissionId) => apiClient.delete(`/self-checkin/submissions/${submissionId}`),
 }
@@ -88,8 +88,23 @@ export const roomsApi = {
 export const tenantsApi = {
   listTenants: (params = {}) => apiClient.get('/tenants', { params }),
   addTenant: (tenantData) => apiClient.post('/tenants', tenantData),
-  updateTenant: (tenantId, tenantData) => apiClient.put(`/tenants/${tenantData.id_card}`, tenantData),
-  deleteTenant: (idCard) => apiClient.delete(`/tenants/${encodeURIComponent(idCard)}`),
+  updateTenant: (tenantId, tenantData) => {
+    const tenantRecordId = tenantData?.id ?? tenantId
+    const idCard = String(tenantData?.id_card || '').trim()
+    if (!idCard && tenantRecordId !== undefined && tenantRecordId !== null && tenantRecordId !== '') {
+      return apiClient.put(`/tenants/by-id/${tenantRecordId}`, tenantData)
+    }
+    return apiClient.put(`/tenants/${encodeURIComponent(idCard || tenantId || '')}`, tenantData)
+  },
+  deleteTenant: (tenant) => {
+    if (tenant && typeof tenant === 'object') {
+      if ((!tenant.id_card || !String(tenant.id_card).trim()) && tenant.id !== undefined && tenant.id !== null && tenant.id !== '') {
+        return apiClient.delete(`/tenants/by-id/${tenant.id}`)
+      }
+      return apiClient.delete(`/tenants/${encodeURIComponent(tenant.id_card || '')}`)
+    }
+    return apiClient.delete(`/tenants/${encodeURIComponent(tenant)}`)
+  },
   checkoutTenant: (tenant) => {
     if (tenant && typeof tenant === 'object') {
       if (tenant.id !== undefined && tenant.id !== null && tenant.id !== '') {
@@ -192,6 +207,8 @@ export const systemApi = {
   exportData: () => apiClient.get('/system/export', { responseType: 'blob' }),
   getRoomFeatureOptions: () => apiClient.get('/system/room-feature-options'),
   updateRoomFeatureOptions: (payload) => apiClient.put('/system/room-feature-options', payload),
+  getUtilityAccountOptions: () => apiClient.get('/system/utility-account-options'),
+  updateUtilityAccountOptions: (payload) => apiClient.put('/system/utility-account-options', payload),
   getOcrSettings: () => apiClient.get('/system/ocr-settings'),
   updateOcrSettings: (payload) => apiClient.put('/system/ocr-settings', payload),
   getAiSettings: () => apiClient.get('/system/ai-settings'),
@@ -223,6 +240,7 @@ export const procurementApi = {
   }),
   createProcurement: (data) => apiClient.post('/procurements', data),
   updateProcurement: (id, data) => apiClient.put(`/procurements/${id}`, data),
+  updateProcurementImages: (id, data) => apiClient.put(`/procurements/${id}/images`, data),
   uploadProcurementImage: (id, file, onProgress) => {
     const formData = new FormData()
     formData.append('file', file)
@@ -238,6 +256,21 @@ export const procurementApi = {
     })
   },
   deleteProcurement: (id) => apiClient.delete(`/procurements/${id}`)
+}
+
+export const utilityBillsApi = {
+  getSummary: (year) => apiClient.get('/utility-bills/summary', { params: { year } }),
+  getAccountOptions: () => apiClient.get('/utility-bills/account-options'),
+  saveBill: (data) => apiClient.post('/utility-bills', data),
+  updateBill: (id, data) => apiClient.put(`/utility-bills/${id}`, data),
+  updateBillImages: (id, data) => apiClient.put(`/utility-bills/${id}/images`, data),
+  deleteBill: (id) => apiClient.delete(`/utility-bills/${id}`),
+}
+
+export const rentLedgerApi = {
+  getSummary: (year, status = '') => apiClient.get('/rent-ledger/summary', { params: { year, status } }),
+  sync: (year) => apiClient.post('/rent-ledger/sync', { year }),
+  updateEntry: (id, data) => apiClient.put(`/rent-ledger/${id}`, data),
 }
 
 export const businessEntryLinksApi = {

@@ -4,8 +4,8 @@
       <el-aside :width="isCollapse ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)'" class="sidebar-container">
         <div class="logo-container">
           <div class="logo">
+            <el-icon class="logo-mark"><House /></el-icon>
             <span v-if="!isCollapse">从江房屋登记系统</span>
-            <span v-else>从</span>
           </div>
           <el-icon class="collapse-icon" @click="toggleSidebar">
             <component :is="isCollapse ? 'Expand' : 'Fold'" />
@@ -71,6 +71,18 @@
                 <span>库存管理</span>
               </template>
             </el-menu-item>
+            <el-menu-item index="/dashboard/utility-bills" class="menu-item">
+              <el-icon><Coin /></el-icon>
+              <template #title>
+                <span>水电费</span>
+              </template>
+            </el-menu-item>
+            <el-menu-item index="/dashboard/rent-ledger" class="menu-item">
+              <el-icon><Coin /></el-icon>
+              <template #title>
+                <span>收租台账</span>
+              </template>
+            </el-menu-item>
             <el-menu-item index="/dashboard/notify" class="menu-item">
               <el-icon><Bell /></el-icon>
               <template #title>
@@ -95,59 +107,62 @@
       </el-aside>
       
       <el-container class="main-container">
-        <el-header class="main-header">
-          <div class="breadcrumb">
-            <el-breadcrumb separator="/">
-              <el-breadcrumb-item>首页</el-breadcrumb-item>
-              <el-breadcrumb-item>{{ getMenuTitle(activeMenu) }}</el-breadcrumb-item>
-            </el-breadcrumb>
-          </div>
-          
-          <div class="header-right">
-            <el-button 
-              circle 
-              text
-              @click="toggleTheme" 
-              style="margin-right: 8px; font-size: 18px;"
-              :title="isDark ? '切换到亮色模式' : '切换到暗色模式'"
-            >
-              <el-icon>
-                <Sunny v-if="isDark" />
-                <Moon v-else />
-              </el-icon>
-            </el-button>
-
-            <div class="time-display">
-              <el-icon><Timer /></el-icon>
-              <span>{{ currentTime }}</span>
+        <div class="workspace-header">
+          <div class="workspace-header__main">
+            <div class="breadcrumb">
+              <el-breadcrumb separator="/">
+                <el-breadcrumb-item>
+                  <span class="breadcrumb-project">
+                    <el-icon class="breadcrumb-project__icon"><House /></el-icon>
+                    <span>从江房屋登记系统</span>
+                  </span>
+                </el-breadcrumb-item>
+                <el-breadcrumb-item>
+                  <span class="breadcrumb-current">
+                    <el-icon class="breadcrumb-current__icon">
+                      <component :is="currentPage.icon" />
+                    </el-icon>
+                    <span>{{ currentPage.title }}</span>
+                  </span>
+                </el-breadcrumb-item>
+              </el-breadcrumb>
             </div>
-            <el-dropdown trigger="click">
-              <div class="user-info">
-                <el-avatar :size="32" class="user-avatar" :style="{ backgroundColor: '#409eff' }">{{ getUserInitials() }}</el-avatar>
-                <span class="username">{{ user?.fullName || '管理员' }}</span>
-                <el-icon><ArrowDown /></el-icon>
+
+            <div class="header-right">
+              <ThemeModeSwitch />
+
+              <div class="time-display">
+                <el-icon><Timer /></el-icon>
+                <span>{{ currentTime }}</span>
               </div>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item @click="openChangePasswordDialog">
-                    <el-icon><Key /></el-icon>
-                    <span>修改密码</span>
-                  </el-dropdown-item>
-                  <el-dropdown-item @click="handleLogout">
-                    <el-icon><SwitchButton /></el-icon>
-                    <span>退出登录</span>
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+              <el-dropdown trigger="click">
+                <div class="user-info">
+                  <el-avatar :size="32" class="user-avatar" :style="{ backgroundColor: '#409eff' }">{{ getUserInitials() }}</el-avatar>
+                  <span class="username">{{ user?.fullName || '管理员' }}</span>
+                  <el-icon><ArrowDown /></el-icon>
+                </div>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item @click="openChangePasswordDialog">
+                      <el-icon><Key /></el-icon>
+                      <span>修改密码</span>
+                    </el-dropdown-item>
+                    <el-dropdown-item @click="handleLogout">
+                      <el-icon><SwitchButton /></el-icon>
+                      <span>退出登录</span>
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </div>
-        </el-header>
+        </div>
         
-        <el-main class="content-area">
+        <div class="content-area">
           <router-view v-slot="{ Component, route: currentRoute }">
             <component v-if="Component" :is="Component" :key="currentRoute.fullPath" />
           </router-view>
-        </el-main>
+        </div>
       </el-container>
     </el-container>
 
@@ -219,55 +234,40 @@ import {
   HomeFilled, 
   Timer, 
   Document,
-  Sunny,
-  Moon,
   Setting,
-  UserFilled,
-  ShoppingCart
+  ShoppingCart,
+  Coin
 } from '@element-plus/icons-vue'
+import ThemeModeSwitch from '../components/ThemeModeSwitch.vue'
+import { applyTheme, getPreferredTheme } from '../utils/theme'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 
-// 主题切换逻辑
-const isDark = ref(false)
-
-const toggleTheme = () => {
-  const htmlEl = document.documentElement
-  htmlEl.classList.add('theme-transitioning')
-  
-  isDark.value = !isDark.value
-  if (isDark.value) {
-    htmlEl.classList.add('dark')
-    localStorage.setItem('theme', 'dark')
-  } else {
-    htmlEl.classList.remove('dark')
-    localStorage.setItem('theme', 'light')
-  }
-
-  requestAnimationFrame(() => {
-    htmlEl.classList.remove('theme-transitioning')
-  })
-}
-
-const initTheme = () => {
-  const savedTheme = localStorage.getItem('theme')
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-  
-  if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
-    isDark.value = true
-    document.documentElement.classList.add('dark')
-  } else {
-    isDark.value = false
-    document.documentElement.classList.remove('dark')
-  }
-}
-
 const isCollapse = ref(false)
 const user = computed(() => authStore.user)
 const activeMenu = computed(() => route.path)
 const changePasswordDialogVisible = ref(false)
+
+const navTabs = [
+  { path: '/dashboard', title: '首页', icon: HomeFilled },
+  { path: '/dashboard/rooms', title: '房间管理', icon: House },
+  { path: '/dashboard/tenants', title: '租户管理', icon: User },
+  { path: '/dashboard/contract-templates', title: '合同模板', icon: Document },
+  { path: '/dashboard/moves', title: '搬迁管理', icon: Van },
+  { path: '/dashboard/repair-records', title: '维修记录', icon: Tools },
+  { path: '/dashboard/procurement', title: '采购管理', icon: ShoppingCart },
+  { path: '/dashboard/warehouse', title: '库存管理', icon: ShoppingCart },
+  { path: '/dashboard/utility-bills', title: '水电费', icon: Coin },
+  { path: '/dashboard/rent-ledger', title: '收租台账', icon: Coin },
+  { path: '/dashboard/notify', title: '通知配置', icon: Bell },
+  { path: '/dashboard/system', title: '系统维护', icon: Setting },
+]
+
+const navTabMap = Object.fromEntries(navTabs.map((item) => [item.path, item]))
+
+const currentPage = computed(() => navTabMap[route.path] || navTabMap['/dashboard'])
 
 // 时间显示相关
 const currentTime = ref('')
@@ -288,7 +288,7 @@ const updateTime = () => {
 // 定时更新时间
 let timeInterval
 onMounted(() => {
-  initTheme()
+  applyTheme(getPreferredTheme(), { persist: true })
   updateTime()
   timeInterval = setInterval(updateTime, 1000)
 })
@@ -391,21 +391,6 @@ const getUserInitials = () => {
   return name.charAt(0).toUpperCase()
 }
 
-const getMenuTitle = (path) => {
-  const menuMap = {
-    '/dashboard/rooms': '房间管理',
-    '/dashboard/tenants': '租户管理',
-    '/dashboard/moves': '搬迁管理',
-    '/dashboard/procurement': '采购管理',
-    '/dashboard/warehouse': '库存管理',
-    '/dashboard/notify': '通知配置',
-    '/dashboard/repair-records': '维修记录',
-    '/dashboard/contract-templates': '合同模板',
-    '/dashboard/system': '系统维护'
-  }
-  return menuMap[path] || '首页'
-}
-
 // 轻量用户活动心跳：有活动则调用后台校验接口，触发后端续期并从响应头接收新令牌
 let lastPing = 0
 const MIN_PING_INTERVAL_MS = 120000 // 2分钟最小心跳间隔，避免过于频繁
@@ -442,10 +427,18 @@ onBeforeUnmount(() => {
   height: 100vh;
   overflow: hidden;
   background: var(--bg-color);
+  padding: 16px;
+  box-sizing: border-box;
 }
 
 .main-layout {
   height: 100%;
+  gap: 14px;
+  background: transparent;
+  border: 1px solid var(--surface-border);
+  border-radius: 24px;
+  padding: 12px;
+  box-sizing: border-box;
 }
 
 .sidebar-container {
@@ -461,6 +454,8 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   position: relative;
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
 }
 
 .sidebar-collapse-btn {
@@ -533,6 +528,10 @@ html.dark .collapse-bottom:hover {
 }
 
 .logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   font-size: 20px;
   font-weight: 600;
   color: var(--sidebar-text);
@@ -541,6 +540,12 @@ html.dark .collapse-bottom:hover {
   overflow: hidden;
   text-align: center;
   width: 100%;
+}
+
+.logo-mark {
+  font-size: 18px;
+  color: var(--el-color-primary);
+  flex-shrink: 0;
 }
 
 .collapse-icon {
@@ -557,7 +562,7 @@ html.dark .collapse-bottom:hover {
 
 .sidebar-menu {
   border-right: none !important;
-  padding: 12px;
+  padding: 14px;
   background: transparent;
 }
 
@@ -565,7 +570,7 @@ html.dark .collapse-bottom:hover {
   margin: 8px 0;
   font-size: 15px;
   height: 44px;
-  border-radius: 10px;
+  border-radius: 14px;
   color: var(--sidebar-text);
 }
 
@@ -599,9 +604,13 @@ html.dark .collapse-bottom:hover {
   justify-content: center;
   width: 48px;
   margin: 8px auto;
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 0 !important;
   height: 44px;
+}
+
+:deep(.sidebar-menu.el-menu--collapse) {
+  padding: 12px 6px;
 }
 
 :deep(.sidebar-menu.el-menu--collapse .el-menu-item .el-tooltip__trigger) {
@@ -622,44 +631,83 @@ html.dark .collapse-bottom:hover {
 }
 
 .main-container {
-  background: var(--bg-color);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  overflow: hidden;
 }
 
-.main-header {
+.workspace-header {
   background: rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(10px);
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 24px;
-  height: 64px;
+  flex-shrink: 0;
+  padding: 10px 14px 9px;
   transition:
     background var(--theme-transition-duration) ease-in-out,
     border-color var(--theme-transition-duration) ease-in-out,
     box-shadow var(--theme-transition-duration) ease-in-out;
-  border-bottom: 1px solid var(--surface-border);
+  border: 1px solid var(--surface-border);
+  margin: 0 2px;
+  border-radius: 12px;
 }
 
-html.dark .main-header {
+html.dark .workspace-header {
   background: rgba(15, 23, 42, 0.85);
+}
+
+.workspace-header__main {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  min-height: 34px;
 }
 
 .breadcrumb {
   font-size: 14px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.breadcrumb-current {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--el-color-primary);
+  font-weight: 600;
+}
+
+.breadcrumb-current__icon {
+  font-size: 13px;
+}
+
+.breadcrumb-project {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.breadcrumb-project__icon {
+  color: var(--el-color-primary);
 }
 
 .header-right {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
 .time-display {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 6px 12px;
+  padding: 4px 10px;
   border-radius: 999px;
   font-size: 13px;
   color: var(--el-color-primary);
@@ -675,7 +723,7 @@ html.dark .main-header {
   display: flex;
   align-items: center;
   cursor: pointer;
-  padding: 6px 10px;
+  padding: 4px 8px;
   border-radius: 999px;
   transition:
     background-color var(--theme-transition-duration) ease-in-out,
@@ -703,9 +751,15 @@ html.dark .user-info:hover {
 }
 
 .content-area {
-  padding: 24px;
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 18px 20px 20px;
   overflow-y: auto;
-  background: var(--bg-color);
+  background: var(--card-bg);
+  margin: 0 2px 2px;
+  border-radius: 12px;
+  border: 1px solid var(--surface-border);
 }
 
 </style>

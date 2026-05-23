@@ -865,7 +865,10 @@ onMounted(() => {
   height: calc(100vh - 100px);
   display: flex;
   flex-direction: column;
-  border-radius: 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: 18px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
 }
 
 .page-header {

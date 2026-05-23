@@ -183,6 +183,25 @@ def _derive_birth_date_from_id_card(id_card):
         return ""
 
 
+def _merge_text_value(existing_value, submitted_value):
+    submitted_text = str(submitted_value or "").strip()
+    if submitted_text != "":
+        return submitted_text
+    return str(existing_value or "").strip()
+
+
+def _merge_remarks(existing_value, submitted_value):
+    existing_text = str(existing_value or "").strip()
+    submitted_text = str(submitted_value or "").strip()
+    if submitted_text == "":
+        return existing_text
+    if existing_text == "" or existing_text == submitted_text:
+        return submitted_text
+    if submitted_text in existing_text:
+        return existing_text
+    return f"{existing_text}\n{submitted_text}"
+
+
 @self_checkin_bp.route("/self-checkin/rooms/<int:room_id>/links", methods=["GET"])
 @token_required
 def api_list_self_checkin_links(current_user, room_id):
@@ -359,6 +378,17 @@ def api_list_self_checkin_submissions(current_user, room_id):
 @token_required
 def api_approve_self_checkin_submission(current_user, submission_id):
     ensure_self_checkin_schema()
+    data = request.json or {}
+    approve_mode = str(data.get("mode") or "create").strip().lower()
+    target_tenant_id = data.get("tenant_id")
+    if approve_mode not in ("create", "merge"):
+        return jsonify({"error": "无效的审批方式"}), 400
+    if approve_mode == "merge":
+        try:
+            target_tenant_id = int(target_tenant_id)
+        except (TypeError, ValueError):
+            return jsonify({"error": "请选择要补全的现有租户"}), 400
+
     conn = connect()
     cur = conn.cursor()
     cur.execute(
@@ -389,31 +419,104 @@ def api_approve_self_checkin_submission(current_user, submission_id):
 
     try:
         birth_date = _derive_birth_date_from_id_card(submission["id_card"]) or submission["birth_date"] or None
-        cur.execute(
-            """
-            INSERT INTO tenants (
-                name, gender, nation, birth_date, id_card, address, front_img, back_img,
-                phone, emergency_contact_name, emergency_contact_phone,
-                check_in_date, check_out_date, room_id, remarks, status
-            ) VALUES (?, ?, ?, ?, ?, ?, '', '', ?, ?, ?, ?, ?, ?, ?, '在住')
-            """,
-            (
-                submission["name"],
-                submission["gender"] or "",
-                submission["nation"] or "汉族",
-                birth_date,
-                submission["id_card"] or "",
-                submission["address"] or "",
-                submission["phone"] or "",
-                submission["emergency_contact_name"] or "",
-                submission["emergency_contact_phone"] or "",
-                submission["check_in_date"] or _today_text(),
-                submission["check_out_date"] or "",
-                submission["room_id"],
-                submission["remarks"] or "",
-            ),
-        )
-        tenant_id = cur.lastrowid
+        if approve_mode == "merge":
+            cur.execute(
+                """
+                SELECT
+                    id, name, gender, nation, birth_date, id_card, address, front_img, back_img,
+                    phone, emergency_contact_name, emergency_contact_phone,
+                    check_in_date, check_out_date, room_id, remarks, status
+                FROM tenants
+                WHERE id = ? AND room_id = ?
+                LIMIT 1
+                """,
+                (target_tenant_id, submission["room_id"]),
+            )
+            target_tenant = cur.fetchone()
+            if not target_tenant:
+                conn.close()
+                return jsonify({"error": "要补全的租户不存在，或不属于当前房间"}), 404
+
+            current_id_card = str(target_tenant[5] or "").strip().upper()
+            submitted_id_card = str(submission["id_card"] or "").strip().upper()
+            if current_id_card and submitted_id_card and current_id_card != submitted_id_card:
+                conn.close()
+                return jsonify({"error": "现有租户身份证号与提交信息不一致，无法直接补全"}), 400
+            if submitted_id_card:
+                cur.execute(
+                    "SELECT id FROM tenants WHERE id_card = ? AND id <> ? LIMIT 1",
+                    (submitted_id_card, target_tenant_id),
+                )
+                duplicate_tenant = cur.fetchone()
+                if duplicate_tenant:
+                    conn.close()
+                    return jsonify({"error": "该身份证号已存在于其他租户记录，无法直接补全"}), 400
+
+            cur.execute(
+                """
+                UPDATE tenants
+                SET name = ?,
+                    gender = ?,
+                    nation = ?,
+                    birth_date = ?,
+                    id_card = ?,
+                    address = ?,
+                    phone = ?,
+                    emergency_contact_name = ?,
+                    emergency_contact_phone = ?,
+                    check_in_date = ?,
+                    check_out_date = ?,
+                    room_id = ?,
+                    remarks = ?,
+                    status = '在住'
+                WHERE id = ?
+                """,
+                (
+                    _merge_text_value(target_tenant[1], submission["name"]),
+                    _merge_text_value(target_tenant[2], submission["gender"]),
+                    _merge_text_value(target_tenant[3], submission["nation"] or "汉族"),
+                    birth_date or target_tenant[4],
+                    submitted_id_card or current_id_card,
+                    _merge_text_value(target_tenant[6], submission["address"]),
+                    _merge_text_value(target_tenant[9], submission["phone"]),
+                    _merge_text_value(target_tenant[10], submission["emergency_contact_name"]),
+                    _merge_text_value(target_tenant[11], submission["emergency_contact_phone"]),
+                    _merge_text_value(target_tenant[12], submission["check_in_date"] or _today_text()),
+                    _merge_text_value(target_tenant[13], submission["check_out_date"]),
+                    submission["room_id"],
+                    _merge_remarks(target_tenant[15], submission["remarks"]),
+                    target_tenant_id,
+                ),
+            )
+            tenant_id = target_tenant_id
+            success_message = "入住提交已补全到现有租户"
+        else:
+            cur.execute(
+                """
+                INSERT INTO tenants (
+                    name, gender, nation, birth_date, id_card, address, front_img, back_img,
+                    phone, emergency_contact_name, emergency_contact_phone,
+                    check_in_date, check_out_date, room_id, remarks, status
+                ) VALUES (?, ?, ?, ?, ?, ?, '', '', ?, ?, ?, ?, ?, ?, ?, '在住')
+                """,
+                (
+                    submission["name"],
+                    submission["gender"] or "",
+                    submission["nation"] or "汉族",
+                    birth_date,
+                    submission["id_card"] or "",
+                    submission["address"] or "",
+                    submission["phone"] or "",
+                    submission["emergency_contact_name"] or "",
+                    submission["emergency_contact_phone"] or "",
+                    submission["check_in_date"] or _today_text(),
+                    submission["check_out_date"] or "",
+                    submission["room_id"],
+                    submission["remarks"] or "",
+                ),
+            )
+            tenant_id = cur.lastrowid
+            success_message = "入住提交已确认入库"
         cur.execute(
             """
             UPDATE self_checkin_submissions
@@ -428,7 +531,7 @@ def api_approve_self_checkin_submission(current_user, submission_id):
         _refresh_room_statuses(conn)
         conn.commit()
         conn.close()
-        return jsonify({"message": "入住提交已确认入库", "tenant_id": tenant_id})
+        return jsonify({"message": success_message, "tenant_id": tenant_id, "mode": approve_mode})
     except sqlite3.Error as e:
         conn.rollback()
         conn.close()

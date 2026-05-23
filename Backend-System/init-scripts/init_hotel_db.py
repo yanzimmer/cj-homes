@@ -31,6 +31,7 @@ def ensure_tables():
             room_no TEXT UNIQUE NOT NULL,
             room_type TEXT,
             price REAL,
+            price_unit TEXT DEFAULT '月',
             deposit REAL DEFAULT 0,
             status TEXT DEFAULT '空闲',
             water_meter_img TEXT,
@@ -40,6 +41,9 @@ def ensure_tables():
     )
     cur.execute("PRAGMA table_info(rooms)")
     room_cols = {row[1] for row in cur.fetchall()}
+    if "price_unit" not in room_cols:
+        cur.execute("ALTER TABLE rooms ADD COLUMN price_unit TEXT DEFAULT '月'")
+    cur.execute("UPDATE rooms SET price_unit = '月' WHERE COALESCE(TRIM(price_unit), '') = ''")
     if "deposit" not in room_cols:
         cur.execute("ALTER TABLE rooms ADD COLUMN deposit REAL DEFAULT 0")
     if "water_meter_img" not in room_cols:
@@ -214,6 +218,65 @@ def ensure_tables():
     procurement_cols = {row[1] for row in cur.fetchall()}
     if "payment_person" not in procurement_cols:
         cur.execute("ALTER TABLE procurements ADD COLUMN payment_person TEXT")
+
+    # utility bills
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS utility_bills (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            utility_type TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            year INTEGER NOT NULL,
+            month INTEGER NOT NULL,
+            amount REAL NOT NULL DEFAULT 0,
+            payer TEXT DEFAULT '',
+            remarks TEXT DEFAULT '',
+            created_at DATETIME DEFAULT (DATETIME('now')),
+            updated_at DATETIME DEFAULT (DATETIME('now')),
+            UNIQUE (utility_type, subject, year, month)
+        )
+        """
+    )
+    cur.execute("DROP TABLE IF EXISTS utility_bill_notes")
+
+    # rent ledger
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS rent_ledger_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL,
+            room_id INTEGER,
+            building TEXT DEFAULT '',
+            room_no TEXT DEFAULT '',
+            tenant_name TEXT DEFAULT '',
+            lease_start TEXT DEFAULT '',
+            lease_end TEXT DEFAULT '',
+            rent_amount REAL NOT NULL DEFAULT 0,
+            rent_unit TEXT DEFAULT '月',
+            period_index INTEGER NOT NULL DEFAULT 1,
+            period_label TEXT NOT NULL,
+            period_start TEXT NOT NULL,
+            period_end TEXT NOT NULL,
+            due_amount REAL NOT NULL DEFAULT 0,
+            actual_amount REAL NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT '未交',
+            payment_date TEXT DEFAULT '',
+            payment_person TEXT DEFAULT '',
+            payment_method TEXT DEFAULT '',
+            remarks TEXT DEFAULT '',
+            payment_images TEXT DEFAULT '[]',
+            created_at DATETIME DEFAULT (DATETIME('now')),
+            updated_at DATETIME DEFAULT (DATETIME('now')),
+            UNIQUE (tenant_id, period_start)
+        )
+        """
+    )
+    cur.execute("PRAGMA table_info(rent_ledger_entries)")
+    rent_cols = {row[1] for row in cur.fetchall()}
+    if "payment_images" not in rent_cols:
+        cur.execute("ALTER TABLE rent_ledger_entries ADD COLUMN payment_images TEXT DEFAULT '[]'")
+    if "payment_person" not in rent_cols:
+        cur.execute("ALTER TABLE rent_ledger_entries ADD COLUMN payment_person TEXT DEFAULT ''")
 
     # warehouse
     cur.execute(

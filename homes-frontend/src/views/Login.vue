@@ -1,18 +1,7 @@
 <template>
   <div class="login-container" id="login-page">
     <div class="theme-switch">
-      <el-button 
-        circle 
-        text
-        @click="toggleTheme" 
-        class="theme-btn"
-        :title="isDark ? '切换到亮色模式' : '切换到暗色模式'"
-      >
-        <el-icon :size="20">
-          <Sunny v-if="isDark" />
-          <Moon v-else />
-        </el-icon>
-      </el-button>
+      <ThemeModeSwitch floating />
     </div>
     <div class="background-shapes">
       <div class="shape shape-1"></div>
@@ -97,50 +86,16 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { ElMessage } from 'element-plus'
-import { User, Lock, Key, Sunny, Moon } from '@element-plus/icons-vue'
+import { User, Lock, Key } from '@element-plus/icons-vue'
 import axios from 'axios'
+import ThemeModeSwitch from '../components/ThemeModeSwitch.vue'
+import { applyTheme, getPreferredTheme } from '../utils/theme'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
-// 主题切换逻辑
-const isDark = ref(false)
-
-const toggleTheme = () => {
-  const htmlEl = document.documentElement
-  // 添加过渡类，确保所有元素平滑切换
-  htmlEl.classList.add('theme-transitioning')
-  
-  isDark.value = !isDark.value
-  if (isDark.value) {
-    htmlEl.classList.add('dark')
-    localStorage.setItem('theme', 'dark')
-  } else {
-    htmlEl.classList.remove('dark')
-    localStorage.setItem('theme', 'light')
-  }
-  
-  // 移除过渡类，恢复原有性能
-  setTimeout(() => {
-    htmlEl.classList.remove('theme-transitioning')
-  }, 300)
-}
-
-const initTheme = () => {
-  const savedTheme = localStorage.getItem('theme')
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-  
-  if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
-    isDark.value = true
-    document.documentElement.classList.add('dark')
-  } else {
-    isDark.value = false
-    document.documentElement.classList.remove('dark')
-  }
-}
-
 onMounted(() => {
-  initTheme()
+  applyTheme(getPreferredTheme(), { persist: true })
 })
 
 const loginFormRef = ref(null)
@@ -464,22 +419,6 @@ const submitForgot = async () => {
   z-index: 10;
 }
 
-.theme-btn {
-  font-size: 20px;
-  color: var(--text-main);
-  background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(5px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  width: 40px;
-  height: 40px;
-  transition: all 0.3s;
-}
-
-.theme-btn:hover {
-  background: rgba(255, 255, 255, 0.4);
-  transform: rotate(15deg);
-}
-
 @media (max-width: 900px) {
   .login-card {
     width: 90%;
@@ -558,7 +497,7 @@ html.dark .card-left-overlay {
 #login-page .form-header h2,
 #login-page .sub-text,
 #login-page .logo-circle,
-#login-page .theme-btn {
+#login-page .theme-switch :deep(.theme-mode-trigger) {
   transition: all 0.3s ease-in-out !important;
 }
 
@@ -593,12 +532,4 @@ html.dark #login-page .logo-circle {
   background: rgba(255, 255, 255, 0.1) !important;
 }
 
-html.dark #login-page .theme-btn {
-  background: rgba(0, 0, 0, 0.3) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-}
-
-html.dark #login-page .theme-btn:hover {
-  background: rgba(0, 0, 0, 0.5) !important;
-}
 </style>

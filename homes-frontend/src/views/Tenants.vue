@@ -37,14 +37,14 @@
           :disabled="selectedTenants.length === 0"
           :loading="batchCheckoutLoading"
           @click="handleBatchCheckout"
-        >批量退租</el-button>
+        >退租</el-button>
         <el-button
           class="toolbar-btn"
           type="danger"
           :disabled="selectedTenants.length === 0"
           :loading="batchDeleting"
           @click="handleBatchDelete"
-        >批量删除</el-button>
+        >删除</el-button>
         <el-dropdown trigger="click" @command="handleExportCommand">
           <el-button class="toolbar-btn" type="success">
             导出 <el-icon style="margin-left:4px"><Filter /></el-icon>
@@ -317,8 +317,13 @@
       </template>
     </el-dialog>
 
-    <!-- 添加/编辑租户对话框 -->
-    <el-dialog :title="dialogTitle" v-model="dialogVisible" width="700px" top="5vh">
+    <!-- 添加/编辑租户抽屉 -->
+    <el-drawer
+      :title="dialogTitle"
+      v-model="dialogVisible"
+      direction="rtl"
+      size="700px"
+    >
       <div class="narrow-fields">
         <el-form :model="tenantForm" :rules="rules" ref="tenantFormRef" label-width="120px">
         <el-form-item label="身份证 OCR">
@@ -386,9 +391,30 @@
         <el-form-item label="紧急电话" prop="emergency_phone">
           <el-input v-model="tenantForm.emergency_phone"></el-input>
         </el-form-item>
+        <el-form-item label="楼栋" prop="building" v-if="!isEdit">
+          <el-select v-model="tenantForm.building" placeholder="请选择楼栋" filterable style="width: 100%">
+            <el-option
+              v-for="building in buildingOptions"
+              :key="building"
+              :label="`${building}栋`"
+              :value="building"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="房间号" prop="room_no" v-if="!isEdit">
-          <el-select v-model="tenantForm.room_no" placeholder="请选择房间">
-            <el-option v-for="room in availableRooms" :key="room.room_no" :label="room.room_no" :value="room.room_no"></el-option>
+          <el-select
+            v-model="tenantForm.room_no"
+            :placeholder="tenantForm.building ? '请选择房间号' : '请先选择楼栋'"
+            :disabled="!tenantForm.building"
+            filterable
+            style="width: 100%"
+          >
+            <el-option
+              v-for="room in roomOptionsForForm"
+              :key="room.id"
+              :label="room.room_no"
+              :value="room.room_no"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="入住日期" prop="check_in_date">
@@ -396,6 +422,20 @@
         </el-form-item>
         <el-form-item label="退房日期" prop="check_out_date">
           <el-date-picker v-model="tenantForm.check_out_date" type="date" value-format="YYYY-MM-DD" placeholder="选择日期"></el-date-picker>
+        </el-form-item>
+        <el-form-item label="租期预设">
+          <div class="lease-preset-row">
+            <el-button
+              v-for="option in leasePresetOptions"
+              :key="option.months"
+              :type="activeLeasePreset === option.months ? 'primary' : 'default'"
+              plain
+              @click="applyLeasePreset(option.months)"
+            >
+              {{ option.label }}
+            </el-button>
+            <span class="lease-preset-tip">按入住日期自动计算退房日期</span>
+          </div>
         </el-form-item>
         <el-form-item label="状态" prop="status">
           <el-radio-group v-model="tenantForm.status">
@@ -414,7 +454,7 @@
           <el-button type="primary" @click="handleSubmit" :loading="submitting">确定</el-button>
         </span>
       </template>
-    </el-dialog>
+    </el-drawer>
 
     <el-dialog
       title="AI 输入租户"
@@ -438,7 +478,7 @@
             :show-file-list="false"
             accept="image/*"
             multiple
-            :limit="4"
+            :limit="20"
             :on-change="handleAiImageChange"
           >
             <el-button type="primary" plain>选择图片</el-button>
@@ -452,7 +492,7 @@
           >
             清空图片
           </el-button>
-          <div class="upload-progress-text">已选 {{ aiDialog.images.length }} / 4</div>
+          <div class="upload-progress-text">已选 {{ aiDialog.images.length }} / 20</div>
           <div v-if="aiDialog.images.length" class="ai-image-list">
             <div v-for="(item, index) in aiDialog.images" :key="item.url" class="ai-image-item">
               <el-image
@@ -536,7 +576,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed, nextTick } from 'vue'
+import { ref, reactive, onMounted, computed, nextTick, watch } from 'vue'
 import { tenantsApi, roomsApi, repairRecordsApi, systemApi } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Filter, UserFilled, List, Grid, Operation, Iphone, Timer, MoreFilled } from '@element-plus/icons-vue'
@@ -595,7 +635,7 @@ const paginatedTenants = computed(() => {
   return filteredTenants.value.slice(start, end)
 })
 
-// 批量删除相关状态
+// 删除相关状态
 const tenantsTableRef = ref(null)
 const selectedTenants = ref([])
 const batchDeleting = ref(false)
@@ -770,7 +810,7 @@ const confirmCheckout = async () => {
 const tenantForm = reactive({
   id: null,
   name: '',
-  gender: '男',
+  gender: '',
   nation: '汉族',
   birth_date: '',
   id_card: '',
@@ -778,12 +818,19 @@ const tenantForm = reactive({
   phone: '',
   emergency_contact: '',
   emergency_phone: '',
+  building: '',
   room_no: '',
   status: '在住',
   check_in_date: new Date(),
   check_out_date: '',
   notes: ''
 })
+
+const leasePresetOptions = [
+  { label: '三个月', months: 3 },
+  { label: '半年', months: 6 },
+  { label: '一年', months: 12 },
+]
 
 const applyTenantOcrStatus = (ocr = {}) => {
   tenantOcrStatus.enabled = Boolean(ocr.enabled)
@@ -805,35 +852,85 @@ const normalizeBuildingCode = (value) => String(value || '').trim().replace(/栋
 
 const normalizeRoomDigits = (value) => String(value || '').replace(/\D/g, '')
 
-const resolveAiRoomNo = (draft = {}) => {
+const buildingOptions = computed(() => {
+  const buildings = new Set()
+  availableRooms.value.forEach((room) => {
+    const building = normalizeBuildingCode(room.building)
+    if (building) buildings.add(building)
+  })
+  return Array.from(buildings).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+})
+
+const roomOptionsForForm = computed(() => {
+  const building = normalizeBuildingCode(tenantForm.building)
+  if (!building) return []
+  return availableRooms.value
+    .filter(room => normalizeBuildingCode(room.building) === building)
+    .sort((a, b) => String(a.room_no || '').localeCompare(String(b.room_no || ''), undefined, { numeric: true }))
+})
+
+const resolveAiRoomSelection = (draft = {}) => {
   const roomText = String(draft.room_no || '').trim()
   const building = normalizeBuildingCode(draft.building)
   const roomDigits = normalizeRoomDigits(roomText)
-  if (!roomText) return ''
+  if (!roomText && !building) return { building: '', room_no: '' }
 
-  const exact = availableRooms.value.find(room => String(room.room_no || '') === roomText)
-  if (exact) return exact.room_no
+  const exact = availableRooms.value.find(room => {
+    const roomBuilding = normalizeBuildingCode(room.building)
+    const roomNo = String(room.room_no || '').trim()
+    const roomDisplay = roomBuilding && roomNo ? `${roomBuilding}栋 ${roomNo}` : roomNo
+    return roomDisplay === roomText || roomNo === roomText
+  })
+  if (exact) {
+    return {
+      building: normalizeBuildingCode(exact.building),
+      room_no: String(exact.room_no || '').trim(),
+    }
+  }
 
   const candidates = new Set([roomText])
+  candidates.add(roomText.replace(/\s+/g, ''))
   if (building && roomDigits) {
+    candidates.add(`${building}栋 ${roomDigits}`)
+    candidates.add(`${building}栋${roomDigits}`)
     candidates.add(`${building}-${roomDigits}`)
     candidates.add(`${building}${roomDigits}`)
   }
-  const candidateMatch = availableRooms.value.find(room => candidates.has(String(room.room_no || '')))
-  if (candidateMatch) return candidateMatch.room_no
+  const candidateMatch = availableRooms.value.find(room => {
+    const roomBuilding = normalizeBuildingCode(room.building)
+    const roomNo = String(room.room_no || '').trim()
+    const roomDisplay = roomBuilding && roomNo ? `${roomBuilding}栋 ${roomNo}` : roomNo
+    return candidates.has(roomDisplay) || candidates.has(String(room.room_no || ''))
+  })
+  if (candidateMatch) {
+    return {
+      building: normalizeBuildingCode(candidateMatch.building),
+      room_no: String(candidateMatch.room_no || '').trim(),
+    }
+  }
 
   const roomByBuilding = availableRooms.value.find(room => {
     const itemBuilding = normalizeBuildingCode(room.building)
     const itemDigits = normalizeRoomDigits(room.room_no)
     return building && itemBuilding === building && roomDigits && itemDigits.endsWith(roomDigits)
   })
-  return roomByBuilding?.room_no || roomText
+  if (roomByBuilding) {
+    return {
+      building: normalizeBuildingCode(roomByBuilding.building),
+      room_no: String(roomByBuilding.room_no || '').trim(),
+    }
+  }
+
+  return {
+    building,
+    room_no: roomDigits || roomText,
+  }
 }
 
 const applyTenantAiDraftToForm = (draft = {}) => {
   openAddDialog()
   tenantForm.name = String(draft.name || '')
-  tenantForm.gender = draft.gender === '女' ? '女' : '男'
+  tenantForm.gender = draft.gender === '女' ? '女' : (draft.gender === '男' ? '男' : '')
   tenantForm.nation = String(draft.nation || '汉族')
   tenantForm.birth_date = String(draft.birth_date || '')
   tenantForm.id_card = String(draft.id_card || '')
@@ -841,7 +938,9 @@ const applyTenantAiDraftToForm = (draft = {}) => {
   tenantForm.phone = String(draft.phone || '')
   tenantForm.emergency_contact = String(draft.emergency_contact_name || draft.emergency_contact || '')
   tenantForm.emergency_phone = String(draft.emergency_contact_phone || draft.emergency_phone || '')
-  tenantForm.room_no = resolveAiRoomNo(draft)
+  const roomSelection = resolveAiRoomSelection(draft)
+  tenantForm.building = roomSelection.building
+  tenantForm.room_no = roomSelection.room_no
   tenantForm.status = draft.status === '已退租' ? '已退租' : '在住'
   tenantForm.check_in_date = String(draft.check_in_date || new Date().toISOString().split('T')[0])
   tenantForm.check_out_date = String(draft.check_out_date || '')
@@ -853,12 +952,55 @@ const applyTenantAiDraftToForm = (draft = {}) => {
 
 const rules = {
   name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
-  gender: [{ required: true, message: '请选择性别', trigger: 'change' }],
-  id_card: [{ required: true, message: '请输入公民身份证号', trigger: 'blur' }],
   phone: [{ required: true, message: '请输入联系电话', trigger: 'blur' }],
+  building: [{ required: true, message: '请选择楼栋', trigger: 'change' }],
   room_no: [{ required: true, message: '请选择房间', trigger: 'change' }],
   check_in_date: [{ required: true, message: '请选择入住日期', trigger: 'change' }],
   check_out_date: [{ required: true, message: '请选择退房日期', trigger: 'change' }]
+}
+
+const parseDateValue = (value) => {
+  if (!value) return null
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value
+  const text = String(value).trim()
+  if (!text) return null
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (match) {
+    const [, year, month, day] = match
+    const date = new Date(Number(year), Number(month) - 1, Number(day))
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+  const parsed = new Date(text)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+const addMonthsKeepingDay = (value, months) => {
+  const baseDate = parseDateValue(value)
+  if (!baseDate) return ''
+  const target = new Date(baseDate.getTime())
+  const originalDay = target.getDate()
+  target.setDate(1)
+  target.setMonth(target.getMonth() + months)
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate()
+  target.setDate(Math.min(originalDay, lastDay))
+  return formatDate(target)
+}
+
+const activeLeasePreset = computed(() => {
+  const checkIn = formatDate(tenantForm.check_in_date)
+  const checkOut = formatDate(tenantForm.check_out_date)
+  if (!checkIn || !checkOut) return null
+  const matched = leasePresetOptions.find(option => addMonthsKeepingDay(checkIn, option.months) === checkOut)
+  return matched?.months ?? null
+})
+
+const applyLeasePreset = (months) => {
+  const baseDate = formatDate(tenantForm.check_in_date || new Date())
+  tenantForm.check_in_date = baseDate
+  tenantForm.check_out_date = addMonthsKeepingDay(baseDate, months)
+  nextTick(() => {
+    tenantFormRef.value?.clearValidate?.(['check_in_date', 'check_out_date'])
+  })
 }
 
 // 生命周期
@@ -893,8 +1035,8 @@ const handleBatchCheckout = async () => {
   const names = activeTenants.map(t => t.name).join('、')
   try {
     await ElMessageBox.confirm(
-      `确认批量办理以下 ${activeTenants.length} 名租户退租吗？\n${names}`,
-      '批量退租确认',
+      `确认办理以下 ${activeTenants.length} 名租户退租吗？\n${names}`,
+      '退租确认',
       {
         confirmButtonText: '确认退租',
         cancelButtonText: '取消',
@@ -919,14 +1061,14 @@ const handleBatchCheckout = async () => {
     selectedTenants.value = []
 
     if (successCount > 0) {
-      ElMessage.success(`批量退租完成：成功 ${successCount} 人`)
+      ElMessage.success(`退租完成：成功 ${successCount} 人`)
     }
     if (failures.length > 0) {
       ElMessage.error(`有 ${failures.length} 人退租失败：${failures.join('；')}`)
     }
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error?.message || '批量退租失败')
+      ElMessage.error(error?.message || '退租失败')
     }
   } finally {
     batchCheckoutLoading.value = false
@@ -967,7 +1109,6 @@ const fetchAvailableRooms = async () => {
     // 确保response.data.rooms是一个数组
     const roomsData = response.data.rooms || []
     console.log('房间数据:', roomsData)
-    // 添加租户时显示所有房间，编辑租户时仅显示空闲房间或当前租户的房间
     availableRooms.value = isEdit.value 
       ? roomsData.filter(room => room.status === '空闲' || room.room_no === tenantForm.room_no)
       : roomsData
@@ -982,7 +1123,7 @@ const resetForm = () => {
   }
   tenantForm.id = null
   tenantForm.name = ''
-  tenantForm.gender = '男'
+  tenantForm.gender = ''
   tenantForm.nation = '汉族'
   tenantForm.birth_date = ''
   tenantForm.id_card = ''
@@ -990,6 +1131,7 @@ const resetForm = () => {
   tenantForm.phone = ''
   tenantForm.emergency_contact = ''
   tenantForm.emergency_phone = ''
+  tenantForm.building = ''
   tenantForm.room_no = ''
   tenantForm.status = '在住'
   tenantForm.check_in_date = new Date()
@@ -1020,6 +1162,12 @@ const openEditDialog = (tenant) => {
   dialogVisible.value = true
   fetchTenantOcrStatus()
 }
+
+watch(() => tenantForm.building, () => {
+  if (!isEdit.value) {
+    tenantForm.room_no = ''
+  }
+})
 
 const fetchTenantOcrStatus = async () => {
   try {
@@ -1084,8 +1232,8 @@ const openAiDialog = () => {
 
 const handleAiImageChange = (file) => {
   if (!file || !file.raw) return
-  if (aiDialog.images.length >= 4) {
-    ElMessage.warning('最多选择 4 张图片')
+  if (aiDialog.images.length >= 20) {
+    ElMessage.warning('最多选择 20 张图片')
     return
   }
   if (!String(file.raw.type || '').startsWith('image/')) {
@@ -1165,22 +1313,17 @@ const handleSubmit = async () => {
         if (isEdit.value) {
           // 编辑时不修改房间号，从表单数据中移除room_no
           const { room_no, ...updateData } = formData
-          // 确保路径参数使用到 id_card
-          updateData.id_card = formData.id_card
-          await tenantsApi.updateTenant(formData.id_card, updateData)
+          await tenantsApi.updateTenant(formData.id || formData.id_card, updateData)
           ElMessage.success('租户更新成功')
         } else {
           await tenantsApi.addTenant(formData)
-          // 若新增选择了“已退租”，追加更新状态
-          if (formData.status && formData.status !== '在住') {
-            await tenantsApi.updateTenant(formData.id_card, { id_card: formData.id_card, status: formData.status })
-          }
           ElMessage.success('租户添加成功')
         }
         dialogVisible.value = false
         fetchTenants()
       } catch (error) {
-        ElMessage.error(isEdit.value ? '更新租户失败' : '添加租户失败')
+        const message = error?.response?.data?.error || error?.message || (isEdit.value ? '更新租户失败' : '添加租户失败')
+        ElMessage.error(message)
         console.error(error)
       } finally {
         submitting.value = false
@@ -1200,7 +1343,7 @@ const handleDelete = (tenant) => {
     type: 'warning'
   }).then(async () => {
     try {
-      await tenantsApi.deleteTenant(tenant.id_card)
+      await tenantsApi.deleteTenant(tenant)
       ElMessage.success('租户删除成功')
       fetchTenants()
     } catch (error) {
@@ -1211,15 +1354,15 @@ const handleDelete = (tenant) => {
   }).catch(() => {})
 }
 
-// 批量删除选中的租户（仅“已退租”）
+// 删除选中的租户（仅“已退租”）
 const handleBatchDelete = async () => {
   if (!selectedTenants.value.length) return
   const count = selectedTenants.value.length
   const names = selectedTenants.value.map(t => t.name).join('、')
   try {
     await ElMessageBox.confirm(
-      `确认批量删除以下 ${count} 名租户吗？\n${names}\n该操作不可撤销。`,
-      '批量删除确认',
+      `确认删除以下 ${count} 名租户吗？\n${names}\n该操作不可撤销。`,
+      '删除确认',
       {
         confirmButtonText: '确认删除',
         cancelButtonText: '取消',
@@ -1237,7 +1380,7 @@ const handleBatchDelete = async () => {
         continue
       }
       try {
-        await tenantsApi.deleteTenant(t.id_card)
+        await tenantsApi.deleteTenant(t)
         successes.push(t)
       } catch (err) {
         const msg = err?.response?.data?.error || err?.message || '未知错误'
@@ -1245,10 +1388,10 @@ const handleBatchDelete = async () => {
       }
     }
 
-    if (successes.length) ElMessage.success(`批量删除成功：${successes.length} 个`)
+    if (successes.length) ElMessage.success(`删除成功：${successes.length} 个`)
     if (failures.length) {
       const detail = failures.map(f => `${f.tenant.name}(${f.tenant.id_card})：${f.msg}`).join('；')
-      ElMessage.error(`批量删除失败：${failures.length} 个。原因：${detail}`)
+      ElMessage.error(`删除失败：${failures.length} 个。原因：${detail}`)
     }
 
     await fetchTenants()
@@ -1256,7 +1399,7 @@ const handleBatchDelete = async () => {
     selectedTenants.value = []
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('批量删除失败：' + (error?.message || '未知错误'))
+      ElMessage.error('删除失败：' + (error?.message || '未知错误'))
     }
   } finally {
     batchDeleting.value = false
@@ -1403,10 +1546,28 @@ const exportToPDF = async () => {
 .narrow-fields :deep(.el-form-item__label) {
   white-space: nowrap;
 }
+
+.lease-preset-row {
+  width: 80%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.lease-preset-tip {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
 </style>
 <style scoped>
 .tenants-container {
   padding: 20px;
+  background: var(--card-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: 18px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
 }
 
 .page-header {

@@ -18,7 +18,7 @@
         <el-button class="toolbar-btn" type="primary" @click="openDialog('add')">新增</el-button>
         <el-button class="toolbar-btn" type="primary" plain @click="openAiDialog">AI 输入</el-button>
         <el-button class="toolbar-btn" type="success" @click="linkDialogVisible = true">链接</el-button>
-        <el-button class="toolbar-btn" type="danger" :disabled="selectedProcurements.length === 0" @click="handleBatchDelete">批量删除</el-button>
+        <el-button class="toolbar-btn" type="danger" :disabled="selectedProcurements.length === 0" @click="handleBatchDelete">删除</el-button>
         <el-dropdown trigger="click" @command="handleExportCommand">
           <el-button class="toolbar-btn" type="success">
             导出 <el-icon style="margin-left:4px"><Filter /></el-icon>
@@ -50,7 +50,6 @@
         :data="procurements"
         border
         style="width: 100%"
-        stripe
         @selection-change="handleSelectionChange"
       >
       <el-table-column type="expand" width="52">
@@ -83,6 +82,7 @@
               <el-table-column label="操作" width="150" align="center">
                 <template #default="{ row: detail }">
                   <div class="table-actions-row">
+                    <el-button size="small" @click="openViewDialog(detail)">查看</el-button>
                     <el-button size="small" type="primary" @click="openDialog('edit', detail)">编辑</el-button>
                     <el-dropdown trigger="click">
                       <el-button size="small">
@@ -122,9 +122,10 @@
       </el-table-column>
       <el-table-column prop="payment_person" label="支付人员" width="120" sortable />
       <el-table-column prop="remarks" label="备注" min-width="180" show-overflow-tooltip />
-      <el-table-column label="操作" width="170" fixed="right" align="center">
+      <el-table-column label="操作" width="240" fixed="right" align="center">
         <template #default="{ row }">
           <div class="table-actions-row">
+            <el-button size="small" @click="openViewDialog(row)">查看</el-button>
             <el-button
               size="small"
               type="primary"
@@ -165,11 +166,12 @@
       />
     </div>
 
-    <!-- 新增/编辑对话框 -->
-    <el-dialog
+    <!-- 新增/编辑抽屉 -->
+    <el-drawer
       :title="dialog.title"
       v-model="dialog.visible"
-      width="500px"
+      direction="rtl"
+      size="620px"
       @close="resetForm"
     >
       <el-form
@@ -305,6 +307,58 @@
           </el-button>
         </span>
       </template>
+    </el-drawer>
+
+    <el-dialog
+      title="采购详情"
+      v-model="viewDialog.visible"
+      width="760px"
+    >
+      <template v-if="viewDialog.row">
+        <el-descriptions :column="2" border class="procurement-view-descriptions">
+          <el-descriptions-item label="时间">{{ viewDialog.row.procurement_date || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="采购渠道">{{ viewDialog.row.purchase_channel || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="采购单号">{{ viewDialog.row.purchase_batch_no || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="支付人员">{{ viewDialog.row.payment_person || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="总金额">¥{{ Number(viewDialog.row.total_amount || 0).toFixed(2) }}</el-descriptions-item>
+          <el-descriptions-item label="条目数">{{ viewDialogItems.length }}</el-descriptions-item>
+          <el-descriptions-item label="备注" :span="2">{{ viewDialog.row.remarks || '-' }}</el-descriptions-item>
+        </el-descriptions>
+
+        <el-table :data="viewDialogItems" border size="small" style="margin-top: 16px; width: 100%">
+          <el-table-column prop="item_name" label="采购物品" min-width="150" />
+          <el-table-column prop="specification" label="规格" width="120" />
+          <el-table-column prop="quantity" label="数量" width="90" align="center" />
+          <el-table-column label="单价" width="100" align="right">
+            <template #default="{ row }">¥{{ Number(row.unit_price || 0).toFixed(2) }}</template>
+          </el-table-column>
+          <el-table-column prop="unit" label="单位" width="90" align="center" />
+          <el-table-column label="金额" width="110" align="right">
+            <template #default="{ row }">¥{{ Number(row.total_amount || 0).toFixed(2) }}</template>
+          </el-table-column>
+          <el-table-column label="图片" min-width="180">
+            <template #default="{ row }">
+              <div v-if="getProcurementImages(row).length > 0" class="view-image-list">
+                <el-image
+                  v-for="(img, index) in getProcurementImages(row)"
+                  :key="`${img}-${index}`"
+                  class="table-image-thumb"
+                  :src="toImageUrl(img)"
+                  :preview-src-list="getProcurementImages(row).map((v) => toImageUrl(v))"
+                  fit="cover"
+                  preview-teleported
+                />
+              </div>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </template>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="viewDialog.visible = false">关闭</el-button>
+        </span>
+      </template>
     </el-dialog>
 
     <el-dialog
@@ -329,7 +383,7 @@
             :show-file-list="false"
             accept="image/*"
             multiple
-            :limit="4"
+            :limit="20"
             :on-change="handleAiImageChange"
           >
             <el-button type="primary" plain>选择图片</el-button>
@@ -343,7 +397,7 @@
           >
             清空图片
           </el-button>
-          <div class="upload-progress-text">已选 {{ aiDialog.images.length }} / 4</div>
+          <div class="upload-progress-text">已选 {{ aiDialog.images.length }} / 20</div>
           <div v-if="aiDialog.images.length" class="ai-image-list">
             <div v-for="(item, index) in aiDialog.images" :key="item.url" class="ai-image-item">
               <el-image
@@ -396,12 +450,21 @@ const pagination = reactive({
   total: 0
 })
 const procurementRowStart = computed(() => (pagination.page - 1) * pagination.pageSize)
+const viewDialogItems = computed(() => {
+  const row = viewDialog.row
+  if (!row) return []
+  return Array.isArray(row.items) && row.items.length > 0 ? row.items : [row]
+})
 
 const dialog = reactive({
   visible: false,
   title: '新增采购',
   type: 'add', // 'add' or 'edit'
   submitting: false
+})
+const viewDialog = reactive({
+  visible: false,
+  row: null
 })
 const aiDialog = reactive({
   visible: false,
@@ -566,6 +629,12 @@ const openDialog = (type, row = null) => {
   }
 }
 
+const openViewDialog = (row) => {
+  if (!row) return
+  viewDialog.row = row
+  viewDialog.visible = true
+}
+
 // 重置表单
 const resetForm = () => {
   if (formRef.value) {
@@ -648,8 +717,8 @@ const openAiDialog = () => {
 
 const handleAiImageChange = (file) => {
   if (!file || !file.raw) return
-  if (aiDialog.images.length >= 4) {
-    ElMessage.warning('最多选择 4 张图片')
+  if (aiDialog.images.length >= 20) {
+    ElMessage.warning('最多选择 20 张图片')
     return
   }
   if (!String(file.raw.type || '').startsWith('image/')) {
@@ -784,19 +853,29 @@ const submitForm = async () => {
           dialog.submitting = false
           return
         }
+
+        const calculatedTotalAmount = Number(
+          payload.items
+            .reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unit_price || 0)), 0)
+            .toFixed(2)
+        )
+        if (calculatedTotalAmount > 0) {
+          payload.total_amount = calculatedTotalAmount
+          form.total_amount = calculatedTotalAmount
+        }
       }
 
-      let targetId = form.id
+      let targetIds = form.id ? [form.id] : []
       if (dialog.type === 'add') {
         const created = await procurementApi.createProcurement(payload)
-        targetId = created?.data?.id || created?.data?.ids?.[0]
-        ElMessage.success('新增成功')
+        targetIds = Array.isArray(created?.data?.ids) && created.data.ids.length > 0
+          ? created.data.ids
+          : [created?.data?.id].filter(Boolean)
       } else {
         await procurementApi.updateProcurement(form.id, payload)
-        ElMessage.success('更新成功')
       }
 
-      if (targetId && procurementImageFiles.value.length > 0) {
+      if (targetIds.length > 0 && procurementImageFiles.value.length > 0) {
         uploadingProcurementImages.value = true
         uploadProgress.value = 0
         const uploadedUrls = []
@@ -806,7 +885,7 @@ const submitForm = async () => {
           const item = procurementImageFiles.value[i]
           const result = await uploadFileByChunks(item.file, {
             category: 'procurements',
-            subDir: buildProcurementUploadSubDir(targetId),
+            subDir: buildProcurementUploadSubDir(targetIds[0]),
             chunkSize: 1024 * 1024,
             maxRetries: 3,
             retryDelay: 800,
@@ -830,7 +909,9 @@ const submitForm = async () => {
           .filter(v => v)
           .slice(0, 20)
 
-        await procurementApi.updateProcurement(targetId, { procurement_images: finalImages })
+        await Promise.all(
+          targetIds.map(id => procurementApi.updateProcurementImages(id, { procurement_images: finalImages }))
+        )
         form.procurement_images = finalImages
         uploadProgress.value = 100
       }
@@ -839,10 +920,12 @@ const submitForm = async () => {
       uploadingProcurementImages.value = false
       uploadProgress.value = 0
       dialog.visible = false
+      ElMessage.success(dialog.type === 'add' ? '新增成功' : '更新成功')
       fetchProcurements()
     } catch (error) {
       console.error(error)
-      ElMessage.error(dialog.type === 'add' ? '新增失败' : '更新失败')
+      const message = error?.response?.data?.error || error?.message || (dialog.type === 'add' ? '新增失败' : '更新失败')
+      ElMessage.error(message)
     } finally {
       dialog.submitting = false
     }
@@ -881,8 +964,8 @@ const handleBatchDelete = async () => {
   const deleteTargets = selectedProcurements.value.flatMap(row => Array.isArray(row?.items) && row.items.length > 0 ? row.items : [row])
   try {
     await ElMessageBox.confirm(
-      `确定要批量删除选中的 ${selectedProcurements.value.length} 个采购单吗？`,
-      '批量删除确认',
+      `确定要删除选中的 ${selectedProcurements.value.length} 个采购单吗？`,
+      '删除确认',
       {
         confirmButtonText: '确定删除',
         cancelButtonText: '取消',
@@ -903,13 +986,13 @@ const handleBatchDelete = async () => {
     await fetchProcurements()
     selectedProcurements.value = []
     if (failures.length === 0) {
-      ElMessage.success(`批量删除完成：成功 ${successCount} 条`)
+      ElMessage.success(`删除完成：成功 ${successCount} 条`)
     } else {
-      ElMessage.error(`批量删除完成：成功 ${successCount} 条，失败 ${failures.length} 条`)
+      ElMessage.error(`删除完成：成功 ${successCount} 条，失败 ${failures.length} 条`)
     }
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error('批量删除失败')
+      ElMessage.error('删除失败')
     }
   } finally {
     loading.value = false
@@ -1101,6 +1184,13 @@ onMounted(() => {
   margin-bottom: 18px;
 }
 
+.page-container {
+  background: var(--card-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: 18px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
 .header-operations {
   display: flex;
   gap: 10px;
@@ -1135,10 +1225,16 @@ onMounted(() => {
 :deep(.procurement-table) {
   --el-table-header-bg-color: var(--surface-muted);
   --el-table-tr-bg-color: var(--card-bg);
+  --el-table-bg-color: var(--card-bg);
+  --el-fill-color-blank: var(--card-bg);
   --el-table-row-hover-bg-color: rgba(37, 99, 235, 0.06);
   --el-table-border-color: var(--surface-border);
   border-radius: 12px;
   overflow: hidden;
+}
+
+:deep(.procurement-table .el-table__expanded-cell) {
+  background: var(--card-bg);
 }
 
 :deep(.procurement-table .el-table__header-wrapper th.el-table__cell) {
@@ -1164,6 +1260,16 @@ onMounted(() => {
   width: 40px;
   height: 40px;
   border-radius: 6px;
+}
+
+.procurement-view-descriptions {
+  margin-bottom: 4px;
+}
+
+.view-image-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .upload-progress-text {
