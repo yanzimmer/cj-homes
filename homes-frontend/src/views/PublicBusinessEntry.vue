@@ -283,7 +283,9 @@
       <el-dialog
         :title="aiDialogTitle"
         v-model="aiDialog.visible"
-        width="620px"
+        width="min(620px, calc(100vw - 24px))"
+        class="app-ai-dialog"
+        modal-class="app-ai-dialog-overlay"
         @close="resetAiDialog"
       >
         <el-form label-width="92px">

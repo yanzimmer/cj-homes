@@ -1,8 +1,24 @@
 <template>
   <div>
-  <div class="rooms-container">
+  <div class="rooms-container" :class="{ 'rooms-container--mobile': mobileMode }">
     <div class="page-header">
-      <h2>房间详情</h2>
+      <div class="page-header__title">
+        <h2>房间详情</h2>
+        <div v-if="mobileMode" class="mobile-room-stats">
+          <div class="mobile-room-stat">
+            <strong>{{ rooms.length }}</strong>
+            <span>总房间</span>
+          </div>
+          <div class="mobile-room-stat">
+            <strong>{{ occupiedRoomCount }}</strong>
+            <span>已入住</span>
+          </div>
+          <div class="mobile-room-stat">
+            <strong>{{ vacantRoomCount }}</strong>
+            <span>空闲</span>
+          </div>
+        </div>
+      </div>
       <div class="header-operations">
         <el-input
           v-model="searchQuery"
@@ -17,7 +33,7 @@
         </el-input>
         
         <!-- 视图切换按钮 -->
-        <el-radio-group v-model="currentView" size="default" style="margin-right: 15px;">
+        <el-radio-group v-if="!mobileMode" v-model="currentView" size="default" class="view-switch-group">
           <el-radio-button label="table">
             <el-icon><List /></el-icon> 列表
           </el-radio-button>
@@ -27,8 +43,22 @@
         </el-radio-group>
 
         <el-button class="toolbar-btn" type="primary" @click="openAddDialog">新增</el-button>
-        <el-button class="toolbar-btn" type="danger" :disabled="selectedRooms.length === 0" :loading="batchDeleting" @click="handleBatchDelete">删除</el-button>
-        <el-dropdown trigger="click" @command="handleExportCommand">
+        <el-button
+          v-if="mobileMode"
+          class="toolbar-btn"
+          :type="currentView === 'table' ? 'primary' : 'default'"
+          :plain="currentView !== 'table'"
+          @click="currentView = 'table'"
+        >列表</el-button>
+        <el-button
+          v-if="mobileMode"
+          class="toolbar-btn"
+          :type="currentView === 'floor' ? 'primary' : 'default'"
+          :plain="currentView !== 'floor'"
+          @click="currentView = 'floor'"
+        >楼层</el-button>
+        <el-button v-if="!mobileMode" class="toolbar-btn" type="danger" :disabled="selectedRooms.length === 0" :loading="batchDeleting" @click="handleBatchDelete">删除</el-button>
+        <el-dropdown v-if="!mobileMode" trigger="click" @command="handleExportCommand">
           <el-button class="toolbar-btn" type="success">
             导出 <el-icon style="margin-left:4px"><Filter /></el-icon>
           </el-button>
@@ -41,11 +71,106 @@
           </template>
         </el-dropdown>
       </div>
+
+      <div v-if="mobileMode" class="mobile-secondary-controls">
+        <el-select v-model="statusFilter" class="mobile-filter-select" placeholder="状态">
+          <el-option label="全部状态" value="all" />
+          <el-option label="空闲" value="空闲" />
+          <el-option label="已入住" value="已入住" />
+        </el-select>
+
+        <el-select v-model="roomTypeFilter" class="mobile-filter-select" placeholder="类型">
+          <el-option label="全部类型" value="all" />
+          <el-option
+            v-for="type in roomTypeOptions"
+            :key="`mobile-type-${type}`"
+            :label="type"
+            :value="type"
+          />
+        </el-select>
+      </div>
     </div>
 
     <!-- 列表视图 -->
     <div v-if="currentView === 'table'">
-      <div class="table-panel">
+      <div v-if="mobileMode" class="mobile-room-list" v-loading="loading">
+        <div v-if="visibleRooms.length === 0" class="empty-state">
+          <el-empty description="暂无符合条件的房间" />
+        </div>
+
+        <div v-else class="mobile-room-cards">
+          <article
+            v-for="room in visibleRooms"
+            :key="room.id"
+            class="mobile-room-card"
+            :class="{
+              'mobile-room-card--occupied': room.status === '已入住',
+              'mobile-room-card--vacant': room.status === '空闲'
+            }"
+          >
+            <div class="mobile-room-card__top">
+              <div>
+                <div class="mobile-room-card__room-no">{{ room.room_display || room.room_no }}</div>
+                <div class="mobile-room-card__meta">{{ room.building }}栋 · {{ room.floor || '-' }}楼 · {{ room.room_type }}</div>
+              </div>
+              <el-tag :type="room.status === '已入住' ? 'danger' : 'success'" effect="dark">
+                {{ room.status }}
+              </el-tag>
+            </div>
+
+            <div class="mobile-room-card__facts">
+              <div class="mobile-room-fact">
+                <span>价格</span>
+                <strong>{{ formatRoomPrice(room) }}</strong>
+              </div>
+              <div class="mobile-room-fact">
+                <span>押金</span>
+                <strong>{{ Number(room.deposit || 0) }} 元</strong>
+              </div>
+              <div class="mobile-room-fact">
+                <span>租户</span>
+                <strong>{{ room.tenant_count || 0 }} 人</strong>
+              </div>
+            </div>
+
+            <div v-if="room.features?.length" class="mobile-room-card__features">
+              <el-tag v-for="item in room.features" :key="item" size="small" effect="plain">{{ item }}</el-tag>
+            </div>
+
+            <p v-if="room.description" class="mobile-room-card__desc">{{ room.description }}</p>
+
+            <div class="mobile-room-card__actions">
+              <el-button
+                size="small"
+                @click="showRoomDetails(room)"
+                :disabled="room.status === '空闲' || room.tenant_count === 0"
+              >
+                详情
+              </el-button>
+              <el-button size="small" type="primary" plain @click="openEditDialog(room)">编辑</el-button>
+              <el-button size="small" type="primary" @click="openSelfCheckinDialog(room)">入住登记</el-button>
+              <el-button
+                v-if="room.status === '已入住'"
+                size="small"
+                type="warning"
+                @click="handleCheckout(room)"
+              >
+                退租
+              </el-button>
+              <el-button
+                v-else
+                size="small"
+                type="danger"
+                @click="handleDelete(room)"
+              >
+                删除
+              </el-button>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <div v-else class="table-panel">
       <el-table 
         class="rooms-table" 
         ref="roomsTableRef"
@@ -137,7 +262,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="description" label="描述" min-width="120" show-overflow-tooltip></el-table-column>
-        <el-table-column label="操作" width="210" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="scope">
             <div class="room-actions-inline">
               <el-button
@@ -148,6 +273,7 @@
                 详情
               </el-button>
               <el-button size="small" type="primary" @click="openEditDialog(scope.row)">编辑</el-button>
+              <el-button size="small" type="primary" plain @click="openSelfCheckinDialog(scope.row)">入住登记</el-button>
               <el-dropdown trigger="click">
                 <el-button size="small">
                   更多
@@ -155,7 +281,6 @@
                 </el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
-                    <el-dropdown-item @click="openSelfCheckinDialog(scope.row)">入住登记</el-dropdown-item>
                     <el-dropdown-item
                       :disabled="scope.row.status === '空闲' || scope.row.tenant_count === 0"
                       @click="handleCheckout(scope.row)"
@@ -178,12 +303,13 @@
       </div>
       
       <!-- 分页控件 -->
-      <div class="pagination-container">
+      <div class="pagination-container" :class="{ 'pagination-container--mobile': mobileMode }">
         <el-pagination
           v-model:current-page="currentPage"
           v-model:page-size="pageSize"
           :page-sizes="[10, 20, 50, 100]"
-          layout="total, sizes, prev, pager, next, jumper"
+          :layout="paginationLayout"
+          :small="mobileMode"
           :total="filteredRooms.length"
           @size-change="handleSizeChange"
           @current-change="handleCurrentChange"
@@ -265,7 +391,7 @@
       :title="dialogTitle"
       v-model="dialogVisible"
       direction="rtl"
-      size="620px"
+      :size="mobileMode ? '100%' : '620px'"
     >
       <input
         ref="roomWaterQrInputRef"
@@ -384,7 +510,7 @@
     </el-drawer>
 
     <!-- 退租确认对话框 -->
-    <el-dialog title="确认退租" v-model="checkoutDialogVisible" width="400px">
+    <el-dialog title="确认退租" v-model="checkoutDialogVisible" :width="mobileMode ? '92%' : '400px'">
       <div class="checkout-confirm">
         <p>确定要将房间 <strong>{{ checkoutRoom.room_display || checkoutRoom.room_no }}</strong> 退租吗？</p>
         <p>该操作将会将房间内所有租户 ({{ checkoutRoom.tenant_count }} 人) 标记为已退租。</p>
@@ -399,11 +525,96 @@
     </el-dialog>
 
     <!-- 房间详情对话框 -->
-    <el-dialog title="房间详情" v-model="detailsDialogVisible" width="700px">
+    <el-dialog
+      title="房间详情"
+      v-model="detailsDialogVisible"
+      :width="mobileMode ? '96%' : '700px'"
+      class="room-details-dialog"
+    >
       <div v-loading="detailsLoading">
         <div class="room-info">
           <h3>房间信息</h3>
-          <el-descriptions :column="2" border class="room-details-descriptions">
+          <div v-if="mobileMode" class="room-details-mobile-section">
+            <article class="room-details-mobile-card">
+              <div class="room-details-mobile-grid">
+                <div class="room-details-mobile-row">
+                  <span class="room-details-mobile-row__label">房间号</span>
+                  <strong class="room-details-mobile-row__value">{{ currentRoom.room_display || currentRoom.room_no || '-' }}</strong>
+                </div>
+                <div class="room-details-mobile-row">
+                  <span class="room-details-mobile-row__label">楼栋</span>
+                  <strong class="room-details-mobile-row__value">{{ currentRoom.building || '-' }}</strong>
+                </div>
+                <div class="room-details-mobile-row">
+                  <span class="room-details-mobile-row__label">楼层</span>
+                  <strong class="room-details-mobile-row__value">{{ currentRoom.floor || '-' }}</strong>
+                </div>
+                <div class="room-details-mobile-row">
+                  <span class="room-details-mobile-row__label">房间类型</span>
+                  <strong class="room-details-mobile-row__value">{{ currentRoom.room_type || '-' }}</strong>
+                </div>
+                <div class="room-details-mobile-row">
+                  <span class="room-details-mobile-row__label">价格</span>
+                  <strong class="room-details-mobile-row__value">{{ formatRoomPrice(currentRoom) }}</strong>
+                </div>
+                <div class="room-details-mobile-row">
+                  <span class="room-details-mobile-row__label">押金</span>
+                  <strong class="room-details-mobile-row__value">{{ currentRoom.deposit || 0 }} 元</strong>
+                </div>
+                <div class="room-details-mobile-row">
+                  <span class="room-details-mobile-row__label">状态</span>
+                  <strong class="room-details-mobile-row__value">
+                    <el-tag :type="currentRoom.status === '已入住' ? 'danger' : 'success'">
+                      {{ currentRoom.status || '-' }}
+                    </el-tag>
+                  </strong>
+                </div>
+                <div class="room-details-mobile-row">
+                  <span class="room-details-mobile-row__label">租户数量</span>
+                  <strong class="room-details-mobile-row__value">{{ currentRoom.tenant_count ?? 0 }}</strong>
+                </div>
+              </div>
+            </article>
+
+            <article class="room-details-mobile-card">
+              <div class="room-details-mobile-subtitle">水二维码</div>
+              <div v-if="getWaterMeterImages(currentRoom).length > 0" class="room-details-mobile-qr-list">
+                <el-image
+                  v-for="(img, index) in getWaterMeterImages(currentRoom)"
+                  :key="`detail-water-mobile-${img}-${index}`"
+                  class="room-details-mobile-qr-image"
+                  :src="toStaticUrl(img)"
+                  :preview-src-list="getWaterMeterImages(currentRoom).map((item) => toStaticUrl(item))"
+                  fit="cover"
+                  preview-teleported
+                />
+              </div>
+              <div v-else class="room-details-mobile-empty">未上传</div>
+            </article>
+
+            <article class="room-details-mobile-card">
+              <div class="room-details-mobile-subtitle">电二维码</div>
+              <div v-if="currentRoom.electricity_meter_img" class="room-details-mobile-qr-list">
+                <el-image
+                  class="room-details-mobile-qr-image"
+                  :src="toStaticUrl(currentRoom.electricity_meter_img)"
+                  :preview-src-list="[toStaticUrl(currentRoom.electricity_meter_img)]"
+                  fit="cover"
+                  preview-teleported
+                />
+              </div>
+              <div v-else class="room-details-mobile-empty">未上传</div>
+            </article>
+
+            <article class="room-details-mobile-card">
+              <div class="room-details-mobile-subtitle">房间设施</div>
+              <div class="room-feature-tags">
+                <el-tag v-for="item in (currentRoom.features || [])" :key="item" size="small" effect="plain">{{ item }}</el-tag>
+                <span v-if="!currentRoom.features || currentRoom.features.length === 0">-</span>
+              </div>
+            </article>
+          </div>
+          <el-descriptions v-else :column="2" border class="room-details-descriptions">
             <el-descriptions-item label="房间号">{{ currentRoom.room_no }}</el-descriptions-item>
             <el-descriptions-item label="楼栋">{{ currentRoom.building }}</el-descriptions-item>
             <el-descriptions-item label="楼层">{{ currentRoom.floor }}</el-descriptions-item>
@@ -453,7 +664,33 @@
 
         <div class="tenant-list" v-if="roomTenants.length > 0">
           <h3>入住人员</h3>
-          <el-table :data="roomTenants" border style="width: 100%" table-layout="auto" class="room-details-tenant-table">
+          <div v-if="mobileMode" class="room-tenant-mobile-list">
+            <article v-for="tenant in roomTenants" :key="tenant.id_card || `${tenant.name}-${tenant.phone}`" class="room-tenant-mobile-card">
+              <div class="room-tenant-mobile-card__header">
+                <strong>{{ tenant.name || '未命名租户' }}</strong>
+                <el-tag size="small" effect="plain">{{ tenant.gender || '未填' }}</el-tag>
+              </div>
+              <div class="room-tenant-mobile-details">
+                <div class="room-tenant-mobile-row">
+                  <span class="room-tenant-mobile-row__label">电话</span>
+                  <strong class="room-tenant-mobile-row__value">{{ tenant.phone || '-' }}</strong>
+                </div>
+                <div class="room-tenant-mobile-row">
+                  <span class="room-tenant-mobile-row__label">身份证号</span>
+                  <strong class="room-tenant-mobile-row__value">{{ tenant.id_card || '-' }}</strong>
+                </div>
+                <div class="room-tenant-mobile-row">
+                  <span class="room-tenant-mobile-row__label">入住日期</span>
+                  <strong class="room-tenant-mobile-row__value">{{ tenant.check_in_date || '-' }}</strong>
+                </div>
+                <div class="room-tenant-mobile-row">
+                  <span class="room-tenant-mobile-row__label">到期日期</span>
+                  <strong class="room-tenant-mobile-row__value">{{ tenant.check_out_date || '-' }}</strong>
+                </div>
+              </div>
+            </article>
+          </div>
+          <el-table v-else :data="roomTenants" border style="width: 100%" table-layout="auto" class="room-details-tenant-table">
             <el-table-column prop="name" label="姓名" min-width="90"></el-table-column>
             <el-table-column prop="gender" label="性别" min-width="70"></el-table-column>
             <el-table-column prop="phone" label="电话" min-width="120"></el-table-column>
@@ -474,7 +711,12 @@
     </el-dialog>
 
 
-    <el-dialog title="入住登记" v-model="selfCheckinDialogVisible" width="820px">
+    <el-dialog
+      title="入住登记"
+      v-model="selfCheckinDialogVisible"
+      :width="mobileMode ? '96%' : '820px'"
+      class="self-checkin-dialog"
+    >
       <div class="self-checkin-panel">
         <div class="self-checkin-toolbar">
           <div class="self-checkin-room">
@@ -540,7 +782,84 @@
         <el-divider />
 
         <h3>待确认提交记录</h3>
-        <el-table :data="selfCheckinSubmissions" border style="width: 100%">
+        <div v-if="mobileMode" class="self-checkin-mobile-submission-list">
+          <el-empty
+            v-if="selfCheckinSubmissions.length === 0"
+            description="暂无待确认提交记录"
+          />
+          <article
+            v-for="row in selfCheckinSubmissions"
+            v-else
+            :key="row.id"
+            class="self-checkin-mobile-submission-card"
+          >
+            <div class="self-checkin-mobile-submission-top">
+              <strong>{{ row.name || '未填写姓名' }}</strong>
+              <div class="self-checkin-mobile-submission-tags">
+                <el-tag :type="getSelfCheckinSubmissionStatusType(row.status)" effect="light" round>
+                  {{ getSelfCheckinSubmissionStatusLabel(row.status) }}
+                </el-tag>
+              </div>
+            </div>
+            <div class="self-checkin-mobile-submission-grid">
+              <div class="self-checkin-mobile-submission-item">
+                <span>身份证号</span>
+                <strong>{{ row.id_card || '-' }}</strong>
+              </div>
+              <div class="self-checkin-mobile-submission-item">
+                <span>联系电话</span>
+                <strong>{{ row.phone || '-' }}</strong>
+              </div>
+              <div class="self-checkin-mobile-submission-item">
+                <span>入住日期</span>
+                <strong>{{ row.check_in_date || '-' }}</strong>
+              </div>
+              <div class="self-checkin-mobile-submission-item">
+                <span>退房日期</span>
+                <strong>{{ row.check_out_date || '-' }}</strong>
+              </div>
+              <div class="self-checkin-mobile-submission-item">
+                <span>提交时间</span>
+                <strong>{{ row.submitted_at || '-' }}</strong>
+              </div>
+              <div
+                v-if="row.reject_reason"
+                class="self-checkin-mobile-submission-item self-checkin-mobile-submission-item--full"
+              >
+                <span>驳回原因</span>
+                <strong>{{ row.reject_reason }}</strong>
+              </div>
+            </div>
+            <div class="self-checkin-mobile-submission-actions">
+              <el-button size="small" @click="openSubmissionDetail(row)">详情</el-button>
+              <el-button
+                size="small"
+                type="primary"
+                :disabled="row.status !== 'pending'"
+                @click="openApproveSelfCheckinDialog(row)"
+              >
+                确认
+              </el-button>
+              <el-button
+                size="small"
+                type="danger"
+                :disabled="row.status !== 'pending'"
+                @click="rejectSelfCheckinSubmission(row)"
+              >
+                驳回
+              </el-button>
+              <el-button
+                size="small"
+                type="danger"
+                plain
+                @click="deleteSelfCheckinSubmission(row)"
+              >
+                删除
+              </el-button>
+            </div>
+          </article>
+        </div>
+        <el-table v-else :data="selfCheckinSubmissions" border style="width: 100%">
           <el-table-column prop="name" label="姓名" min-width="100" />
           <el-table-column prop="id_card" label="身份证号" min-width="170" />
           <el-table-column prop="phone" label="联系电话" min-width="120" />
@@ -584,7 +903,7 @@
       </div>
     </el-dialog>
 
-    <el-drawer v-model="submissionDetailVisible" title="入住提交详情" size="520px">
+    <el-drawer v-model="submissionDetailVisible" title="入住提交详情" :size="mobileMode ? '100%' : '520px'">
       <el-descriptions v-if="submissionDetail.id" :column="1" border>
         <el-descriptions-item label="姓名">{{ submissionDetail.name || '-' }}</el-descriptions-item>
         <el-descriptions-item label="性别">{{ submissionDetail.gender || '-' }}</el-descriptions-item>
@@ -604,7 +923,7 @@
       </el-descriptions>
     </el-drawer>
 
-    <el-dialog v-model="rejectDialogVisible" title="驳回入住提交" width="460px">
+    <el-dialog v-model="rejectDialogVisible" title="驳回入住提交" :width="mobileMode ? '94%' : '460px'">
       <el-alert
         title="驳回后会保留记录，用户可在记录中看到驳回原因。"
         type="warning"
@@ -634,7 +953,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="approveDialogVisible" title="确认入住提交" width="640px">
+    <el-dialog v-model="approveDialogVisible" title="确认入住提交" :width="mobileMode ? '94%' : '640px'">
       <el-alert
         :title="selfCheckinRoomTenants.length > 0 ? '当前房间已有租户，可选择新增一条，或补全现有记录。' : '当前房间暂无租户，只能新增租户。'"
         type="info"
@@ -727,9 +1046,11 @@
 
 <script setup>
 import { ref, reactive, onMounted, onUnmounted, computed, nextTick, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { roomsApi } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Filter, List, Grid, Edit, Delete, SwitchButton, MoreFilled } from '@element-plus/icons-vue'
+import { DISPLAY_MODE_EVENT, getPreferredDisplayMode } from '../utils/displayMode'
 import * as XLSX from 'xlsx'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -738,8 +1059,12 @@ import { saveAs } from 'file-saver'
 import html2canvas from 'html2canvas'
 import QRCode from 'qrcode'
 
+const route = useRoute()
+const router = useRouter()
+
 // 视图切换
 const currentView = ref('table') // 'table' or 'floor'
+const mobileMode = ref(false)
 
 // 数据
 const rooms = ref([])
@@ -782,13 +1107,22 @@ const currentPage = ref(1)
 const pageSize = ref(20)
 const showPrintArea = ref(false)
 const printAreaRef = ref(null)
+const openingSelfCheckinFromRoute = ref(false)
 const roomRowStart = computed(() => (currentPage.value - 1) * pageSize.value)
+const occupiedRoomCount = computed(() => rooms.value.filter((room) => room.status === '已入住').length)
+const vacantRoomCount = computed(() => rooms.value.filter((room) => room.status === '空闲').length)
+const paginationLayout = computed(() => (
+  mobileMode.value ? 'prev, pager, next' : 'total, sizes, prev, pager, next, jumper'
+))
 // （重复声明已移除）
 
 // 表格高度自适应：根据窗口动态计算可视高度
 const calcTableMaxHeight = () => Math.max(window.innerHeight - 260, 300)
 const tableMaxHeight = ref(calcTableMaxHeight())
 const handleResize = () => { tableMaxHeight.value = calcTableMaxHeight() }
+const syncDisplayMode = () => {
+  mobileMode.value = getPreferredDisplayMode() === 'mobile'
+}
 
 // 处理页面大小变化
 const handleSizeChange = (size) => {
@@ -1026,6 +1360,8 @@ const rules = {
 onMounted(() => {
   fetchRooms()
   fetchRoomFeatureOptions()
+  syncDisplayMode()
+  window.addEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
 })
 
 onMounted(() => {
@@ -1033,6 +1369,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
   window.removeEventListener('resize', handleResize)
 })
 
@@ -1046,11 +1383,39 @@ const fetchRooms = async () => {
       price_unit: normalizeRoomPriceUnit(room.price_unit),
       __sequence: index + 1
     }))
+    if (route.query?.selfCheckinRoomId) {
+      await nextTick()
+      await openSelfCheckinRoomFromRoute()
+    }
   } catch (error) {
     ElMessage.error('获取房间列表失败')
     console.error(error)
   } finally {
     loading.value = false
+  }
+}
+
+const clearSelfCheckinRouteQuery = () => {
+  const nextQuery = { ...route.query }
+  delete nextQuery.selfCheckinRoomId
+  delete nextQuery.submissionId
+  router.replace({ path: route.path, query: nextQuery }).catch(() => {})
+}
+
+const openSelfCheckinRoomFromRoute = async () => {
+  if (openingSelfCheckinFromRoute.value) return
+  const roomId = Number(route.query?.selfCheckinRoomId || 0)
+  if (!roomId) return
+  const targetRoom = rooms.value.find((room) => Number(room?.id || 0) === roomId)
+  if (!targetRoom) return
+  openingSelfCheckinFromRoute.value = true
+  try {
+    currentView.value = 'table'
+    await nextTick()
+    await openSelfCheckinDialog(targetRoom)
+    clearSelfCheckinRouteQuery()
+  } finally {
+    openingSelfCheckinFromRoute.value = false
   }
 }
 
@@ -1124,7 +1489,42 @@ const handleRoomMeterQrFileChange = (type, event) => {
   }
 }
 
-const buildSelfCheckinUrl = (token) => `${PUBLIC_APP_ORIGIN}/check-in/${token}`
+const normalizeSelfCheckinBuildingSegment = (room = {}) => {
+  const raw = String(room?.building || '').trim()
+  const cleaned = raw.replace(/栋/g, '').trim()
+  const letters = cleaned.replace(/[^A-Za-z]/g, '')
+  return letters.toLowerCase()
+}
+
+const normalizeSelfCheckinRoomSegment = (room = {}) => {
+  const primary = String(room?.room_no || '').trim()
+  const fallback = String(room?.room_display || '').trim()
+  const digits = (primary || fallback).replace(/\D/g, '')
+  return digits
+}
+
+const buildSelfCheckinUrl = (token, room = selfCheckinRoom.value) => {
+  const buildingSegment = normalizeSelfCheckinBuildingSegment(room)
+  const roomSegment = normalizeSelfCheckinRoomSegment(room)
+  if (buildingSegment && roomSegment) {
+    return `${PUBLIC_APP_ORIGIN}/${buildingSegment}/${roomSegment}/${token}`
+  }
+  return `${PUBLIC_APP_ORIGIN}/check-in/${token}`
+}
+
+const getSelfCheckinSubmissionStatusLabel = (status) => {
+  if (status === 'approved') return '已确认'
+  if (status === 'rejected') return '已驳回'
+  if (status === 'pending') return '待确认'
+  return status || '未知状态'
+}
+
+const getSelfCheckinSubmissionStatusType = (status) => {
+  if (status === 'approved') return 'success'
+  if (status === 'rejected') return 'danger'
+  if (status === 'pending') return 'warning'
+  return 'info'
+}
 
 const formatSelfCheckinTenantOption = (tenant) => {
   const name = tenant?.name || `租户#${tenant?.id || ''}`
@@ -1174,6 +1574,18 @@ const openSelfCheckinDialog = async (room) => {
     ElMessage.error(error?.response?.data?.error || '加载入住链接数据失败')
   }
 }
+
+watch(rooms, async (value) => {
+  if (!Array.isArray(value) || value.length === 0) return
+  if (!route.query?.selfCheckinRoomId) return
+  await openSelfCheckinRoomFromRoute()
+})
+
+watch(() => route.query?.selfCheckinRoomId, async (roomId) => {
+  if (!roomId) return
+  if (!Array.isArray(rooms.value) || rooms.value.length === 0) return
+  await openSelfCheckinRoomFromRoute()
+})
 
 const createSelfCheckinLink = async () => {
   if (!selfCheckinRoom.value?.id) return
@@ -1670,6 +2082,12 @@ const exportToPDF = async () => {
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
 }
 
+.page-header__title {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .page-header {
   display: flex;
   justify-content: space-between;
@@ -1682,7 +2100,18 @@ const exportToPDF = async () => {
   color: #409EFF;
 }
 
+.view-switch-group {
+  margin-right: 15px;
+}
+
 .header-operations {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mobile-secondary-controls {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1695,6 +2124,37 @@ const exportToPDF = async () => {
 
 .toolbar-btn {
   margin-left: 0 !important;
+}
+
+.mobile-filter-select {
+  width: 120px;
+}
+
+.mobile-room-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mobile-room-stat {
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mobile-room-stat strong {
+  font-size: 18px;
+  color: var(--text-main);
+}
+
+.mobile-room-stat span {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .room-feature-tags {
@@ -1726,6 +2186,41 @@ const exportToPDF = async () => {
 
 .room-actions-inline :deep(.el-button--small) {
   padding: 5px 8px;
+}
+
+.rooms-container :deep(.self-checkin-dialog) {
+  border-radius: 18px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+}
+
+.rooms-container :deep(.self-checkin-dialog .el-dialog__header) {
+  margin-right: 0;
+  padding: 16px 18px 14px;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.rooms-container :deep(.self-checkin-dialog .el-dialog__title) {
+  color: var(--text-main);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.rooms-container :deep(.self-checkin-dialog .el-dialog__headerbtn) {
+  top: 14px;
+  right: 16px;
+}
+
+.rooms-container :deep(.self-checkin-dialog .el-dialog__close) {
+  color: var(--text-secondary);
+}
+
+.rooms-container :deep(.self-checkin-dialog .el-dialog__body) {
+  padding: 16px 18px 18px;
+  background: var(--card-bg);
 }
 
 .self-checkin-panel {
@@ -1915,12 +2410,119 @@ const exportToPDF = async () => {
   padding: 10px 10px 16px;
 }
 
+.mobile-room-list {
+  min-height: 320px;
+}
+
+.mobile-room-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mobile-room-card {
+  padding: 14px;
+  border: 1px solid var(--surface-border);
+  border-radius: 18px;
+  background: var(--card-bg);
+  box-shadow: 0 14px 26px rgba(15, 23, 42, 0.08);
+}
+
+.mobile-room-card--occupied {
+  border-color: rgba(245, 108, 108, 0.35);
+}
+
+.mobile-room-card--vacant {
+  border-color: rgba(103, 194, 58, 0.35);
+}
+
+.mobile-room-card__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.mobile-room-card__room-no {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.mobile-room-card__meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.mobile-room-card__facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mobile-room-fact {
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--surface-muted);
+  border: 1px solid var(--surface-border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mobile-room-fact span {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.mobile-room-fact strong {
+  font-size: 13px;
+  color: var(--text-main);
+  line-height: 1.4;
+}
+
+.mobile-room-card__features {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.mobile-room-card__desc {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--text-regular);
+  line-height: 1.6;
+}
+
+.mobile-room-card__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.mobile-room-card__actions :deep(.el-button) {
+  width: 100%;
+  min-height: 38px;
+  margin-left: 0;
+  border-radius: 10px;
+}
+
 .pagination-container {
   margin-top: 16px;
   display: flex;
   justify-content: center;
   padding-top: 12px;
   border-top: 1px solid var(--surface-border);
+}
+
+.pagination-container--mobile {
+  margin-top: 14px;
+  padding-top: 0;
+  border-top: none;
 }
 
 :deep(.rooms-table) {
@@ -1959,6 +2561,41 @@ const exportToPDF = async () => {
   gap: 10px;
 }
 
+.rooms-container :deep(.room-details-dialog) {
+  border-radius: 18px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+}
+
+.rooms-container :deep(.room-details-dialog .el-dialog__header) {
+  margin-right: 0;
+  padding: 16px 18px 14px;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.rooms-container :deep(.room-details-dialog .el-dialog__title) {
+  color: var(--text-main);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.rooms-container :deep(.room-details-dialog .el-dialog__headerbtn) {
+  top: 14px;
+  right: 16px;
+}
+
+.rooms-container :deep(.room-details-dialog .el-dialog__close) {
+  color: var(--text-secondary);
+}
+
+.rooms-container :deep(.room-details-dialog .el-dialog__body) {
+  padding: 16px 18px 18px;
+  background: var(--card-bg);
+}
+
 .checkout-confirm .warning {
   color: #F56C6C;
   font-weight: bold;
@@ -1968,8 +2605,223 @@ const exportToPDF = async () => {
   margin-bottom: 20px;
 }
 
+.room-details-mobile-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.room-details-mobile-card {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.room-details-mobile-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+
+.room-details-mobile-row {
+  padding: 12px 2px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.room-details-mobile-row:last-child {
+  border-bottom: none;
+  padding-bottom: 2px;
+}
+
+.room-details-mobile-row__label {
+  flex: 0 0 72px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.room-details-mobile-row__value {
+  flex: 1;
+  text-align: right;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-main);
+  word-break: break-all;
+}
+
+.room-details-mobile-subtitle {
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.room-details-mobile-qr-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.room-details-mobile-qr-image {
+  width: 92px;
+  height: 92px;
+  border-radius: 12px;
+  border: 1px solid var(--surface-border);
+}
+
+.room-details-mobile-empty {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
 .tenant-list {
   margin-top: 20px;
+}
+
+.room-tenant-mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.room-tenant-mobile-card {
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.room-tenant-mobile-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.room-tenant-mobile-card__header strong {
+  font-size: 15px;
+  color: var(--text-main);
+}
+
+.room-tenant-mobile-details {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  margin-top: 12px;
+  border-top: 1px solid var(--surface-border);
+}
+
+.room-tenant-mobile-row {
+  padding: 12px 2px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.room-tenant-mobile-row:last-child {
+  border-bottom: none;
+  padding-bottom: 2px;
+}
+
+.room-tenant-mobile-row__label {
+  flex: 0 0 68px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.room-tenant-mobile-row__value {
+  flex: 1;
+  text-align: right;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-main);
+  word-break: break-all;
+}
+
+.self-checkin-mobile-submission-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.self-checkin-mobile-submission-card {
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.self-checkin-mobile-submission-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.self-checkin-mobile-submission-top strong {
+  font-size: 15px;
+  color: var(--text-main);
+}
+
+.self-checkin-mobile-submission-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.self-checkin-mobile-submission-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.self-checkin-mobile-submission-item {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.self-checkin-mobile-submission-item span {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.self-checkin-mobile-submission-item strong {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-main);
+  word-break: break-all;
+}
+
+.self-checkin-mobile-submission-item--full {
+  grid-column: 1 / -1;
+}
+
+.self-checkin-mobile-submission-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.self-checkin-mobile-submission-actions :deep(.el-button) {
+  margin-left: 0;
 }
 
 .no-tenants {
@@ -2088,6 +2940,118 @@ const exportToPDF = async () => {
 
 .room-card:hover .room-card-actions {
   opacity: 1;
+}
+
+.empty-state {
+  padding: 24px 0;
+}
+
+.rooms-container--mobile {
+  padding: 16px;
+  border-radius: 16px;
+}
+
+.rooms-container--mobile .page-header {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+
+.rooms-container--mobile .header-operations {
+  gap: 10px;
+}
+
+.rooms-container--mobile .header-operations :deep(.el-input),
+.rooms-container--mobile .header-operations :deep(.el-button) {
+  flex: 1 1 calc(50% - 5px);
+}
+
+.rooms-container--mobile .search-input {
+  width: 100%;
+}
+
+.rooms-container--mobile .mobile-secondary-controls {
+  gap: 10px;
+}
+
+.rooms-container--mobile .mobile-filter-select {
+  width: calc(50% - 5px);
+}
+
+.rooms-container--mobile .mobile-room-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.rooms-container--mobile .mobile-room-stat {
+  padding: 10px;
+}
+
+.rooms-container--mobile .view-switch-group {
+  margin-right: 0;
+}
+
+.rooms-container--mobile :deep(.view-switch-group .el-radio-button__inner) {
+  width: 100%;
+}
+
+.rooms-container--mobile .price-input-row {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.rooms-container--mobile .price-unit-select {
+  width: 100%;
+  flex: none;
+}
+
+.rooms-container--mobile .self-checkin-toolbar,
+.rooms-container--mobile .self-checkin-link-meta {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.rooms-container--mobile :deep(.self-checkin-dialog) {
+  border-radius: 18px;
+}
+
+.rooms-container--mobile :deep(.self-checkin-dialog .el-dialog__header) {
+  padding: 14px 16px 12px;
+}
+
+.rooms-container--mobile :deep(.self-checkin-dialog .el-dialog__title) {
+  font-size: 18px;
+}
+
+.rooms-container--mobile :deep(.self-checkin-dialog .el-dialog__body) {
+  padding: 14px 16px 16px;
+}
+
+.rooms-container--mobile .self-checkin-link-actions,
+.rooms-container--mobile .self-checkin-submission-actions {
+  flex-wrap: wrap;
+  white-space: normal;
+}
+
+.rooms-container--mobile :deep(.room-details-dialog) {
+  border-radius: 18px;
+}
+
+.rooms-container--mobile :deep(.room-details-dialog .el-dialog__header) {
+  padding: 14px 16px 12px;
+}
+
+.rooms-container--mobile :deep(.room-details-dialog .el-dialog__title) {
+  font-size: 18px;
+}
+
+.rooms-container--mobile :deep(.room-details-dialog .el-dialog__body) {
+  padding: 14px 16px 16px;
+}
+
+@media (max-width: 640px) {
+  .mobile-room-card__facts {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* 隐藏打印区域样式，宽度较大以保证截图清晰 */

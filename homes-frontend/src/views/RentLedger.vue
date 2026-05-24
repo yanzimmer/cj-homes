@@ -1,7 +1,25 @@
 <template>
-  <div class="rent-ledger-container page-container">
+  <div class="rent-ledger-container page-container" :class="{ 'rent-ledger-container--mobile': mobileMode }">
     <div class="page-header">
+      <div v-if="mobileMode" class="ledger-mobile-overview">
+        <div class="ledger-mobile-stat">
+          <strong>{{ summaryPayload.overview.tenantCount || 0 }}</strong>
+          <span>租户数</span>
+        </div>
+        <div class="ledger-mobile-stat">
+          <strong>¥{{ formatAmount(summaryPayload.overview.outstandingAmount || 0) }}</strong>
+          <span>待收金额</span>
+        </div>
+      </div>
       <div class="header-operations">
+        <el-input
+          v-model="searchQuery"
+          clearable
+          placeholder="搜索租户或房间"
+          class="ledger-search-input"
+          @keyup.enter="applySearch"
+          @clear="applySearch"
+        />
         <el-input-number
           v-model="selectedYear"
           :min="2000"
@@ -16,6 +34,7 @@
           <el-option label="部分已交" value="部分已交" />
           <el-option label="已交" value="已交" />
         </el-select>
+        <el-button type="primary" plain @click="applySearch">搜索</el-button>
         <el-button plain :loading="loading" @click="loadSummary">刷新</el-button>
       </div>
     </div>
@@ -24,14 +43,85 @@
       <div class="ledger-panel__header">
         <div>
           <h3>收租总表</h3>
-          <p>按租户汇总展示，点击“查看明细”即可查看和编辑每一期收款记录。</p>
+          <p>按租户汇总展示，可先搜索租户或房间，再查看和编辑每一期收款记录。</p>
         </div>
       </div>
 
+      <div v-if="mobileMode" class="ledger-mobile-list">
+        <el-empty v-if="filteredLedgerRows.length === 0" description="当前条件下暂无收租台账" :image-size="48" />
+        <article v-for="group in filteredLedgerRows" :key="group.tenantId" class="ledger-mobile-card">
+          <div class="ledger-mobile-card__header">
+            <div>
+              <div class="ledger-mobile-card__title">{{ group.tenantName || '未命名租户' }}</div>
+              <div class="ledger-mobile-card__meta">{{ group.roomDisplay || '-' }} · {{ formatRent(group) }}</div>
+            </div>
+            <el-button size="small" plain type="primary" @click="toggleMobilePeriods(group)">
+              {{ isMobilePeriodsExpanded(group) ? '收起明细' : '查看明细' }}
+            </el-button>
+          </div>
+
+          <div class="ledger-mobile-card__stats">
+            <div>
+              <strong>{{ group.stats.totalPeriods }}</strong>
+              <span>总期次</span>
+            </div>
+            <div>
+              <strong>{{ group.stats.unpaidPeriods }}</strong>
+              <span>未交</span>
+            </div>
+            <div>
+              <strong>¥{{ formatAmount(group.stats.dueAmount) }}</strong>
+              <span>应收</span>
+            </div>
+            <div>
+              <strong>¥{{ formatAmount(group.stats.outstandingAmount) }}</strong>
+              <span>待收</span>
+            </div>
+          </div>
+
+          <div class="ledger-mobile-card__lease">
+            租期 {{ group.leaseStart || '-' }} 至 {{ group.leaseEnd || '-' }}
+          </div>
+
+          <div v-if="isMobilePeriodsExpanded(group)" class="ledger-mobile-periods">
+            <div v-for="entry in group.entries" :key="entry.id" class="ledger-mobile-period">
+              <div class="ledger-mobile-period__top">
+                <div>
+                  <strong>第 {{ entry.period_index || '-' }} 期</strong>
+                  <div class="ledger-mobile-period__range">{{ formatPeriodRange(entry) }}</div>
+                </div>
+                <el-tag :type="getStatusType(entry.status)">{{ entry.status }}</el-tag>
+              </div>
+              <div class="ledger-mobile-period__amounts">
+                <span>应收 ¥{{ formatAmount(entry.due_amount) }}</span>
+                <span>实收 ¥{{ formatAmount(entry.actual_amount) }}</span>
+              </div>
+              <div class="ledger-mobile-period__meta">
+                <span>{{ entry.payment_person || '未填写收款人' }}</span>
+                <span>{{ entry.payment_date || '未填写日期' }}</span>
+              </div>
+              <div class="ledger-mobile-period__actions">
+                <el-button
+                  size="small"
+                  type="success"
+                  plain
+                  :disabled="savingEntryId === entry.id || entry.status === '已交'"
+                  @click="markPaid(entry)"
+                >
+                  标记已交
+                </el-button>
+                <el-button size="small" type="primary" @click="openEntryDialog(group, entry)">编辑</el-button>
+              </div>
+            </div>
+          </div>
+        </article>
+      </div>
+
       <el-table
+        v-else
         ref="ledgerTableRef"
         v-loading="loading"
-        :data="ledgerRows"
+        :data="filteredLedgerRows"
         border
         class="ledger-table"
         row-key="tenantId"
@@ -39,7 +129,7 @@
         @expand-change="handleExpandChange"
         :header-cell-style="{ textAlign: 'center' }"
         :cell-style="{ textAlign: 'center' }"
-        empty-text="当前年份暂无收租台账"
+        empty-text="当前条件下暂无收租台账"
       >
         <el-table-column type="expand" width="1" class-name="expand-helper-column" label-class-name="expand-helper-column">
           <template #default="{ row }">
@@ -163,7 +253,7 @@
       v-model="entryDialog.visible"
       title="编辑收租记录"
       direction="rtl"
-      size="560px"
+      :size="mobileMode ? '100%' : '560px'"
       @closed="resetEntryForm"
     >
       <el-form ref="entryFormRef" :model="entryForm" :rules="entryRules" label-width="96px">
@@ -274,24 +364,28 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { rentLedgerApi } from '../api'
 import { uploadFileByChunks } from '../utils/chunkUploader'
+import { DISPLAY_MODE_EVENT, getPreferredDisplayMode } from '../utils/displayMode'
 
 const currentYear = new Date().getFullYear()
 const MAX_PAYMENT_IMAGES = 20
 
 const loading = ref(false)
+const mobileMode = ref(false)
 const submitting = ref(false)
 const uploadingImages = ref(false)
 const uploadProgress = ref(0)
 const savingEntryId = ref(null)
 const ledgerTableRef = ref(null)
 const expandedRowKeys = ref([])
+const mobileExpandedTenantIds = ref([])
 
 const selectedYear = ref(currentYear)
 const selectedStatus = ref('')
+const searchQuery = ref('')
 const summaryPayload = ref({
   year: currentYear,
   availableYears: [currentYear],
@@ -351,7 +445,24 @@ const entryRules = {
 }
 
 const groups = computed(() => Array.isArray(summaryPayload.value?.groups) ? summaryPayload.value.groups : [])
+const normalizedSearchQuery = computed(() => String(searchQuery.value || '').trim().toLowerCase())
 const ledgerRows = computed(() => groups.value)
+const filteredLedgerRows = computed(() => {
+  const query = normalizedSearchQuery.value
+  if (!query) return ledgerRows.value
+  return ledgerRows.value.filter((group) => {
+    const tenantName = String(group?.tenantName || '').toLowerCase()
+    const roomDisplay = String(group?.roomDisplay || '').toLowerCase()
+    const leaseStart = String(group?.leaseStart || '').toLowerCase()
+    const leaseEnd = String(group?.leaseEnd || '').toLowerCase()
+    return [tenantName, roomDisplay, leaseStart, leaseEnd].some((item) => item.includes(query))
+  })
+})
+
+function syncDisplayMode() {
+  mobileMode.value = getPreferredDisplayMode() === 'mobile'
+}
+
 function formatAmount(value) {
   return Number(value || 0).toFixed(2)
 }
@@ -391,8 +502,9 @@ function isRowExpanded(row) {
 }
 
 function syncExpandedRowKeys() {
-  const validIds = new Set(ledgerRows.value.map((item) => item.tenantId))
+  const validIds = new Set(filteredLedgerRows.value.map((item) => item.tenantId))
   expandedRowKeys.value = expandedRowKeys.value.filter((item) => validIds.has(item))
+  mobileExpandedTenantIds.value = mobileExpandedTenantIds.value.filter((item) => validIds.has(item))
 }
 
 function handleExpandChange(_row, expandedRows) {
@@ -403,6 +515,22 @@ function toggleRowDetails(row) {
   const table = ledgerTableRef.value
   if (!table) return
   table.toggleRowExpansion(row, !isRowExpanded(row))
+}
+
+function isMobilePeriodsExpanded(row) {
+  return mobileExpandedTenantIds.value.includes(row.tenantId)
+}
+
+function toggleMobilePeriods(row) {
+  if (isMobilePeriodsExpanded(row)) {
+    mobileExpandedTenantIds.value = mobileExpandedTenantIds.value.filter((item) => item !== row.tenantId)
+    return
+  }
+  mobileExpandedTenantIds.value = [...mobileExpandedTenantIds.value, row.tenantId]
+}
+
+function applySearch() {
+  syncExpandedRowKeys()
 }
 
 async function loadSummary() {
@@ -617,7 +745,13 @@ async function submitEntry() {
 }
 
 onMounted(() => {
+  syncDisplayMode()
+  window.addEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
   loadSummary()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
 })
 </script>
 
@@ -633,16 +767,51 @@ onMounted(() => {
   padding: 20px;
 }
 
+.rent-ledger-container--mobile {
+  padding: 16px;
+}
+
 .page-header {
   display: flex;
   justify-content: flex-end;
 }
 
-.header-operations {
+.ledger-mobile-overview {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.ledger-mobile-stat {
+  flex: 1;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(14, 165, 233, 0.12));
+  border: 1px solid rgba(37, 99, 235, 0.12);
+}
+
+.ledger-mobile-stat strong {
+  display: block;
+  font-size: 18px;
+  color: var(--text-main);
+}
+
+.ledger-mobile-stat span {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+  .header-operations {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.ledger-search-input {
+  width: 220px;
 }
 
 .year-input {
@@ -687,6 +856,122 @@ onMounted(() => {
 
 .ledger-table {
   width: 100%;
+}
+
+.ledger-mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ledger-mobile-card {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.ledger-mobile-card__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.ledger-mobile-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ledger-mobile-card__meta,
+.ledger-mobile-card__lease {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.ledger-mobile-card__stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.ledger-mobile-card__stats > div {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+
+.ledger-mobile-card__stats strong,
+.ledger-mobile-card__stats span {
+  display: block;
+}
+
+.ledger-mobile-card__stats strong {
+  font-size: 14px;
+  color: var(--text-main);
+}
+
+.ledger-mobile-card__stats span {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.ledger-mobile-periods {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.ledger-mobile-period {
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--surface-muted);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.ledger-mobile-period__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ledger-mobile-period__range,
+.ledger-mobile-period__meta {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.ledger-mobile-period__amounts {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  color: var(--text-main);
+  font-size: 13px;
+}
+
+.ledger-mobile-period__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ledger-mobile-period__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ledger-mobile-period__actions :deep(.el-button) {
+  flex: 1;
 }
 
 :deep(.ledger-table) {
@@ -810,5 +1095,55 @@ onMounted(() => {
 .outstanding-text {
   color: #dc2626;
   font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .header-operations {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .header-operations :deep(.el-input-number),
+  .header-operations :deep(.el-input),
+  .header-operations :deep(.el-select),
+  .header-operations :deep(.el-button) {
+    width: 100%;
+    min-width: 0;
+    height: 46px;
+    min-height: 46px;
+    margin-left: 0;
+    box-sizing: border-box;
+  }
+
+  .header-operations :deep(.el-input__wrapper),
+  .header-operations :deep(.el-select__wrapper),
+  .header-operations :deep(.el-input-number .el-input__wrapper) {
+    min-height: 46px;
+  }
+
+  .ledger-search-input,
+  .year-input,
+  .status-select {
+    width: auto;
+  }
+
+  .ledger-mobile-card__stats {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .ledger-mobile-period__amounts,
+  .ledger-mobile-period__meta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 </style>

@@ -1,7 +1,17 @@
 ﻿<template>
   <div>
-  <div class="repair-records-container">
+  <div class="repair-records-container" :class="{ 'repair-records-container--mobile': mobileMode }">
     <div class="page-header">
+      <div v-if="mobileMode" class="repair-mobile-overview">
+        <div class="repair-mobile-stat">
+          <strong>{{ totalRecords }}</strong>
+          <span>维修记录</span>
+        </div>
+        <div class="repair-mobile-stat">
+          <strong>{{ pendingRepairCount }}</strong>
+          <span>待跟进</span>
+        </div>
+      </div>
       <div class="header-operations">
         <el-input
           class="search-input"
@@ -17,8 +27,8 @@
         <el-button class="toolbar-btn" type="primary" @click="openAddDialog">新增</el-button>
         <el-button class="toolbar-btn" type="primary" plain @click="openAiDialog">AI 输入</el-button>
         <el-button class="toolbar-btn" type="success" @click="linkDialogVisible = true">链接</el-button>
-        <el-button class="toolbar-btn" type="danger" :disabled="multipleSelection.length === 0" @click="confirmBatchDelete">删除</el-button>
-        <el-dropdown trigger="click" @command="handleExportCommand">
+        <el-button v-if="!mobileMode" class="toolbar-btn" type="danger" :disabled="multipleSelection.length === 0" @click="confirmBatchDelete">删除</el-button>
+        <el-dropdown v-if="!mobileMode" trigger="click" @command="handleExportCommand">
           <el-button class="toolbar-btn" type="success">
             导出 <el-icon style="margin-left:4px"><Filter /></el-icon>
           </el-button>
@@ -31,6 +41,7 @@
           </template>
         </el-dropdown>
         <el-upload
+          v-if="!mobileMode"
           action=""
           :auto-upload="false"
           :show-file-list="false"
@@ -43,7 +54,52 @@
     </div>
 
     <div class="table-panel">
+      <div v-if="mobileMode" class="repair-mobile-list" v-loading="loading">
+        <el-empty v-if="records.length === 0" description="暂无维修记录" :image-size="48" />
+        <article v-for="record in records" :key="record.id" class="repair-mobile-card">
+          <div class="repair-mobile-card__header">
+            <div>
+              <div class="repair-mobile-card__title">
+                {{ record.room_no || record.room_nos || record.building || '未定位房间' }}
+              </div>
+              <div class="repair-mobile-card__meta">
+                {{ record.scope_type || '单个房间' }} · {{ record.repair_type || '其他' }}
+              </div>
+            </div>
+            <el-tag :type="getStatusType(record.status)">{{ record.status }}</el-tag>
+          </div>
+
+          <div class="repair-mobile-card__desc">{{ record.description || '未填写问题描述' }}</div>
+
+          <div class="repair-mobile-card__grid">
+            <div>
+              <strong>{{ record.report_date || '-' }}</strong>
+              <span>报修日期</span>
+            </div>
+            <div>
+              <strong>{{ record.report_by || '-' }}</strong>
+              <span>报修人</span>
+            </div>
+            <div>
+              <strong>{{ record.repair_person || '-' }}</strong>
+              <span>维修人员</span>
+            </div>
+            <div>
+              <strong>{{ record.amount ? `¥${record.amount}` : '-' }}</strong>
+              <span>金额</span>
+            </div>
+          </div>
+
+          <div class="repair-mobile-card__actions">
+            <el-button size="small" type="primary" @click="viewRecord(record)">查看</el-button>
+            <el-button size="small" @click="editRecord(record)">编辑</el-button>
+            <el-button size="small" type="danger" plain @click="confirmDelete(record)">删除</el-button>
+          </div>
+        </article>
+      </div>
+
       <el-table 
+        v-else
         class="records-table"
         :data="records" 
         v-loading="loading" 
@@ -184,7 +240,7 @@
       v-model="dialogVisible"
       :title="isEdit ? '编辑维修记录' : '添加维修记录'"
       direction="rtl"
-      size="720px"
+      :size="mobileMode ? '100%' : '720px'"
     >
       <el-form :model="recordForm" label-width="100px" :rules="rules" ref="recordFormRef">
         <el-form-item label="维修范围" prop="scope_type">
@@ -356,109 +412,118 @@
         <el-form-item label="备注">
           <el-input v-model="recordForm.remarks" type="textarea" :rows="2" placeholder="可选" />
         </el-form-item>
-        <el-form-item label="维修前图片">
-          <el-upload
-            action=""
-            :auto-upload="false"
-            :show-file-list="false"
-            accept="image/*"
-            multiple
-            :limit="30"
-            :on-change="(file) => handleRepairImageChange('before', file)"
-          >
-            <el-button type="primary" plain>选择图片(最多30张)</el-button>
-          </el-upload>
-          <el-button
-            v-if="recordForm.repair_images_before.length > 0"
-            style="margin-left: 8px"
-            type="danger"
-            plain
-            @click="clearAllFormImages('before')"
-          >
-            全部删除图片
-          </el-button>
-          <div class="upload-progress-text" v-if="uploadingRepairImages">上传进度 {{ uploadProgress }}%</div>
-          <div class="upload-progress-text">已选 {{ recordForm.repair_images_before.length }} / 30</div>
-          <div v-if="recordForm.repair_images_before.length > 0" class="repair-image-preview-wrap">
-            <div v-for="(img, index) in recordForm.repair_images_before" :key="`${img}-${index}`" class="repair-image-box">
-              <el-image lazy loading="lazy"
-                class="repair-image-thumb"
-                :src="toImageUrl(img)"
-                :preview-src-list="recordForm.repair_images_before.map((v) => toImageUrl(v))"
-                fit="cover"
-                preview-teleported
-              />
-              <el-button size="small" type="danger" plain @click="removeFormImage('before', index)">删除</el-button>
+        <el-form-item label="维修前图片" class="repair-image-field">
+          <div class="repair-image-uploader">
+            <div class="repair-image-actions">
+              <el-upload
+                action=""
+                :auto-upload="false"
+                :show-file-list="false"
+                accept="image/*"
+                multiple
+                :limit="30"
+                :on-change="(file) => handleRepairImageChange('before', file)"
+              >
+                <el-button type="primary" plain>选择图片(最多30张)</el-button>
+              </el-upload>
+              <el-button
+                v-if="recordForm.repair_images_before.length > 0"
+                type="danger"
+                plain
+                @click="clearAllFormImages('before')"
+              >
+                全部删除图片
+              </el-button>
+            </div>
+            <div class="upload-progress-text" v-if="uploadingRepairImages">上传进度 {{ uploadProgress }}%</div>
+            <div class="upload-progress-text">已选 {{ recordForm.repair_images_before.length }} / 30</div>
+            <div v-if="recordForm.repair_images_before.length > 0" class="repair-image-preview-wrap">
+              <div v-for="(img, index) in recordForm.repair_images_before" :key="`${img}-${index}`" class="repair-image-box">
+                <el-image lazy loading="lazy"
+                  class="repair-image-thumb"
+                  :src="toImageUrl(img)"
+                  :preview-src-list="recordForm.repair_images_before.map((v) => toImageUrl(v))"
+                  fit="cover"
+                  preview-teleported
+                />
+                <el-button size="small" type="danger" plain @click="removeFormImage('before', index)">删除</el-button>
+              </div>
             </div>
           </div>
         </el-form-item>
-        <el-form-item label="维修后图片">
-          <el-upload
-            action=""
-            :auto-upload="false"
-            :show-file-list="false"
-            accept="image/*"
-            multiple
-            :limit="30"
-            :on-change="(file) => handleRepairImageChange('after', file)"
-          >
-            <el-button type="primary" plain>选择图片(最多30张)</el-button>
-          </el-upload>
-          <el-button
-            v-if="recordForm.repair_images_after.length > 0"
-            style="margin-left: 8px"
-            type="danger"
-            plain
-            @click="clearAllFormImages('after')"
-          >
-            全部删除图片
-          </el-button>
-          <div class="upload-progress-text">已选 {{ recordForm.repair_images_after.length }} / 30</div>
-          <div v-if="recordForm.repair_images_after.length > 0" class="repair-image-preview-wrap">
-            <div v-for="(img, index) in recordForm.repair_images_after" :key="`${img}-${index}`" class="repair-image-box">
-              <el-image lazy loading="lazy"
-                class="repair-image-thumb"
-                :src="toImageUrl(img)"
-                :preview-src-list="recordForm.repair_images_after.map((v) => toImageUrl(v))"
-                fit="cover"
-                preview-teleported
-              />
-              <el-button size="small" type="danger" plain @click="removeFormImage('after', index)">删除</el-button>
+        <el-form-item label="维修后图片" class="repair-image-field">
+          <div class="repair-image-uploader">
+            <div class="repair-image-actions">
+              <el-upload
+                action=""
+                :auto-upload="false"
+                :show-file-list="false"
+                accept="image/*"
+                multiple
+                :limit="30"
+                :on-change="(file) => handleRepairImageChange('after', file)"
+              >
+                <el-button type="primary" plain>选择图片(最多30张)</el-button>
+              </el-upload>
+              <el-button
+                v-if="recordForm.repair_images_after.length > 0"
+                type="danger"
+                plain
+                @click="clearAllFormImages('after')"
+              >
+                全部删除图片
+              </el-button>
+            </div>
+            <div class="upload-progress-text">已选 {{ recordForm.repair_images_after.length }} / 30</div>
+            <div v-if="recordForm.repair_images_after.length > 0" class="repair-image-preview-wrap">
+              <div v-for="(img, index) in recordForm.repair_images_after" :key="`${img}-${index}`" class="repair-image-box">
+                <el-image lazy loading="lazy"
+                  class="repair-image-thumb"
+                  :src="toImageUrl(img)"
+                  :preview-src-list="recordForm.repair_images_after.map((v) => toImageUrl(v))"
+                  fit="cover"
+                  preview-teleported
+                />
+                <el-button size="small" type="danger" plain @click="removeFormImage('after', index)">删除</el-button>
+              </div>
             </div>
           </div>
         </el-form-item>
-        <el-form-item label="支付截图">
-          <el-upload
-            action=""
-            :auto-upload="false"
-            :show-file-list="false"
-            accept="image/*"
-            multiple
-            :limit="30"
-            :on-change="(file) => handleRepairImageChange('payment', file)"
-          >
-            <el-button type="primary" plain>选择图片(最多30张)</el-button>
-          </el-upload>
-          <el-button
-            v-if="recordForm.payment_images.length > 0"
-            style="margin-left: 8px"
-            type="danger"
-            plain
-            @click="clearAllFormImages('payment')"
-          >
-            全部删除图片
-          </el-button>
-          <div class="upload-progress-text">已选 {{ recordForm.payment_images.length }} / 30</div>
-          <div v-if="recordForm.payment_images.length > 0" class="repair-image-preview-wrap">
-            <div v-for="(img, index) in recordForm.payment_images" :key="`${img}-${index}`" class="repair-image-box">
-              <el-image lazy loading="lazy"
-                class="repair-image-thumb"
-                :src="toImageUrl(img)"
-                :preview-src-list="recordForm.payment_images.map((v) => toImageUrl(v))"
-                fit="cover"
-                preview-teleported
-              />
-              <el-button size="small" type="danger" plain @click="removeFormImage('payment', index)">删除</el-button>
+        <el-form-item label="支付截图" class="repair-image-field">
+          <div class="repair-image-uploader">
+            <div class="repair-image-actions">
+              <el-upload
+                action=""
+                :auto-upload="false"
+                :show-file-list="false"
+                accept="image/*"
+                multiple
+                :limit="30"
+                :on-change="(file) => handleRepairImageChange('payment', file)"
+              >
+                <el-button type="primary" plain>选择图片(最多30张)</el-button>
+              </el-upload>
+              <el-button
+                v-if="recordForm.payment_images.length > 0"
+                type="danger"
+                plain
+                @click="clearAllFormImages('payment')"
+              >
+                全部删除图片
+              </el-button>
+            </div>
+            <div class="upload-progress-text">已选 {{ recordForm.payment_images.length }} / 30</div>
+            <div v-if="recordForm.payment_images.length > 0" class="repair-image-preview-wrap">
+              <div v-for="(img, index) in recordForm.payment_images" :key="`${img}-${index}`" class="repair-image-box">
+                <el-image lazy loading="lazy"
+                  class="repair-image-thumb"
+                  :src="toImageUrl(img)"
+                  :preview-src-list="recordForm.payment_images.map((v) => toImageUrl(v))"
+                  fit="cover"
+                  preview-teleported
+                />
+                <el-button size="small" type="danger" plain @click="removeFormImage('payment', index)">删除</el-button>
+              </div>
             </div>
           </div>
         </el-form-item>
@@ -475,9 +540,10 @@
     <el-dialog
       v-model="detailDialogVisible"
       title="维修记录详情"
-      width="50%"
+      :fullscreen="mobileMode"
+      :width="mobileMode ? undefined : '50%'"
     >
-            <el-descriptions :column="2" border>
+            <el-descriptions :column="mobileMode ? 1 : 2" border>
         <el-descriptions-item label="ID">{{ currentRecord.id }}</el-descriptions-item>
         <el-descriptions-item label="维修范围">{{ currentRecord.scope_type || '单个房间' }}</el-descriptions-item>
         <el-descriptions-item label="楼栋">{{ currentRecord.building }}</el-descriptions-item>
@@ -558,7 +624,9 @@
     <el-dialog
       title="AI 输入维修"
       v-model="aiDialog.visible"
-      width="620px"
+      :width="mobileMode ? '96%' : '620px'"
+      class="app-ai-dialog"
+      modal-class="app-ai-dialog-overlay"
       @close="resetAiDialog"
     >
       <el-form label-width="92px">
@@ -678,9 +746,11 @@ import 'jspdf-autotable'
 import html2canvas from 'html2canvas'
 import { uploadFileByChunks } from '../utils/chunkUploader'
 import BusinessPublicLinkDialog from '../components/BusinessPublicLinkDialog.vue'
+import { DISPLAY_MODE_EVENT, getPreferredDisplayMode } from '../utils/displayMode'
 
 const loading = ref(false)
 const linkDialogVisible = ref(false)
+const mobileMode = ref(false)
 
 // 缂佺繝鎱ㄧ拋鏉跨秿閸掓銆?
 const records = ref([])
@@ -881,6 +951,10 @@ const rules = {
 // 鏉╁洦鎶ら崥搴ｆ畱鐠佹澘缍嶉崚妤勩€?
 const totalRecords = ref(0)
 const filteredRecords = computed(() => records.value)
+const pendingRepairCount = computed(() => records.value.filter((item) => item?.status !== '已完成').length)
+const syncDisplayMode = () => {
+  mobileMode.value = getPreferredDisplayMode() === 'mobile'
+}
 
 // 閼惧嘲褰囬悩鑸碘偓浣割嚠鎼存梻娈戦弽鍥╊劮缁鐎?
 const getStatusType = (status) => {
@@ -1488,6 +1562,8 @@ const submitForm = async () => {
 
 // 妞ょ敻娼伴崝鐘烘祰閺冩儼骞忛崣鏍ㄦ殶閹?& 閻╂垵鎯夌粣妤€褰涢崣妯哄
 onMounted(async () => {
+  syncDisplayMode()
+  window.addEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
   await loadRooms()
   await loadInventoryOptions()
   await loadTenantNameOptions()
@@ -1496,6 +1572,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
   window.removeEventListener('resize', handleResize)
   revokeAiImageUrls()
 })
@@ -1667,6 +1744,10 @@ const handleImportFile = async (file) => {
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
 }
 
+.repair-records-container--mobile {
+  padding: 16px;
+}
+
 .page-header {
   display: flex;
   align-items: center;
@@ -1693,6 +1774,33 @@ const handleImportFile = async (file) => {
   margin-left: 0 !important;
 }
 
+.repair-mobile-overview {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.repair-mobile-stat {
+  flex: 1;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(20, 184, 166, 0.12));
+  border: 1px solid rgba(37, 99, 235, 0.12);
+}
+
+.repair-mobile-stat strong {
+  display: block;
+  font-size: 18px;
+  color: var(--text-main);
+}
+
+.repair-mobile-stat span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
 .table-image-thumb {
   width: 40px;
   height: 40px;
@@ -1705,6 +1813,18 @@ const handleImportFile = async (file) => {
   flex-wrap: wrap;
   gap: 10px;
   width: 100%;
+}
+
+.repair-image-uploader {
+  width: 100%;
+  min-width: 0;
+}
+
+.repair-image-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .repair-image-box {
@@ -1824,6 +1944,83 @@ const handleImportFile = async (file) => {
   padding: 10px 10px 16px;
 }
 
+.repair-mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.repair-mobile-card {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.repair-mobile-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.repair-mobile-card__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.repair-mobile-card__meta,
+.repair-mobile-card__desc {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.repair-mobile-card__desc {
+  line-height: 1.6;
+}
+
+.repair-mobile-card__grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.repair-mobile-card__grid > div {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+
+.repair-mobile-card__grid strong,
+.repair-mobile-card__grid span {
+  display: block;
+}
+
+.repair-mobile-card__grid strong {
+  font-size: 14px;
+  color: var(--text-main);
+}
+
+.repair-mobile-card__grid span {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.repair-mobile-card__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.repair-mobile-card__actions :deep(.el-button) {
+  flex: 1;
+}
+
 .pagination-container {
   margin-top: 16px;
   display: flex;
@@ -1862,8 +2059,65 @@ const handleImportFile = async (file) => {
 }
 
 @media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
   .search-input {
     width: 100%;
+  }
+
+  .header-operations {
+    width: 100%;
+  }
+
+  .header-operations :deep(.el-input),
+  .header-operations :deep(.el-button) {
+    flex: 1 1 calc(50% - 5px);
+  }
+
+  .repair-mobile-card__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .repair-image-field :deep(.el-form-item__content) {
+    min-width: 0;
+  }
+
+  .repair-image-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .repair-image-actions :deep(.el-upload),
+  .repair-image-actions :deep(.el-button) {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .repair-image-preview-wrap {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    width: 100%;
+  }
+
+  .repair-image-box {
+    min-width: 0;
+  }
+
+  .repair-image-box :deep(.el-button) {
+    width: 100%;
+  }
+
+  .repair-image-thumb {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    height: auto;
   }
 }
 

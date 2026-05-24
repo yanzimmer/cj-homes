@@ -4,13 +4,12 @@ import re
 import sqlite3
 import uuid
 import base64
-import urllib.error
-import urllib.request
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 
 from auth_api import token_required
+from ai_client import call_configured_ai, get_active_ai_model
 from common import connect, parse_fields_arg, parse_pagination_args, paginate_list, project_fields
 from local_ai_settings import load_ai_settings
 from inventory_sync_service import (
@@ -30,7 +29,6 @@ VALID_REPAIR_IMAGE_TYPES = {"before", "after"}
 REPAIR_SCOPE_TYPES = {"单个房间", "多个房间", "公共区域", "整层", "整栋", "楼栋"}
 REPAIR_TYPES = {"水电维修", "家具维修", "电器维修", "清洁费用", "其他"}
 REPAIR_STATUS_VALUES = {"待处理", "处理中", "已完成"}
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
 REPAIR_AI_TIMEOUT_SECONDS = int(os.getenv("REPAIR_AI_TIMEOUT_SECONDS", "120"))
 
 
@@ -169,32 +167,12 @@ def _build_repair_ai_prompt(user_text, image_count):
 
 
 def _call_ollama_generate(prompt, images):
-    settings = load_ai_settings()
-    model = settings.get("procurement_model") or os.getenv("REPAIR_AI_MODEL", "qwen3.5:4b")
-    ollama_base_url = settings.get("ollama_base_url") or OLLAMA_BASE_URL
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "stream": False,
-        "think": False,
-        "options": {
-            "temperature": 0,
-        },
-    }
-    if images:
-        payload["images"] = images
-    req = urllib.request.Request(
-        f"{ollama_base_url.rstrip('/')}/api/generate",
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
+    return call_configured_ai(
+        prompt,
+        images,
+        ollama_model_fallback=os.getenv("REPAIR_AI_MODEL", "qwen3.5:4b"),
+        timeout_seconds=REPAIR_AI_TIMEOUT_SECONDS,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=REPAIR_AI_TIMEOUT_SECONDS) as resp:
-            body = resp.read().decode("utf-8")
-            return json.loads(body)
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"Ollama 连接失败: {e}") from e
 
 
 def ensure_repair_records_schema():
@@ -486,7 +464,7 @@ def _repair_record_to_dict(row):
 @repair_bp.route("/repair-records/ai-draft", methods=["POST"])
 def api_create_repair_ai_draft():
     if not load_ai_settings().get("enabled", True):
-        return jsonify({"error": "本地 AI 功能已停用，请在系统维护页面启用后再使用"}), 503
+        return jsonify({"error": "AI 功能已停用，请在系统维护页面启用后再使用"}), 503
 
     user_text = ""
     images = []
@@ -527,7 +505,7 @@ def api_create_repair_ai_draft():
         draft = _normalize_ai_repair_payload(parsed)
         return jsonify({
             "draft": draft,
-            "model": load_ai_settings().get("procurement_model"),
+            "model": result.get("model") or get_active_ai_model(),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 502

@@ -220,6 +220,8 @@ export const systemApi = {
   updateOcrSettings: (payload) => apiClient.put('/system/ocr-settings', payload),
   getAiSettings: () => apiClient.get('/system/ai-settings'),
   updateAiSettings: (payload) => apiClient.put('/system/ai-settings', payload),
+  testAiSettings: (payload) => apiClient.post('/system/ai-settings/test', payload),
+  listAiModels: (payload) => apiClient.post('/system/ai-settings/models', payload),
   getAiSwitchStatus: () => apiClient.get('/system/ai-settings/switch-status'),
   importData: (fileOrUrl) => {
     if (typeof fileOrUrl === 'string') {

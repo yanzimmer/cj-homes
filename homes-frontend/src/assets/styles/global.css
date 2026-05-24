@@ -17,6 +17,7 @@
   --header-height: 60px;
   --sidebar-width: 240px;
   --sidebar-width-collapsed: 64px;
+  --mobile-preview-width: 430px;
   --surface-bg: #ffffff;
   --surface-border: #e8edf5;
   --surface-muted: #f8fafc;
@@ -29,6 +30,13 @@
   --sidebar-hover: rgba(37, 99, 235, 0.08);
   --sidebar-hover-text: #1d4ed8;
   --theme-transition-duration: 0.22s;
+  --button-neutral-bg: #f8fafc;
+  --button-neutral-hover-bg: #eff6ff;
+  --button-neutral-border: #d9e2ef;
+  --button-primary-soft-bg: rgba(37, 99, 235, 0.1);
+  --button-success-soft-bg: rgba(103, 194, 58, 0.12);
+  --button-warning-soft-bg: rgba(230, 162, 60, 0.14);
+  --button-danger-soft-bg: rgba(245, 108, 108, 0.12);
 }
 
 /* Prevent transitions on load */
@@ -65,6 +73,13 @@ html.dark {
   --sidebar-text-muted: #94a3b8;
   --sidebar-hover: rgba(148, 163, 184, 0.2);
   --sidebar-hover-text: #ffffff;
+  --button-neutral-bg: #1b2435;
+  --button-neutral-hover-bg: rgba(37, 99, 235, 0.18);
+  --button-neutral-border: #344154;
+  --button-primary-soft-bg: rgba(96, 165, 250, 0.16);
+  --button-success-soft-bg: rgba(103, 194, 58, 0.16);
+  --button-warning-soft-bg: rgba(230, 162, 60, 0.18);
+  --button-danger-soft-bg: rgba(245, 108, 108, 0.16);
 }
 
 body {
@@ -76,6 +91,13 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition: background-color var(--theme-transition-duration), color var(--theme-transition-duration);
+}
+
+html.mobile-mode body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top, rgba(37, 99, 235, 0.18), transparent 30%),
+    linear-gradient(180deg, #e2e8f0 0%, #f8fafc 28%, #dbeafe 100%);
 }
 
 .el-drawer {
@@ -101,9 +123,644 @@ body {
   border-top: 1px solid var(--surface-border);
 }
 
+.page-container .el-button:not(.is-link):not(.is-text):not(.is-circle),
+.public-page .el-button:not(.is-link):not(.is-text):not(.is-circle),
+.el-dialog .el-button:not(.is-link):not(.is-text):not(.is-circle) {
+  min-height: 40px;
+  padding: 9px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  box-sizing: border-box;
+  margin-left: 0;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.page-container .el-button--small:not(.is-link):not(.is-text):not(.is-circle),
+.public-page .el-button--small:not(.is-link):not(.is-text):not(.is-circle),
+.el-dialog .el-button--small:not(.is-link):not(.is-text):not(.is-circle) {
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
+.page-container .el-button--large:not(.is-link):not(.is-text):not(.is-circle),
+.public-page .el-button--large:not(.is-link):not(.is-text):not(.is-circle),
+.el-dialog .el-button--large:not(.is-link):not(.is-text):not(.is-circle) {
+  min-height: 44px;
+  padding: 11px 18px;
+}
+
+.page-container .el-button:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger):not(.el-button--info):not(.is-link):not(.is-text):not(.is-circle):not(.is-disabled),
+.public-page .el-button:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger):not(.el-button--info):not(.is-link):not(.is-text):not(.is-circle):not(.is-disabled),
+.el-dialog .el-button:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger):not(.el-button--info):not(.is-link):not(.is-text):not(.is-circle):not(.is-disabled) {
+  background: var(--button-neutral-bg);
+  border-color: var(--button-neutral-border);
+  color: var(--text-regular);
+}
+
+.page-container .el-button:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger):not(.el-button--info):not(.is-link):not(.is-text):not(.is-circle):not(.is-disabled):hover,
+.page-container .el-button:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger):not(.el-button--info):not(.is-link):not(.is-text):not(.is-circle):not(.is-disabled):focus,
+.public-page .el-button:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger):not(.el-button--info):not(.is-link):not(.is-text):not(.is-circle):not(.is-disabled):hover,
+.public-page .el-button:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger):not(.el-button--info):not(.is-link):not(.is-text):not(.is-circle):not(.is-disabled):focus,
+.el-dialog .el-button:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger):not(.el-button--info):not(.is-link):not(.is-text):not(.is-circle):not(.is-disabled):hover,
+.el-dialog .el-button:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger):not(.el-button--info):not(.is-link):not(.is-text):not(.is-circle):not(.is-disabled):focus {
+  background: var(--button-neutral-hover-bg);
+  border-color: rgba(96, 165, 250, 0.55);
+  color: var(--el-color-primary);
+}
+
+.page-container .el-button.is-plain:not(.is-disabled),
+.public-page .el-button.is-plain:not(.is-disabled),
+.el-dialog .el-button.is-plain:not(.is-disabled) {
+  background: var(--button-neutral-bg);
+}
+
+.page-container .el-button--primary.is-plain:not(.is-disabled),
+.public-page .el-button--primary.is-plain:not(.is-disabled),
+.el-dialog .el-button--primary.is-plain:not(.is-disabled) {
+  background: var(--button-primary-soft-bg);
+  border-color: rgba(96, 165, 250, 0.48);
+  color: var(--el-color-primary);
+}
+
+.page-container .el-button--success.is-plain:not(.is-disabled),
+.public-page .el-button--success.is-plain:not(.is-disabled),
+.el-dialog .el-button--success.is-plain:not(.is-disabled) {
+  background: var(--button-success-soft-bg);
+  border-color: rgba(103, 194, 58, 0.45);
+  color: var(--el-color-success);
+}
+
+.page-container .el-button--warning.is-plain:not(.is-disabled),
+.public-page .el-button--warning.is-plain:not(.is-disabled),
+.el-dialog .el-button--warning.is-plain:not(.is-disabled) {
+  background: var(--button-warning-soft-bg);
+  border-color: rgba(230, 162, 60, 0.48);
+  color: var(--el-color-warning);
+}
+
+.page-container .el-button--danger.is-plain:not(.is-disabled),
+.public-page .el-button--danger.is-plain:not(.is-disabled),
+.el-dialog .el-button--danger.is-plain:not(.is-disabled) {
+  background: var(--button-danger-soft-bg);
+  border-color: rgba(245, 108, 108, 0.45);
+  color: var(--el-color-danger);
+}
+
+.page-container .el-button.is-plain:not(.is-disabled):hover,
+.page-container .el-button.is-plain:not(.is-disabled):focus,
+.public-page .el-button.is-plain:not(.is-disabled):hover,
+.public-page .el-button.is-plain:not(.is-disabled):focus,
+.el-dialog .el-button.is-plain:not(.is-disabled):hover,
+.el-dialog .el-button.is-plain:not(.is-disabled):focus {
+  border-color: currentColor;
+  filter: saturate(1.08);
+}
+
+.page-container .header-operations .el-button:not(.is-link):not(.is-text):not(.is-circle):not(.el-button--danger):not(.is-disabled) {
+  background: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.18);
+}
+
+.page-container .header-operations .el-button:not(.is-link):not(.is-text):not(.is-circle):not(.el-button--danger):not(.is-disabled):hover,
+.page-container .header-operations .el-button:not(.is-link):not(.is-text):not(.is-circle):not(.el-button--danger):not(.is-disabled):focus {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #ffffff;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.24);
+}
+
+html.dark .page-container .header-operations .el-button:not(.is-link):not(.is-text):not(.is-circle):not(.el-button--danger):not(.is-disabled) {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+html.dark .page-container .header-operations .el-button:not(.is-link):not(.is-text):not(.is-circle):not(.el-button--danger):not(.is-disabled):hover,
+html.dark .page-container .header-operations .el-button:not(.is-link):not(.is-text):not(.is-circle):not(.el-button--danger):not(.is-disabled):focus {
+  background: #60a5fa;
+  border-color: #60a5fa;
+  color: #0f172a;
+}
+
+.app-themed-dialog,
+.app-themed-dialog-overlay .el-dialog,
+.business-public-link-dialog,
+.business-public-link-overlay .el-dialog {
+  border-radius: 18px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg) !important;
+  color: var(--text-main);
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+}
+
+.app-themed-dialog .el-dialog__header,
+.app-themed-dialog-overlay .el-dialog .el-dialog__header,
+.business-public-link-dialog .el-dialog__header,
+.business-public-link-overlay .el-dialog .el-dialog__header {
+  margin-right: 0;
+  padding: 16px 18px 14px;
+  background: var(--card-bg) !important;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.app-themed-dialog .el-dialog__title,
+.app-themed-dialog-overlay .el-dialog .el-dialog__title,
+.business-public-link-dialog .el-dialog__title,
+.business-public-link-overlay .el-dialog .el-dialog__title {
+  color: var(--text-main);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.app-themed-dialog .el-dialog__headerbtn,
+.app-themed-dialog-overlay .el-dialog .el-dialog__headerbtn,
+.business-public-link-dialog .el-dialog__headerbtn,
+.business-public-link-overlay .el-dialog .el-dialog__headerbtn {
+  top: 14px;
+  right: 16px;
+}
+
+.app-themed-dialog .el-dialog__close,
+.app-themed-dialog-overlay .el-dialog .el-dialog__close,
+.business-public-link-dialog .el-dialog__close,
+.business-public-link-overlay .el-dialog .el-dialog__close {
+  color: var(--text-secondary);
+}
+
+.app-themed-dialog .el-dialog__body,
+.app-themed-dialog-overlay .el-dialog .el-dialog__body,
+.business-public-link-dialog .el-dialog__body,
+.business-public-link-overlay .el-dialog .el-dialog__body {
+  padding: 16px 18px 18px;
+  background: var(--card-bg) !important;
+  color: var(--text-main);
+}
+
+.app-themed-dialog .el-dialog__footer,
+.app-themed-dialog-overlay .el-dialog .el-dialog__footer {
+  padding: 0 18px 18px;
+  background: var(--card-bg) !important;
+}
+
+.business-public-link-dialog .link-card,
+.business-public-link-overlay .el-dialog .link-card {
+  background: var(--surface-muted);
+  border-color: var(--surface-border);
+}
+
+.business-public-link-dialog .link-url,
+.business-public-link-overlay .el-dialog .link-url {
+  background: var(--card-bg);
+  color: var(--text-regular);
+}
+
+.app-ai-dialog,
+.app-ai-dialog-overlay .el-dialog,
+.tenant-ai-dialog.app-ai-dialog,
+.ai-checkin-dialog.app-ai-dialog {
+  border-radius: 18px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  color: var(--text-main);
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+}
+
+.app-ai-dialog .el-dialog__header,
+.app-ai-dialog-overlay .el-dialog .el-dialog__header,
+.tenant-ai-dialog.app-ai-dialog .el-dialog__header,
+.ai-checkin-dialog.app-ai-dialog .el-dialog__header {
+  margin-right: 0;
+  padding: 16px 18px 14px;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.app-ai-dialog .el-dialog__title,
+.app-ai-dialog-overlay .el-dialog .el-dialog__title,
+.tenant-ai-dialog.app-ai-dialog .el-dialog__title,
+.ai-checkin-dialog.app-ai-dialog .el-dialog__title {
+  color: var(--text-main);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.app-ai-dialog .el-dialog__headerbtn,
+.app-ai-dialog-overlay .el-dialog .el-dialog__headerbtn,
+.tenant-ai-dialog.app-ai-dialog .el-dialog__headerbtn,
+.ai-checkin-dialog.app-ai-dialog .el-dialog__headerbtn {
+  top: 14px;
+  right: 16px;
+}
+
+.app-ai-dialog .el-dialog__close,
+.app-ai-dialog-overlay .el-dialog .el-dialog__close,
+.tenant-ai-dialog.app-ai-dialog .el-dialog__close,
+.ai-checkin-dialog.app-ai-dialog .el-dialog__close {
+  color: var(--text-secondary);
+}
+
+.app-ai-dialog .el-dialog__body,
+.app-ai-dialog-overlay .el-dialog .el-dialog__body,
+.tenant-ai-dialog.app-ai-dialog .el-dialog__body,
+.ai-checkin-dialog.app-ai-dialog .el-dialog__body {
+  padding: 16px 18px 18px;
+  background: var(--card-bg);
+  color: var(--text-main);
+}
+
+.app-ai-dialog .el-dialog__footer,
+.app-ai-dialog-overlay .el-dialog .el-dialog__footer,
+.tenant-ai-dialog.app-ai-dialog .el-dialog__footer,
+.ai-checkin-dialog.app-ai-dialog .el-dialog__footer {
+  padding: 0 18px 18px;
+  background: var(--card-bg);
+}
+
+.app-ai-dialog .el-form-item__label,
+.app-ai-dialog-overlay .el-dialog .el-form-item__label,
+.tenant-ai-dialog.app-ai-dialog .el-form-item__label,
+.ai-checkin-dialog.app-ai-dialog .el-form-item__label {
+  color: var(--text-regular);
+}
+
+.app-ai-dialog .el-textarea__inner,
+.app-ai-dialog-overlay .el-dialog .el-textarea__inner,
+.tenant-ai-dialog.app-ai-dialog .el-textarea__inner,
+.ai-checkin-dialog.app-ai-dialog .el-textarea__inner {
+  background: var(--surface-muted);
+  border-color: var(--surface-border);
+  color: var(--text-main);
+  box-shadow: 0 0 0 1px var(--surface-border) inset;
+}
+
+.app-ai-dialog .el-textarea__inner::placeholder,
+.app-ai-dialog-overlay .el-dialog .el-textarea__inner::placeholder,
+.tenant-ai-dialog.app-ai-dialog .el-textarea__inner::placeholder,
+.ai-checkin-dialog.app-ai-dialog .el-textarea__inner::placeholder {
+  color: var(--text-secondary);
+}
+
+.app-ai-dialog .upload-progress-text,
+.app-ai-dialog .image-upload-tip,
+.app-ai-dialog-overlay .el-dialog .upload-progress-text,
+.app-ai-dialog-overlay .el-dialog .image-upload-tip,
+.tenant-ai-dialog.app-ai-dialog .upload-progress-text,
+.ai-checkin-dialog.app-ai-dialog .upload-progress-text {
+  color: var(--text-secondary);
+}
+
+html.mobile-mode .app-ai-dialog,
+html.mobile-mode .app-ai-dialog-overlay .el-dialog,
+html.mobile-mode .tenant-ai-dialog.app-ai-dialog,
+html.mobile-mode .ai-checkin-dialog.app-ai-dialog {
+  width: calc(100% - 24px) !important;
+  max-width: calc(100% - 24px);
+  max-height: calc(100dvh - 48px);
+  margin: 12px auto;
+  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+}
+
+html.mobile-mode .app-ai-dialog .el-dialog__header,
+html.mobile-mode .app-ai-dialog-overlay .el-dialog .el-dialog__header,
+html.mobile-mode .tenant-ai-dialog.app-ai-dialog .el-dialog__header,
+html.mobile-mode .ai-checkin-dialog.app-ai-dialog .el-dialog__header {
+  padding: 14px 16px 12px;
+}
+
+html.mobile-mode .app-ai-dialog .el-dialog__title,
+html.mobile-mode .app-ai-dialog-overlay .el-dialog .el-dialog__title,
+html.mobile-mode .tenant-ai-dialog.app-ai-dialog .el-dialog__title,
+html.mobile-mode .ai-checkin-dialog.app-ai-dialog .el-dialog__title {
+  font-size: 18px;
+}
+
+html.mobile-mode .app-ai-dialog .el-dialog__body,
+html.mobile-mode .app-ai-dialog-overlay .el-dialog .el-dialog__body,
+html.mobile-mode .tenant-ai-dialog.app-ai-dialog .el-dialog__body,
+html.mobile-mode .ai-checkin-dialog.app-ai-dialog .el-dialog__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 16px;
+}
+
+html.mobile-mode .app-ai-dialog .el-dialog__footer,
+html.mobile-mode .app-ai-dialog-overlay .el-dialog .el-dialog__footer,
+html.mobile-mode .tenant-ai-dialog.app-ai-dialog .el-dialog__footer,
+html.mobile-mode .ai-checkin-dialog.app-ai-dialog .el-dialog__footer {
+  padding: 0 16px 16px;
+}
+
+html.mobile-mode .app-ai-dialog .el-form-item,
+html.mobile-mode .app-ai-dialog-overlay .el-dialog .el-form-item,
+html.mobile-mode .tenant-ai-dialog.app-ai-dialog .el-form-item,
+html.mobile-mode .ai-checkin-dialog.app-ai-dialog .el-form-item {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+html.mobile-mode .app-ai-dialog .el-form-item__label,
+html.mobile-mode .app-ai-dialog-overlay .el-dialog .el-form-item__label,
+html.mobile-mode .tenant-ai-dialog.app-ai-dialog .el-form-item__label,
+html.mobile-mode .ai-checkin-dialog.app-ai-dialog .el-form-item__label {
+  width: 100% !important;
+  justify-content: flex-start;
+  height: auto;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+html.mobile-mode .app-ai-dialog .el-form-item__content,
+html.mobile-mode .app-ai-dialog-overlay .el-dialog .el-form-item__content,
+html.mobile-mode .tenant-ai-dialog.app-ai-dialog .el-form-item__content,
+html.mobile-mode .ai-checkin-dialog.app-ai-dialog .el-form-item__content {
+  width: 100%;
+  margin-left: 0 !important;
+}
+
+html.mobile-mode .app-ai-dialog .dialog-footer,
+html.mobile-mode .app-ai-dialog-overlay .el-dialog .dialog-footer,
+html.mobile-mode .tenant-ai-dialog.app-ai-dialog .dialog-footer,
+html.mobile-mode .ai-checkin-dialog.app-ai-dialog .dialog-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  width: 100%;
+}
+
+html.mobile-mode .app-ai-dialog .dialog-footer .el-button,
+html.mobile-mode .app-ai-dialog-overlay .el-dialog .dialog-footer .el-button,
+html.mobile-mode .tenant-ai-dialog.app-ai-dialog .dialog-footer .el-button,
+html.mobile-mode .ai-checkin-dialog.app-ai-dialog .dialog-footer .el-button {
+  margin-left: 0;
+}
+
+html.mobile-mode .app-themed-dialog,
+html.mobile-mode .app-themed-dialog-overlay .el-dialog,
+html.mobile-mode .business-public-link-dialog,
+html.mobile-mode .business-public-link-overlay .el-dialog {
+  width: calc(100% - 24px) !important;
+  max-width: calc(100% - 24px);
+  max-height: calc(100dvh - 48px);
+  margin: 12px auto;
+  display: flex;
+  flex-direction: column;
+}
+
+html.mobile-mode .app-themed-dialog .el-dialog__header,
+html.mobile-mode .app-themed-dialog-overlay .el-dialog .el-dialog__header,
+html.mobile-mode .business-public-link-dialog .el-dialog__header,
+html.mobile-mode .business-public-link-overlay .el-dialog .el-dialog__header {
+  padding: 14px 16px 12px;
+}
+
+html.mobile-mode .app-themed-dialog .el-dialog__title,
+html.mobile-mode .app-themed-dialog-overlay .el-dialog .el-dialog__title,
+html.mobile-mode .business-public-link-dialog .el-dialog__title,
+html.mobile-mode .business-public-link-overlay .el-dialog .el-dialog__title {
+  font-size: 18px;
+}
+
+html.mobile-mode .app-themed-dialog .el-dialog__body,
+html.mobile-mode .app-themed-dialog-overlay .el-dialog .el-dialog__body,
+html.mobile-mode .business-public-link-dialog .el-dialog__body,
+html.mobile-mode .business-public-link-overlay .el-dialog .el-dialog__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 16px;
+}
+
+html.mobile-mode .business-public-link-dialog .link-toolbar,
+html.mobile-mode .business-public-link-overlay .el-dialog .link-toolbar,
+html.mobile-mode .business-public-link-dialog .link-meta,
+html.mobile-mode .business-public-link-overlay .el-dialog .link-meta {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+html.mobile-mode .business-public-link-dialog .link-actions,
+html.mobile-mode .business-public-link-overlay .el-dialog .link-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  white-space: normal;
+}
+
+html.mobile-mode .business-public-link-dialog .link-actions .el-button,
+html.mobile-mode .business-public-link-overlay .el-dialog .link-actions .el-button,
+html.mobile-mode .business-public-link-dialog .link-toolbar .el-button,
+html.mobile-mode .business-public-link-overlay .el-dialog .link-toolbar .el-button {
+  width: 100%;
+  margin-left: 0;
+}
+
+html.mobile-mode .page-container .header-operations .el-button,
+html.mobile-mode .page-container .header-operations .el-input,
+html.mobile-mode .page-container .header-operations .el-select,
+html.mobile-mode .page-container .header-operations .el-input-number {
+  min-width: 0;
+}
+
+html.mobile-mode .page-container .header-operations .el-button,
+html.mobile-mode .page-container .header-operations .el-input__wrapper,
+html.mobile-mode .page-container .header-operations .el-select__wrapper,
+html.mobile-mode .page-container .header-operations .el-input-number .el-input__wrapper {
+  min-height: 46px;
+  box-sizing: border-box;
+}
+
+html.mobile-mode .page-container .header-operations .el-button:not(.is-link):not(.is-text):not(.is-circle) {
+  width: 100%;
+  height: 46px;
+  min-height: 46px;
+}
+
+html.mobile-mode .page-container .el-button:not(.is-link):not(.is-text):not(.is-circle),
+html.mobile-mode .public-page .el-button:not(.is-link):not(.is-text):not(.is-circle),
+html.mobile-mode .el-dialog .el-button:not(.is-link):not(.is-text):not(.is-circle) {
+  min-height: 42px;
+}
+
+html.mobile-mode .el-drawer .image-upload-row,
+html.mobile-mode .el-drawer .payment-upload-actions,
+html.mobile-mode .el-drawer .procurement-image-actions,
+html.mobile-mode .el-drawer .ai-actions,
+html.mobile-mode .el-dialog .image-upload-row,
+html.mobile-mode .el-dialog .payment-upload-actions,
+html.mobile-mode .el-dialog .procurement-image-actions,
+html.mobile-mode .el-dialog .ai-actions,
+html.mobile-mode .public-page .image-upload-row,
+html.mobile-mode .public-page .ai-actions {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  align-items: stretch !important;
+  gap: 10px !important;
+  width: 100% !important;
+}
+
+html.mobile-mode .el-drawer .el-form-item__content:has(> .el-upload),
+html.mobile-mode .el-dialog .el-form-item__content:has(> .el-upload),
+html.mobile-mode .public-page .el-form-item__content:has(> .el-upload) {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  align-items: stretch !important;
+  gap: 10px !important;
+  width: 100% !important;
+}
+
+html.mobile-mode .el-drawer .el-form-item__content:has(> .el-upload) > .el-upload,
+html.mobile-mode .el-dialog .el-form-item__content:has(> .el-upload) > .el-upload,
+html.mobile-mode .public-page .el-form-item__content:has(> .el-upload) > .el-upload,
+html.mobile-mode .el-drawer .el-form-item__content:has(> .el-upload) > .el-button,
+html.mobile-mode .el-dialog .el-form-item__content:has(> .el-upload) > .el-button,
+html.mobile-mode .public-page .el-form-item__content:has(> .el-upload) > .el-button {
+  width: 100% !important;
+  margin-left: 0 !important;
+}
+
+html.mobile-mode .el-drawer .image-upload-row .el-upload,
+html.mobile-mode .el-drawer .payment-upload-actions .el-upload,
+html.mobile-mode .el-drawer .procurement-image-actions .el-upload,
+html.mobile-mode .el-drawer .ai-actions .el-upload,
+html.mobile-mode .el-dialog .image-upload-row .el-upload,
+html.mobile-mode .el-dialog .payment-upload-actions .el-upload,
+html.mobile-mode .el-dialog .procurement-image-actions .el-upload,
+html.mobile-mode .el-dialog .ai-actions .el-upload,
+html.mobile-mode .public-page .image-upload-row .el-upload,
+html.mobile-mode .public-page .ai-actions .el-upload {
+  width: 100% !important;
+}
+
+html.mobile-mode .el-drawer .image-upload-row .el-button,
+html.mobile-mode .el-drawer .payment-upload-actions .el-button,
+html.mobile-mode .el-drawer .procurement-image-actions .el-button,
+html.mobile-mode .el-drawer .ai-actions .el-button,
+html.mobile-mode .el-dialog .image-upload-row .el-button,
+html.mobile-mode .el-dialog .payment-upload-actions .el-button,
+html.mobile-mode .el-dialog .procurement-image-actions .el-button,
+html.mobile-mode .el-dialog .ai-actions .el-button,
+html.mobile-mode .public-page .image-upload-row .el-button,
+html.mobile-mode .public-page .ai-actions .el-button {
+  width: 100% !important;
+  margin-left: 0 !important;
+}
+
+html.mobile-mode .el-drawer .upload-progress-text,
+html.mobile-mode .el-dialog .upload-progress-text,
+html.mobile-mode .public-page .upload-progress-text,
+html.mobile-mode .el-drawer .image-upload-tip,
+html.mobile-mode .el-dialog .image-upload-tip,
+html.mobile-mode .public-page .image-upload-tip {
+  width: 100% !important;
+  line-height: 1.5;
+}
+
+html.mobile-mode .el-drawer .image-preview-wrap,
+html.mobile-mode .el-drawer .repair-image-preview-wrap,
+html.mobile-mode .el-drawer .bill-image-preview-wrap,
+html.mobile-mode .el-drawer .payment-image-preview-wrap,
+html.mobile-mode .el-drawer .image-list,
+html.mobile-mode .el-drawer .ai-image-list,
+html.mobile-mode .el-dialog .image-preview-wrap,
+html.mobile-mode .el-dialog .repair-image-preview-wrap,
+html.mobile-mode .el-dialog .bill-image-preview-wrap,
+html.mobile-mode .el-dialog .payment-image-preview-wrap,
+html.mobile-mode .el-dialog .image-list,
+html.mobile-mode .el-dialog .ai-image-list,
+html.mobile-mode .public-page .image-list,
+html.mobile-mode .public-page .ai-image-list {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+  width: 100% !important;
+}
+
+html.mobile-mode .el-drawer .image-box,
+html.mobile-mode .el-drawer .repair-image-box,
+html.mobile-mode .el-drawer .bill-image-box,
+html.mobile-mode .el-drawer .payment-image-box,
+html.mobile-mode .el-drawer .image-list-item,
+html.mobile-mode .el-drawer .image-item,
+html.mobile-mode .el-drawer .ai-image-item,
+html.mobile-mode .el-dialog .image-box,
+html.mobile-mode .el-dialog .repair-image-box,
+html.mobile-mode .el-dialog .bill-image-box,
+html.mobile-mode .el-dialog .payment-image-box,
+html.mobile-mode .el-dialog .image-list-item,
+html.mobile-mode .el-dialog .image-item,
+html.mobile-mode .el-dialog .ai-image-item,
+html.mobile-mode .public-page .image-item,
+html.mobile-mode .public-page .ai-image-item {
+  min-width: 0 !important;
+  width: 100% !important;
+}
+
+html.mobile-mode .el-drawer .image-box .el-button,
+html.mobile-mode .el-drawer .repair-image-box .el-button,
+html.mobile-mode .el-drawer .bill-image-box .el-button,
+html.mobile-mode .el-drawer .payment-image-box .el-button,
+html.mobile-mode .el-drawer .image-list-item .el-button,
+html.mobile-mode .el-drawer .image-item .el-button,
+html.mobile-mode .el-drawer .ai-image-item .el-button,
+html.mobile-mode .el-dialog .image-box .el-button,
+html.mobile-mode .el-dialog .repair-image-box .el-button,
+html.mobile-mode .el-dialog .bill-image-box .el-button,
+html.mobile-mode .el-dialog .payment-image-box .el-button,
+html.mobile-mode .el-dialog .image-list-item .el-button,
+html.mobile-mode .el-dialog .image-item .el-button,
+html.mobile-mode .el-dialog .ai-image-item .el-button,
+html.mobile-mode .public-page .image-item .el-button,
+html.mobile-mode .public-page .ai-image-item .el-button {
+  width: 100% !important;
+  margin-left: 0 !important;
+}
+
+html.mobile-mode .el-drawer .image-thumb,
+html.mobile-mode .el-drawer .repair-image-thumb,
+html.mobile-mode .el-drawer .bill-image-thumb,
+html.mobile-mode .el-drawer .payment-preview-thumb,
+html.mobile-mode .el-drawer .image-list-thumb,
+html.mobile-mode .el-drawer .ai-image-thumb,
+html.mobile-mode .el-dialog .image-thumb,
+html.mobile-mode .el-dialog .repair-image-thumb,
+html.mobile-mode .el-dialog .bill-image-thumb,
+html.mobile-mode .el-dialog .payment-preview-thumb,
+html.mobile-mode .el-dialog .image-list-thumb,
+html.mobile-mode .el-dialog .ai-image-thumb,
+html.mobile-mode .public-page .image-thumb,
+html.mobile-mode .public-page .ai-image-thumb {
+  width: 100% !important;
+  height: auto !important;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+}
+
 #app {
   width: 100%;
   height: 100vh;
+}
+
+html.mobile-mode #app {
+  width: min(100%, var(--mobile-preview-width));
+  max-width: var(--mobile-preview-width);
+  margin: 0 auto;
+  background: var(--bg-color);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+}
+
+html.mobile-mode.public-checkin-route #app {
+  min-height: 100vh;
+  height: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* Scrollbar Styling */
@@ -128,6 +785,10 @@ body {
   animation: fadeIn 0.5s ease-in-out;
 }
 
+html.mobile-mode .page-container {
+  padding: 16px;
+}
+
 .mt-4 {
   margin-top: 1rem !important;
 }
@@ -140,6 +801,11 @@ body {
   margin-bottom: 20px;
   transition: all 0.3s ease;
   border: 1px solid var(--surface-border);
+}
+
+html.mobile-mode .card-box {
+  padding: 16px;
+  border-radius: 14px;
 }
 
 html.dark .card-box {
@@ -156,23 +822,32 @@ html.dark .card-box {
   top: 16px;
   right: 16px;
   z-index: 20;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: 1px solid var(--surface-border);
-  background: var(--card-bg);
+  width: auto;
+  height: auto;
+  border: 0;
+  background: transparent;
   color: var(--text-main);
-  box-shadow: var(--card-shadow);
+  box-shadow: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  font-size: 18px;
+  pointer-events: none;
 }
 
 .public-theme-toggle:hover {
   color: var(--el-color-primary);
-  border-color: var(--el-color-primary);
+}
+
+.public-theme-toggle > * {
+  pointer-events: auto;
+}
+
+@media (max-width: 520px) {
+  html.mobile-mode #app {
+    width: 100%;
+    max-width: none;
+    box-shadow: none;
+  }
 }
 
 /* Animations */

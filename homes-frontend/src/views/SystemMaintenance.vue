@@ -277,15 +277,36 @@
         <div class="card-box h-100 system-card">
           <div class="card-header">
             <el-icon class="icon"><Cpu /></el-icon>
-            <h3>本地 AI 模型配置</h3>
+            <h3>AI 模式配置</h3>
           </div>
           <div class="card-content">
             <div class="description">
-              设置采购管理页和维修记录页 “AI 输入” 使用的本地 Ollama 模型。4b 更稳，2b 更均衡，0.8b 更快更省内存。
+              为采购管理、维修记录、租户管理和自助入住的 “AI 输入” 选择使用本地 Ollama，或切换到 OpenAI 兼容 API。
+            </div>
+            <div class="ai-summary-row">
+              <el-tag type="info" effect="plain">当前模式：{{ aiProviderLabel }}</el-tag>
+              <el-tag type="success" effect="plain">当前模型：{{ aiCurrentModelLabel }}</el-tag>
+              <el-tag v-if="hasPendingAiChanges" type="warning" effect="plain">有未保存改动</el-tag>
+            </div>
+            <div v-if="aiSettings.updated_at" class="feature-hint ai-updated-at">
+              最近保存：{{ aiSettings.updated_at }}
+            </div>
+            <div v-if="aiTestResult" class="ai-test-result" :class="{ 'ai-test-result--ok': aiTestResult.ok, 'ai-test-result--error': !aiTestResult.ok }">
+              <div class="ai-test-result__head">
+                <el-tag :type="aiTestResult.ok ? 'success' : 'danger'" effect="dark">
+                  {{ aiTestResult.ok ? '连接正常' : '连接失败' }}
+                </el-tag>
+                <span class="ai-test-result__time">测试时间：{{ aiTestResult.tested_at || '-' }}</span>
+              </div>
+              <div class="ai-test-result__message">{{ aiTestResult.message }}</div>
+              <div v-if="aiTestResult.preview" class="ai-test-result__preview">返回预览：{{ aiTestResult.preview }}</div>
+              <div v-if="aiTestResult.provider === 'ollama' && Array.isArray(aiTestResult.available_models)" class="ai-test-result__preview">
+                本地模型：{{ aiTestResult.available_models.length ? aiTestResult.available_models.join('、') : '当前未发现模型' }}
+              </div>
             </div>
 
             <el-form label-position="top" class="ocr-settings-form">
-              <el-form-item label="本地 AI 功能">
+              <el-form-item label="AI 功能">
                 <el-switch
                   v-model="aiSettings.enabled"
                   :disabled="isAiSwitching"
@@ -294,36 +315,107 @@
                   @change="toggleAiEnabled"
                 />
               </el-form-item>
-              <el-form-item label="Ollama 服务地址">
-                <el-input
-                  v-model="aiSettings.ollama_base_url"
-                  placeholder="http://127.0.0.1:11434"
-                  :disabled="isAiSwitching"
-                  clearable
-                />
+              <el-form-item label="接入方式">
+                <el-radio-group v-model="aiSettings.provider" :disabled="isAiSwitching">
+                  <el-radio-button label="ollama">本地 Ollama</el-radio-button>
+                  <el-radio-button label="api">OpenAI 兼容 API</el-radio-button>
+                </el-radio-group>
               </el-form-item>
-              <el-form-item label="采购 AI 模型">
-                <el-select v-model="aiSettings.procurement_model" style="width: 100%" :disabled="isAiSwitching || !aiSettings.enabled">
-                  <el-option
-                    v-for="model in aiSettings.available_procurement_models"
-                    :key="model"
-                    :label="model"
-                    :value="model"
+
+              <template v-if="aiSettings.provider === 'ollama'">
+                <el-form-item label="Ollama 服务地址">
+                  <el-input
+                    v-model="aiSettings.ollama_base_url"
+                    placeholder="http://127.0.0.1:11434"
+                    :disabled="isAiSwitching"
+                    clearable
                   />
-                </el-select>
-              </el-form-item>
-              <div class="feature-hint">
-                当前支持 qwen3.5:4b、qwen3.5:2b 和 qwen3.5:0.8b。Ollama 和后端同机时使用 http://127.0.0.1:11434；远程部署时填写 http://另一台机器IP:11434。
-              </div>
-              <div v-if="!isLocalOllamaEndpoint" class="feature-hint warning-text">
-                当前是远程 Ollama 地址，本系统无法关闭远程机器上的模型，只能切换当前调用的模型和地址。
-              </div>
+                </el-form-item>
+                <el-form-item label="采购 AI 模型">
+                  <el-select
+                    v-model="aiSettings.procurement_model"
+                    style="width: 100%"
+                    :disabled="isAiSwitching || !aiSettings.enabled"
+                    @change="handleOllamaModelChange"
+                  >
+                    <el-option
+                      v-for="model in aiSettings.available_procurement_models"
+                      :key="model"
+                      :label="model"
+                      :value="model"
+                    />
+                  </el-select>
+                </el-form-item>
+                <div class="feature-hint">
+                  当前支持 qwen3.5:4b、qwen3.5:2b 和 qwen3.5:0.8b。Ollama 和后端同机时使用 http://127.0.0.1:11434；远程部署时填写 http://另一台机器IP:11434。
+                </div>
+                <div v-if="!isLocalOllamaEndpoint" class="feature-hint warning-text">
+                  当前是远程 Ollama 地址，本系统无法关闭远程机器上的模型，只能切换当前调用的模型和地址。
+                </div>
+              </template>
+
+              <template v-else>
+                <el-form-item label="API Base URL">
+                  <el-input
+                    v-model="aiSettings.base_url"
+                    placeholder="https://api.deepseek.com"
+                    :disabled="isAiSwitching"
+                    clearable
+                  />
+                </el-form-item>
+                <el-form-item label="API 模型">
+                  <div class="ai-model-picker">
+                    <el-select
+                      v-model="aiSettings.model"
+                      filterable
+                      allow-create
+                      default-first-option
+                      clearable
+                      style="width: 100%"
+                      placeholder="先读取模型列表，或直接手动输入模型名"
+                      :disabled="isAiSwitching || !aiSettings.enabled"
+                      @change="handleApiModelChange"
+                    >
+                      <el-option
+                        v-for="item in availableApiModels"
+                        :key="item.id"
+                        :label="item.id"
+                        :value="item.id"
+                      >
+                        <div class="ai-model-option">
+                          <span>{{ item.id }}</span>
+                          <span class="ai-model-option__owner">{{ item.owned_by || 'api' }}</span>
+                        </div>
+                      </el-option>
+                    </el-select>
+                    <el-button :loading="loadingApiModels" :disabled="isAiSwitching" @click="fetchApiModels">
+                      读取模型列表
+                    </el-button>
+                  </div>
+                </el-form-item>
+                <el-form-item label="API Key">
+                  <el-input
+                    v-model="aiSettings.api_key"
+                    type="password"
+                    show-password
+                    placeholder="请输入 API Key"
+                    :disabled="isAiSwitching || !aiSettings.enabled"
+                    clearable
+                  />
+                </el-form-item>
+                <div class="feature-hint">
+                  这里适合填写 DeepSeek 这类 OpenAI 兼容 API。默认会按 `Base URL + /chat/completions` 发起请求。
+                </div>
+                <div v-if="apiModelsMeta.message" class="feature-hint">
+                  {{ apiModelsMeta.message }}
+                </div>
+              </template>
               <div class="ocr-status-row">
                 <el-tag :type="aiSwitchStatusTagType">
                   {{ aiSwitchStatusLabel }}
                 </el-tag>
                 <span class="ocr-status-text">
-                  {{ aiSettings.enabled ? (aiSwitchStatus.message || '本地 AI 功能已启用') : (aiSwitchStatus.message || '本地 AI 功能已停用') }}
+                  {{ aiStatusText }}
                 </span>
               </div>
               <div v-if="aiSwitchStatus.status === 'running'" class="upload-progress-wrap">
@@ -331,10 +423,16 @@
               </div>
               <div v-if="aiSwitchStatus.error" class="feature-hint warning-text">{{ aiSwitchStatus.error }}</div>
 
-              <div class="action-area">
-                <el-button type="primary" :loading="savingAiSettings || isAiSwitching" @click="saveAiSettings">
-                  切换 AI 模型
+              <div class="action-area ai-action-area">
+                <el-button type="primary" :loading="savingAiSettings" @click="saveAiSettings">
+                  保存配置
                 </el-button>
+                <el-button :loading="testingAiSettings" :disabled="savingAiSettings || isAiSwitching" @click="testAiSettings">
+                  测试连接
+                </el-button>
+              </div>
+              <div class="feature-hint">
+                保存配置会长期保留当前接入方式和参数；切换模型时现在会自动保存，选择本地模型后也会直接发起切换。
               </div>
             </el-form>
           </div>
@@ -473,6 +571,8 @@ const newUtilityAccount = reactive({
 const savingUtilityAccounts = ref(false)
 const savingOcrSettings = ref(false)
 const savingAiSettings = ref(false)
+const testingAiSettings = ref(false)
+const loadingApiModels = ref(false)
 let aiSwitchPollTimer = null
 let snapshotTaskPollTimer = null
 const ocrSettings = ref({
@@ -487,10 +587,23 @@ const ocrSettings = ref({
 })
 const aiSettings = ref({
   enabled: true,
+  provider: 'ollama',
   procurement_model: 'qwen3.5:4b',
   ollama_base_url: 'http://127.0.0.1:11434',
+  base_url: '',
+  chat_completions_url: '',
+  responses_url: '',
+  model: '',
+  api_key: '',
   available_procurement_models: ['qwen3.5:4b', 'qwen3.5:2b', 'qwen3.5:0.8b'],
   updated_at: '',
+})
+const lastSavedAiSettings = ref(null)
+const aiTestResult = ref(null)
+const availableApiModels = ref([])
+const apiModelsMeta = reactive({
+  message: '',
+  tested_at: '',
 })
 const aiSwitchStatus = ref({
   status: 'idle',
@@ -503,6 +616,27 @@ const aiSwitchStatus = ref({
   error: '',
 })
 const isAiSwitching = computed(() => aiSwitchStatus.value.status === 'running')
+const isApiProvider = computed(() => aiSettings.value.provider === 'api')
+const getComparableAiSettings = (value = {}) => JSON.stringify({
+  enabled: value?.enabled !== false,
+  provider: value?.provider || 'ollama',
+  procurement_model: value?.procurement_model || 'qwen3.5:4b',
+  ollama_base_url: value?.ollama_base_url || 'http://127.0.0.1:11434',
+  base_url: value?.base_url || '',
+  chat_completions_url: value?.chat_completions_url || '',
+  responses_url: value?.responses_url || '',
+  model: value?.model || '',
+  api_key: value?.api_key || '',
+})
+const hasPendingAiChanges = computed(() => {
+  if (!lastSavedAiSettings.value) return false
+  return getComparableAiSettings(aiSettings.value) !== getComparableAiSettings(lastSavedAiSettings.value)
+})
+const aiProviderLabel = computed(() => (isApiProvider.value ? 'OpenAI 兼容 API' : '本地 Ollama'))
+const aiCurrentModelLabel = computed(() => {
+  if (isApiProvider.value) return aiSettings.value.model || '未设置'
+  return aiSettings.value.procurement_model || '未设置'
+})
 const isLocalOllamaEndpoint = computed(() => {
   const raw = String(aiSettings.value.ollama_base_url || '').trim().toLowerCase()
   if (!raw) return true
@@ -523,9 +657,21 @@ const aiSwitchProgress = computed(() => {
 const aiSwitchStatusLabel = computed(() => {
   const status = aiSwitchStatus.value.status
   if (status === 'running') return '切换中'
+  if (status === 'completed' && aiSwitchStatus.value.phase === 'settings_saved') return '已保存'
+  if (status === 'completed' && aiSwitchStatus.value.phase === 'api_saved') return '已保存'
+  if (status === 'completed' && aiSwitchStatus.value.phase === 'enabled') return '已启用'
+  if (status === 'completed' && aiSwitchStatus.value.phase === 'disabled') return '已停用'
   if (status === 'completed') return '已完成'
   if (status === 'failed') return '失败'
   return '空闲'
+})
+const aiStatusText = computed(() => {
+  const message = String(aiSwitchStatus.value.message || '').trim()
+  if (message && message !== '未执行切换') return message
+  if (!aiSettings.value.enabled) return 'AI 功能已停用'
+  return isApiProvider.value
+    ? `当前使用 API 模型 ${aiCurrentModelLabel.value}`
+    : `当前使用 Ollama 模型 ${aiCurrentModelLabel.value}`
 })
 const aiSwitchStatusTagType = computed(() => {
   const status = aiSwitchStatus.value.status
@@ -573,6 +719,8 @@ const snapshotTypeClassName = (snapshot) => {
 }
 const getAiActionSuccessMessage = () => {
   const phase = aiSwitchStatus.value.phase
+  if (phase === 'settings_saved') return 'AI 配置已保存'
+  if (phase === 'api_saved') return 'API 配置已保存'
   if (phase === 'disabled') return 'AI 功能已停用'
   if (phase === 'enabled') return 'AI 功能已启用'
   return 'AI 模型切换完成'
@@ -585,12 +733,26 @@ const getAiActionFailureMessage = () => {
 }
 
 const applyAiSettingsResponse = (data = {}) => {
-  aiSettings.value = {
+  const nextValue = {
     enabled: data?.enabled !== false,
+    provider: data?.provider || 'ollama',
     procurement_model: data?.procurement_model || 'qwen3.5:4b',
     ollama_base_url: data?.ollama_base_url || 'http://127.0.0.1:11434',
+    base_url: data?.base_url || '',
+    chat_completions_url: data?.chat_completions_url || '',
+    responses_url: data?.responses_url || '',
+    model: data?.model || '',
+    api_key: data?.api_key || '',
     available_procurement_models: data?.available_procurement_models || ['qwen3.5:4b', 'qwen3.5:2b', 'qwen3.5:0.8b'],
     updated_at: data?.updated_at || '',
+  }
+  aiSettings.value = nextValue
+  lastSavedAiSettings.value = { ...nextValue }
+  aiTestResult.value = null
+  if (nextValue.provider !== 'api') {
+    availableApiModels.value = []
+    apiModelsMeta.message = ''
+    apiModelsMeta.tested_at = ''
   }
   if (data?.switch_status) {
     aiSwitchStatus.value = {
@@ -781,6 +943,9 @@ const fetchAiSettings = async () => {
     if (aiSwitchStatus.value.status === 'running') {
       savingAiSettings.value = true
       startAiSwitchPolling()
+    } else {
+      stopAiSwitchPolling()
+      savingAiSettings.value = false
     }
   } catch (error) {
     ElMessage.error(error?.response?.data?.error || '加载 AI 模型配置失败')
@@ -792,12 +957,23 @@ const runAiAction = async (action, successMessage) => {
   try {
     const response = await systemApi.updateAiSettings({
       action,
+      provider: aiSettings.value.provider,
       procurement_model: aiSettings.value.procurement_model,
       ollama_base_url: aiSettings.value.ollama_base_url,
+      base_url: aiSettings.value.base_url,
+      chat_completions_url: aiSettings.value.chat_completions_url,
+      responses_url: aiSettings.value.responses_url,
+      model: aiSettings.value.model,
+      api_key: aiSettings.value.api_key,
     })
     applyAiSettingsResponse(response?.data || {})
     ElMessage.success(successMessage)
-    startAiSwitchPolling()
+    if (aiSwitchStatus.value.status === 'running') {
+      startAiSwitchPolling()
+    } else {
+      stopAiSwitchPolling()
+      savingAiSettings.value = false
+    }
   } catch (error) {
     ElMessage.error(error?.response?.data?.error || 'AI 操作失败')
     await fetchAiSettings()
@@ -806,15 +982,89 @@ const runAiAction = async (action, successMessage) => {
 }
 
 const toggleAiEnabled = async (value) => {
-  await runAiAction(value ? 'enable' : 'disable', value ? 'AI 功能启用已开始' : 'AI 功能停用已开始')
+  const successMessage = isApiProvider.value
+    ? (value ? 'AI 功能已启用' : 'AI 功能已停用')
+    : (value ? 'AI 功能启用已开始' : 'AI 功能停用已开始')
+  await runAiAction(value ? 'enable' : 'disable', successMessage)
 }
 
 const saveAiSettings = async () => {
+  await runAiAction('save_config', 'AI 配置已保存')
+}
+
+const handleOllamaModelChange = async (value) => {
+  if (!value) return
   if (!aiSettings.value.enabled) {
-    ElMessage.warning('请先启用本地 AI 功能，再切换模型')
+    await runAiAction('save_config', '本地模型已保存')
     return
   }
-  await runAiAction('switch_model', 'AI 模型切换已开始')
+  await runAiAction('switch_model', '本地模型切换已开始')
+}
+
+const fetchApiModels = async () => {
+  loadingApiModels.value = true
+  try {
+    const response = await systemApi.listAiModels({
+      provider: aiSettings.value.provider,
+      base_url: aiSettings.value.base_url,
+      chat_completions_url: aiSettings.value.chat_completions_url,
+      model: aiSettings.value.model,
+      api_key: aiSettings.value.api_key,
+    })
+    const models = Array.isArray(response?.data?.models) ? response.data.models : []
+    availableApiModels.value = models
+    apiModelsMeta.message = response?.data?.message || ''
+    apiModelsMeta.tested_at = response?.data?.tested_at || ''
+    if (!aiSettings.value.model && models[0]?.id) {
+      aiSettings.value.model = models[0].id
+    }
+    ElMessage.success(apiModelsMeta.message || '模型列表获取成功')
+  } catch (error) {
+    availableApiModels.value = []
+    apiModelsMeta.message = error?.response?.data?.message || error?.response?.data?.error || '获取模型列表失败'
+    apiModelsMeta.tested_at = ''
+    ElMessage.error(apiModelsMeta.message)
+  } finally {
+    loadingApiModels.value = false
+  }
+}
+
+const handleApiModelChange = async (value) => {
+  if (!value) return
+  const successMessage = aiSettings.value.enabled ? 'API 模型已切换' : 'API 模型已保存'
+  await runAiAction('save_config', successMessage)
+}
+
+const testAiSettings = async () => {
+  testingAiSettings.value = true
+  try {
+    const response = await systemApi.testAiSettings({
+      provider: aiSettings.value.provider,
+      procurement_model: aiSettings.value.procurement_model,
+      ollama_base_url: aiSettings.value.ollama_base_url,
+      base_url: aiSettings.value.base_url,
+      chat_completions_url: aiSettings.value.chat_completions_url,
+      responses_url: aiSettings.value.responses_url,
+      model: aiSettings.value.model,
+      api_key: aiSettings.value.api_key,
+    })
+    aiTestResult.value = response?.data || null
+    if (aiTestResult.value?.ok) {
+      ElMessage.success(aiTestResult.value.message || '连接测试成功')
+    } else {
+      ElMessage.error(aiTestResult.value?.message || '连接测试失败')
+    }
+  } catch (error) {
+    aiTestResult.value = {
+      ok: false,
+      provider: aiSettings.value.provider,
+      tested_at: new Date().toLocaleString(),
+      message: error?.response?.data?.error || '连接测试失败',
+    }
+    ElMessage.error(aiTestResult.value.message)
+  } finally {
+    testingAiSettings.value = false
+  }
 }
 
 const addRoomFeature = () => {
@@ -1248,6 +1498,83 @@ onBeforeUnmount(() => {
   color: var(--text-secondary);
 }
 
+.ai-summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: -4px 0 12px;
+}
+
+.ai-updated-at {
+  margin-top: -6px;
+  margin-bottom: 14px;
+}
+
+.ai-test-result {
+  margin: 0 0 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+}
+
+.ai-test-result--ok {
+  border-color: rgba(34, 197, 94, 0.28);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.ai-test-result--error {
+  border-color: rgba(239, 68, 68, 0.24);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.ai-test-result__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ai-test-result__time {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.ai-test-result__message {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--text-main);
+  line-height: 1.6;
+}
+
+.ai-test-result__preview {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.ai-model-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.ai-model-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-model-option__owner {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
 .warning-text {
   display: block;
   margin-top: 8px;
@@ -1259,6 +1586,12 @@ onBeforeUnmount(() => {
   margin-top: 0;
   text-align: left;
   padding-top: 0;
+}
+
+.ai-action-area {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .upload-area {

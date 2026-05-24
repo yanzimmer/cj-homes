@@ -374,6 +374,39 @@ def api_dashboard_stats(current_user):
         procurement_total = int(procurement_row["total"] or 0)
         procurement_total_amount = float(procurement_row["total_amount"] or 0)
         procurement_monthly = _load_monthly_procurement_stats(cursor)
+
+        cursor.execute(
+            """
+            SELECT
+                s.id,
+                s.room_id,
+                s.name,
+                s.phone,
+                s.check_in_date,
+                s.check_out_date,
+                s.submitted_at,
+                r.room_no
+            FROM self_checkin_submissions s
+            LEFT JOIN rooms r ON r.id = s.room_id
+            WHERE s.status = 'pending'
+            ORDER BY datetime(COALESCE(s.submitted_at, '1970-01-01 00:00:00')) DESC, s.id DESC
+            """
+        )
+        pending_self_checkin_rows = cursor.fetchall()
+        pending_self_checkin_list = [
+            {
+                "id": row["id"],
+                "roomId": row["room_id"],
+                "roomNo": row["room_no"] or "",
+                "name": row["name"] or "",
+                "phone": row["phone"] or "",
+                "checkInDate": row["check_in_date"] or "",
+                "checkOutDate": row["check_out_date"] or "",
+                "submittedAt": row["submitted_at"] or "",
+            }
+            for row in pending_self_checkin_rows[:5]
+        ]
+
         utility_year = date.today().year
         utility_stats = _load_monthly_utility_stats(cursor, utility_year)
         rent_ledger_stats = _load_monthly_rent_ledger_stats(cursor, utility_year)
@@ -408,6 +441,11 @@ def api_dashboard_stats(current_user):
                     "total": procurement_total,
                     "totalAmount": round(procurement_total_amount, 2),
                     "monthly": procurement_monthly,
+                },
+                "selfCheckin": {
+                    "pendingCount": len(pending_self_checkin_rows),
+                    "latestSubmissionId": pending_self_checkin_rows[0]["id"] if pending_self_checkin_rows else None,
+                    "list": pending_self_checkin_list,
                 },
                 "utilityBills": utility_stats,
                 "rentLedger": rent_ledger_stats,

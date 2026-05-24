@@ -17,8 +17,8 @@
           <div class="logo-circle">
             <span class="logo-icon">🏠</span>
           </div>
-          <h1 class="welcome-title">欢迎回来</h1>
-          <p class="welcome-desc">高效、智能的房屋租赁管理平台</p>
+          <h1 class="welcome-title">从江房屋登记系统</h1>
+          <p class="welcome-desc">仅限授权人员登录使用</p>
         </div>
         <div class="decoration-circles">
           <div class="circle c1"></div>
@@ -82,20 +82,41 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { ElMessage } from 'element-plus'
 import { User, Lock, Key } from '@element-plus/icons-vue'
 import axios from 'axios'
 import ThemeModeSwitch from '../components/ThemeModeSwitch.vue'
+import { applyDisplayMode } from '../utils/displayMode'
 import { applyTheme, getPreferredTheme } from '../utils/theme'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
+const detectLoginDisplayMode = () => {
+  const ua = navigator.userAgent || ''
+  const mobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)
+  const narrowScreen = window.matchMedia('(max-width: 768px)').matches
+  const touchTablet = window.matchMedia('(pointer: coarse) and (max-width: 1024px)').matches
+  return mobileUA || narrowScreen || touchTablet ? 'mobile' : 'desktop'
+}
+
+const syncLoginDisplayMode = () => {
+  applyDisplayMode(detectLoginDisplayMode())
+}
+
 onMounted(() => {
   applyTheme(getPreferredTheme(), { persist: true })
+  syncLoginDisplayMode()
+  window.addEventListener('resize', syncLoginDisplayMode)
+  window.addEventListener('orientationchange', syncLoginDisplayMode)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', syncLoginDisplayMode)
+  window.removeEventListener('orientationchange', syncLoginDisplayMode)
 })
 
 const loginFormRef = ref(null)
@@ -415,8 +436,11 @@ const submitForgot = async () => {
 .theme-switch {
   position: absolute;
   top: 20px;
-  right: 20px;
   z-index: 10;
+}
+
+.theme-switch {
+  right: 20px;
 }
 
 @media (max-width: 900px) {
@@ -517,6 +541,52 @@ html.dark #login-page .form-header h2 {
 
 html.dark #login-page .sub-text {
   color: #a3a6ad !important;
+}
+
+html.mobile-mode #login-page {
+  align-items: stretch;
+  padding: 20px 14px 14px;
+  box-sizing: border-box;
+}
+
+html.mobile-mode #login-page .theme-switch {
+  right: 20px;
+}
+
+html.mobile-mode #login-page .login-card {
+  width: 100%;
+  max-width: none;
+  height: auto;
+  min-height: calc(100vh - 34px);
+  border-radius: 28px;
+  flex-direction: column;
+  margin-top: 56px;
+}
+
+html.mobile-mode #login-page .card-left {
+  flex: 0 0 auto;
+  padding: 28px 24px;
+}
+
+html.mobile-mode #login-page .card-right {
+  padding: 28px 22px 24px;
+}
+
+html.mobile-mode #login-page .welcome-title {
+  font-size: 26px;
+}
+
+html.mobile-mode #login-page .welcome-desc {
+  font-size: 13px;
+}
+
+html.mobile-mode #login-page .logo-circle {
+  width: 64px;
+  height: 64px;
+}
+
+html.mobile-mode #login-page .logo-icon {
+  font-size: 30px;
 }
 
 html.dark #login-page .custom-form .el-input__wrapper {

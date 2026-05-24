@@ -4,12 +4,11 @@ import os
 import re
 import sqlite3
 from datetime import date
-import urllib.error
-import urllib.request
 
 from flask import Blueprint, request, jsonify
 
 from aliyun_ocr_utils import aliyun_ocr_is_configured, recognize_cn_id_card
+from ai_client import call_configured_ai, get_active_ai_model
 from auth_api import token_required
 from common import connect, parse_fields_arg, parse_pagination_args, paginate_list, project_fields
 from local_ai_settings import load_ai_settings
@@ -20,7 +19,6 @@ from rooms_api import _compose_room_no, _find_room_by_no, _normalize_building_co
 tenants_bp = Blueprint('tenants', __name__, url_prefix='/api')
 SQL_TODAY = "DATE('now','localtime')"
 ID_CARD_PATTERN = re.compile(r"^\d{17}[\dXx]$")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
 TENANT_AI_TIMEOUT_SECONDS = int(os.getenv("TENANT_AI_TIMEOUT_SECONDS", "180"))
 
 
@@ -238,30 +236,12 @@ def _build_tenant_ai_prompt(user_text, image_count):
 
 
 def _call_ollama_generate(prompt, images):
-    settings = load_ai_settings()
-    model = settings.get("procurement_model") or os.getenv("TENANT_AI_MODEL", "qwen3.5:4b")
-    ollama_base_url = settings.get("ollama_base_url") or OLLAMA_BASE_URL
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "stream": False,
-        "think": False,
-        "options": {"temperature": 0},
-    }
-    if images:
-        payload["images"] = images
-    req = urllib.request.Request(
-        f"{ollama_base_url.rstrip('/')}/api/generate",
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
+    return call_configured_ai(
+        prompt,
+        images,
+        ollama_model_fallback=os.getenv("TENANT_AI_MODEL", "qwen3.5:4b"),
+        timeout_seconds=TENANT_AI_TIMEOUT_SECONDS,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=TENANT_AI_TIMEOUT_SECONDS) as resp:
-            body = resp.read().decode("utf-8")
-            return json.loads(body)
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"Ollama 连接失败: {e}") from e
 
 
 @tenants_bp.route('/tenants', methods=['GET'])
@@ -645,7 +625,7 @@ def api_recognize_tenant_id_card(current_user):
 @token_required
 def api_create_tenant_ai_draft(current_user):
     if not load_ai_settings().get("enabled", True):
-        return jsonify({'error': '本地 AI 功能已停用，请在系统维护页面启用后再使用'}), 503
+        return jsonify({'error': 'AI 功能已停用，请在系统维护页面启用后再使用'}), 503
 
     images = []
 
@@ -685,7 +665,7 @@ def api_create_tenant_ai_draft(current_user):
         draft = _normalize_tenant_ai_payload(parsed)
         return jsonify({
             'draft': draft,
-            'model': load_ai_settings().get('procurement_model'),
+            'model': result.get('model') or get_active_ai_model(),
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 502

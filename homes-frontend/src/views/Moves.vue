@@ -1,7 +1,17 @@
 <template>
   <div>
-  <div class="moves-container">
+  <div class="moves-container" :class="{ 'moves-container--mobile': mobileMode }">
     <div class="page-header">
+      <div v-if="mobileMode" class="moves-mobile-overview">
+        <div class="moves-mobile-stat">
+          <strong>{{ filteredMoves.length }}</strong>
+          <span>搬迁记录</span>
+        </div>
+        <div class="moves-mobile-stat">
+          <strong>{{ currentPage }}</strong>
+          <span>当前页</span>
+        </div>
+      </div>
       <div class="header-operations">
         <el-input
           class="search-input"
@@ -11,8 +21,8 @@
           @clear="handleSearchClear"
         />
         <el-button class="toolbar-btn" type="primary" @click="openMoveDialog">新增</el-button>
-        <el-button class="toolbar-btn" type="danger" :disabled="multipleSelection.length === 0" @click="confirmBatchDelete">删除</el-button>
-        <el-dropdown trigger="click" @command="handleExportCommand">
+        <el-button v-if="!mobileMode" class="toolbar-btn" type="danger" :disabled="multipleSelection.length === 0" @click="confirmBatchDelete">删除</el-button>
+        <el-dropdown v-if="!mobileMode" trigger="click" @command="handleExportCommand">
           <el-button class="toolbar-btn" type="success">
             导出 <el-icon style="margin-left:4px"><Filter /></el-icon>
           </el-button>
@@ -27,7 +37,36 @@
       </div>
     </div>
 
-    <el-tabs v-model="activeTab">
+    <div v-if="mobileMode" class="table-panel moves-mobile-list">
+      <el-empty v-if="paginatedMoves.length === 0" description="暂无搬迁记录" :image-size="48" />
+      <article v-for="move in paginatedMoves" :key="move.id" class="moves-mobile-card">
+        <div class="moves-mobile-card__header">
+          <div>
+            <div class="moves-mobile-card__title">{{ move.tenant_name || '未命名租户' }}</div>
+            <div class="moves-mobile-card__date">{{ move.move_date || '-' }}</div>
+          </div>
+          <el-button size="small" type="danger" plain @click="confirmDelete(move)">删除</el-button>
+        </div>
+        <div class="moves-mobile-card__route">
+          <span>{{ move.from_room || '-' }}</span>
+          <span class="moves-mobile-card__arrow">→</span>
+          <span>{{ move.to_room || '-' }}</span>
+        </div>
+        <div class="moves-mobile-card__reason">{{ move.reason || '未填写搬迁原因' }}</div>
+      </article>
+
+      <div class="pagination-container">
+        <el-pagination
+          v-model:current-page="currentPage"
+          :page-size="pageSize"
+          :total="filteredMoves.length"
+          layout="total, prev, pager, next"
+          @current-change="handlePageChange"
+        />
+      </div>
+    </div>
+
+    <el-tabs v-else v-model="activeTab">
       <el-tab-pane label="搬迁详情" name="records">
         <el-table
           class="moves-table"
@@ -72,7 +111,7 @@
       title="租户搬迁"
       v-model="moveDialogVisible"
       direction="rtl"
-      size="500px"
+      :size="mobileMode ? '100%' : '500px'"
     >
       <el-form :model="moveForm" :rules="moveRules" ref="moveFormRef" label-width="100px">
         <!-- 搬迁方式选择 -->
@@ -176,6 +215,7 @@ import { Document, Packer, Paragraph, Table as DocxTable, TableRow, TableCell, T
 import { saveAs } from 'file-saver'
 import html2canvas from 'html2canvas'
 import { Filter } from '@element-plus/icons-vue'
+import { DISPLAY_MODE_EVENT, getPreferredDisplayMode } from '../utils/displayMode'
 
 // 数据
 const moves = ref([])
@@ -183,6 +223,7 @@ const tenants = ref([])
 const availableRooms = ref([])
 const allRooms = ref([])
 const loading = ref(false)
+const mobileMode = ref(false)
 const submitting = ref(false)
 const moveDialogVisible = ref(false)
 const activeTab = ref('records')
@@ -193,6 +234,9 @@ const printAreaRef = ref(null)
 const calcTableMaxHeight = () => Math.max(window.innerHeight - 260, 300)
 const tableMaxHeight = ref(calcTableMaxHeight())
 const handleResize = () => { tableMaxHeight.value = calcTableMaxHeight() }
+const syncDisplayMode = () => {
+  mobileMode.value = getPreferredDisplayMode() === 'mobile'
+}
 
 // 分页相关
 const currentPage = ref(1)
@@ -290,12 +334,15 @@ const moveRules = {
 
 // 生命周期
 onMounted(async () => {
+  syncDisplayMode()
+  window.addEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
   window.addEventListener('resize', handleResize)
   await fetchMoves()
   await fetchTenants()
   await fetchAvailableRooms()
 })
 onUnmounted(() => {
+  window.removeEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
   window.removeEventListener('resize', handleResize)
 })
 
@@ -642,10 +689,41 @@ const exportToPDF = async () => {
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
 }
 
+.moves-container--mobile {
+  padding: 16px;
+}
+
 .page-header {
   display: flex;
   align-items: center;
   margin-bottom: 18px;
+}
+
+.moves-mobile-overview {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.moves-mobile-stat {
+  flex: 1;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(14, 165, 233, 0.12));
+  border: 1px solid rgba(37, 99, 235, 0.12);
+}
+
+.moves-mobile-stat strong {
+  display: block;
+  font-size: 18px;
+  color: var(--text-main);
+}
+
+.moves-mobile-stat span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .header-operations {
@@ -669,6 +747,71 @@ const exportToPDF = async () => {
   justify-content: center;
   padding-top: 12px;
   border-top: 1px solid var(--surface-border);
+}
+
+.table-panel {
+  background: var(--card-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: 16px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  padding: 12px;
+}
+
+.moves-mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.moves-mobile-card {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.moves-mobile-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.moves-mobile-card__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.moves-mobile-card__date {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.moves-mobile-card__route {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--surface-muted);
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.moves-mobile-card__arrow {
+  color: var(--el-color-primary);
+}
+
+.moves-mobile-card__reason {
+  margin-top: 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 :deep(.moves-table) {
@@ -696,8 +839,23 @@ const exportToPDF = async () => {
 }
 
 @media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
   .search-input {
     width: 100%;
+  }
+
+  .header-operations {
+    width: 100%;
+  }
+
+  .header-operations :deep(.el-input),
+  .header-operations :deep(.el-button) {
+    flex: 1 1 calc(50% - 5px);
   }
 }
 

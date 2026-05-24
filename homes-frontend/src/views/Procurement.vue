@@ -1,6 +1,16 @@
 <template>
-  <div class="page-container">
+  <div class="page-container" :class="{ 'page-container--mobile': mobileMode }">
     <div class="page-header">
+      <div v-if="mobileMode" class="procurement-mobile-overview">
+        <div class="procurement-mobile-stat">
+          <strong>{{ pagination.total }}</strong>
+          <span>采购单数</span>
+        </div>
+        <div class="procurement-mobile-stat">
+          <strong>{{ procurements.length }}</strong>
+          <span>当前页</span>
+        </div>
+      </div>
       <div class="header-operations">
         <el-input
           class="search-input"
@@ -18,8 +28,8 @@
         <el-button class="toolbar-btn" type="primary" @click="openDialog('add')">新增</el-button>
         <el-button class="toolbar-btn" type="primary" plain @click="openAiDialog">AI 输入</el-button>
         <el-button class="toolbar-btn" type="success" @click="linkDialogVisible = true">链接</el-button>
-        <el-button class="toolbar-btn" type="danger" :disabled="selectedProcurements.length === 0" @click="handleBatchDelete">删除</el-button>
-        <el-dropdown trigger="click" @command="handleExportCommand">
+        <el-button v-if="!mobileMode" class="toolbar-btn" type="danger" :disabled="selectedProcurements.length === 0" @click="handleBatchDelete">删除</el-button>
+        <el-dropdown v-if="!mobileMode" trigger="click" @command="handleExportCommand">
           <el-button class="toolbar-btn" type="success">
             导出 <el-icon style="margin-left:4px"><Filter /></el-icon>
           </el-button>
@@ -31,6 +41,7 @@
           </template>
         </el-dropdown>
         <el-upload
+          v-if="!mobileMode"
           action=""
           :auto-upload="false"
           :show-file-list="false"
@@ -44,7 +55,39 @@
 
     <!-- 表格区域 -->
     <div class="table-panel">
+      <div v-if="mobileMode" class="procurement-mobile-list" v-loading="loading">
+        <el-empty v-if="procurements.length === 0" description="暂无采购记录" :image-size="48" />
+        <article v-for="row in procurements" :key="row.id || row.purchase_batch_no" class="procurement-mobile-card">
+          <div class="procurement-mobile-card__header">
+            <div>
+              <div class="procurement-mobile-card__title">{{ row.purchase_batch_no || '未生成采购单号' }}</div>
+              <div class="procurement-mobile-card__meta">{{ row.procurement_date || '-' }} · {{ row.purchase_channel || '未填写渠道' }}</div>
+            </div>
+            <strong class="procurement-mobile-card__amount">¥{{ Number(row.total_amount || 0).toFixed(2) }}</strong>
+          </div>
+          <div class="procurement-mobile-card__summary">{{ row.item_summary || '未填写采购物品' }}</div>
+          <div class="procurement-mobile-card__detail">
+            <span>条目 {{ row.item_count || 0 }}</span>
+            <span>支付 {{ row.payment_person || '未填写' }}</span>
+          </div>
+          <div v-if="row.remarks" class="procurement-mobile-card__remark">{{ row.remarks }}</div>
+          <div class="procurement-mobile-card__actions">
+            <el-button size="small" @click="openViewDialog(row)">查看</el-button>
+            <el-button
+              size="small"
+              type="primary"
+              :disabled="(row.items || []).length !== 1"
+              @click="openDialog('edit', (row.items || [])[0])"
+            >
+              编辑
+            </el-button>
+            <el-button size="small" type="danger" plain @click="handleDelete(row)">删除</el-button>
+          </div>
+        </article>
+      </div>
+
       <el-table
+        v-else
         class="procurement-table"
         v-loading="loading"
         :data="procurements"
@@ -52,58 +95,6 @@
         style="width: 100%"
         @selection-change="handleSelectionChange"
       >
-      <el-table-column type="expand" width="52">
-        <template #default="{ row }">
-          <div class="procurement-detail-wrap">
-            <el-table :data="row.items || []" border size="small" style="width: 100%">
-              <el-table-column prop="item_name" label="采购物品" min-width="150" />
-              <el-table-column prop="specification" label="规格" width="120" />
-              <el-table-column prop="quantity" label="数量" width="90" align="center" />
-              <el-table-column prop="unit_price" label="单价" width="100" align="right">
-                <template #default="{ row: detail }">¥{{ Number(detail.unit_price || 0).toFixed(2) }}</template>
-              </el-table-column>
-              <el-table-column prop="unit" label="单位" width="90" align="center" />
-              <el-table-column prop="total_amount" label="金额" width="110" align="right">
-                <template #default="{ row: detail }">¥{{ detail.total_amount }}</template>
-              </el-table-column>
-              <el-table-column label="图片" width="90" align="center">
-                <template #default="{ row: detail }">
-                  <el-image
-                    v-if="getProcurementImages(detail).length > 0"
-                    class="table-image-thumb"
-                    :src="toImageUrl(getProcurementImages(detail)[0])"
-                    :preview-src-list="getProcurementImages(detail).map((v) => toImageUrl(v))"
-                    fit="cover"
-                    preview-teleported
-                  />
-                  <span v-else>-</span>
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" width="150" align="center">
-                <template #default="{ row: detail }">
-                  <div class="table-actions-row">
-                    <el-button size="small" @click="openViewDialog(detail)">查看</el-button>
-                    <el-button size="small" type="primary" @click="openDialog('edit', detail)">编辑</el-button>
-                    <el-dropdown trigger="click">
-                      <el-button size="small">
-                        更多
-                        <el-icon style="margin-left: 4px"><MoreFilled /></el-icon>
-                      </el-button>
-                      <template #dropdown>
-                        <el-dropdown-menu>
-                          <el-dropdown-item @click="handleDelete(detail)">
-                            <span style="color: var(--el-color-danger);">删除</span>
-                          </el-dropdown-item>
-                        </el-dropdown-menu>
-                      </template>
-                    </el-dropdown>
-                  </div>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
-        </template>
-      </el-table-column>
       <el-table-column type="selection" width="55" />
       <el-table-column label="序号" width="80" align="center">
         <template #default="{ $index }">
@@ -160,7 +151,7 @@
         v-model:page-size="pagination.pageSize"
         :total="pagination.total"
         :page-sizes="[10, 20, 50, 100]"
-        layout="total, sizes, prev, pager, next, jumper"
+        :layout="mobileMode ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next, jumper'"
         @size-change="handleSizeChange"
         @current-change="handleCurrentChange"
       />
@@ -171,7 +162,7 @@
       :title="dialog.title"
       v-model="dialog.visible"
       direction="rtl"
-      size="620px"
+      :size="mobileMode ? '100%' : '620px'"
       @close="resetForm"
     >
       <el-form
@@ -262,39 +253,43 @@
             placeholder="请输入备注信息"
           />
         </el-form-item>
-        <el-form-item label="图片">
-          <el-upload
-            action=""
-            :auto-upload="false"
-            :show-file-list="false"
-            accept="image/*"
-            multiple
-            :limit="30"
-            :on-change="handleProcurementImageChange"
-          >
-            <el-button type="primary" plain>选择图片(最多30张)</el-button>
-          </el-upload>
-          <el-button
-            v-if="form.procurement_images.length > 0"
-            style="margin-left: 8px"
-            type="danger"
-            plain
-            @click="clearAllProcurementImages"
-          >
-            全部删除图片
-          </el-button>
-          <div class="upload-progress-text" v-if="uploadingProcurementImages">上传进度 {{ uploadProgress }}%</div>
-          <div class="upload-progress-text">已选 {{ form.procurement_images.length }} / 30</div>
-          <div v-if="form.procurement_images.length > 0" class="image-preview-wrap">
-            <div v-for="(img, index) in form.procurement_images" :key="`${img}-${index}`" class="image-box">
-              <el-image lazy loading="lazy"
-                class="image-thumb"
-                :src="toImageUrl(img)"
-                :preview-src-list="form.procurement_images.map((v) => toImageUrl(v))"
-                fit="cover"
-                preview-teleported
-              />
-              <el-button size="small" type="danger" plain @click="removeFormImage(index)">删除</el-button>
+        <el-form-item label="图片" class="procurement-image-field">
+          <div class="procurement-image-uploader">
+            <div class="procurement-image-actions">
+              <el-upload
+                action=""
+                :auto-upload="false"
+                :show-file-list="false"
+                accept="image/*"
+                multiple
+                :limit="30"
+                :on-change="handleProcurementImageChange"
+              >
+                <el-button type="primary" plain>选择图片(最多30张)</el-button>
+              </el-upload>
+              <el-button
+                v-if="form.procurement_images.length > 0"
+                class="procurement-image-clear"
+                type="danger"
+                plain
+                @click="clearAllProcurementImages"
+              >
+                全部删除图片
+              </el-button>
+            </div>
+            <div class="upload-progress-text" v-if="uploadingProcurementImages">上传进度 {{ uploadProgress }}%</div>
+            <div class="upload-progress-text">已选 {{ form.procurement_images.length }} / 30</div>
+            <div v-if="form.procurement_images.length > 0" class="image-preview-wrap">
+              <div v-for="(img, index) in form.procurement_images" :key="`${img}-${index}`" class="image-box">
+                <el-image lazy loading="lazy"
+                  class="image-thumb"
+                  :src="toImageUrl(img)"
+                  :preview-src-list="form.procurement_images.map((v) => toImageUrl(v))"
+                  fit="cover"
+                  preview-teleported
+                />
+                <el-button size="small" type="danger" plain @click="removeFormImage(index)">删除</el-button>
+              </div>
             </div>
           </div>
         </el-form-item>
@@ -312,7 +307,10 @@
     <el-dialog
       title="采购详情"
       v-model="viewDialog.visible"
-      width="760px"
+      :fullscreen="mobileMode"
+      :width="mobileMode ? undefined : '760px'"
+      class="app-themed-dialog procurement-view-dialog"
+      modal-class="app-themed-dialog-overlay"
     >
       <template v-if="viewDialog.row">
         <el-descriptions :column="2" border class="procurement-view-descriptions">
@@ -325,7 +323,27 @@
           <el-descriptions-item label="备注" :span="2">{{ viewDialog.row.remarks || '-' }}</el-descriptions-item>
         </el-descriptions>
 
-        <el-table :data="viewDialogItems" border size="small" style="margin-top: 16px; width: 100%">
+        <div v-if="mobileMode" class="procurement-view-mobile-list">
+          <article v-for="(item, index) in viewDialogItems" :key="item.id || index" class="procurement-view-mobile-card">
+            <div class="procurement-view-mobile-card__title">{{ item.item_name || '未命名物品' }}</div>
+            <div class="procurement-view-mobile-card__meta">{{ item.specification || '未填写规格' }}</div>
+            <div class="procurement-view-mobile-card__meta">
+              {{ item.quantity || 0 }}{{ item.unit || '' }} · ¥{{ Number(item.total_amount || 0).toFixed(2) }}
+            </div>
+            <div v-if="getProcurementImages(item).length > 0" class="view-image-list procurement-view-mobile-images">
+              <el-image
+                v-for="(img, imageIndex) in getProcurementImages(item)"
+                :key="`${img}-${imageIndex}`"
+                class="table-image-thumb"
+                :src="toImageUrl(img)"
+                :preview-src-list="getProcurementImages(item).map((v) => toImageUrl(v))"
+                fit="cover"
+                preview-teleported
+              />
+            </div>
+          </article>
+        </div>
+        <el-table v-else :data="viewDialogItems" border size="small" class="procurement-view-table">
           <el-table-column prop="item_name" label="采购物品" min-width="150" />
           <el-table-column prop="specification" label="规格" width="120" />
           <el-table-column prop="quantity" label="数量" width="90" align="center" />
@@ -364,7 +382,9 @@
     <el-dialog
       title="AI 输入采购"
       v-model="aiDialog.visible"
-      width="620px"
+      :width="mobileMode ? '96%' : '620px'"
+      class="app-ai-dialog"
+      modal-class="app-ai-dialog-overlay"
       @close="resetAiDialog"
     >
       <el-form label-width="92px">
@@ -430,17 +450,19 @@
 </template>
 
 <script setup>
-import { computed, ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 import { procurementApi } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Filter, MoreFilled } from '@element-plus/icons-vue'
 import * as XLSX from 'xlsx'
 import { uploadFileByChunks } from '../utils/chunkUploader'
 import BusinessPublicLinkDialog from '../components/BusinessPublicLinkDialog.vue'
+import { DISPLAY_MODE_EVENT, getPreferredDisplayMode } from '../utils/displayMode'
 
 // 状态定义
 const loading = ref(false)
 const linkDialogVisible = ref(false)
+const mobileMode = ref(false)
 const procurements = ref([])
 const selectedProcurements = ref([])
 const searchQuery = ref('')
@@ -455,6 +477,9 @@ const viewDialogItems = computed(() => {
   if (!row) return []
   return Array.isArray(row.items) && row.items.length > 0 ? row.items : [row]
 })
+const syncDisplayMode = () => {
+  mobileMode.value = getPreferredDisplayMode() === 'mobile'
+}
 
 const dialog = reactive({
   visible: false,
@@ -1173,7 +1198,13 @@ const handleImportFile = async (file) => {
 }
 
 onMounted(() => {
+  syncDisplayMode()
+  window.addEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
   fetchProcurements()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
 })
 </script>
 
@@ -1189,6 +1220,37 @@ onMounted(() => {
   border: 1px solid var(--surface-border);
   border-radius: 18px;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+.page-container--mobile {
+  padding: 16px;
+}
+
+.procurement-mobile-overview {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.procurement-mobile-stat {
+  flex: 1;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(20, 184, 166, 0.12));
+  border: 1px solid rgba(37, 99, 235, 0.12);
+}
+
+.procurement-mobile-stat strong {
+  display: block;
+  font-size: 18px;
+  color: var(--text-main);
+}
+
+.procurement-mobile-stat span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .header-operations {
@@ -1214,6 +1276,77 @@ onMounted(() => {
   padding: 10px 10px 16px;
 }
 
+.procurement-mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.procurement-mobile-card {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.procurement-mobile-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.procurement-mobile-card__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.procurement-mobile-card__meta,
+.procurement-mobile-card__detail {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.procurement-mobile-card__amount {
+  color: var(--el-color-primary);
+  font-size: 16px;
+}
+
+.procurement-mobile-card__summary {
+  margin-top: 12px;
+  color: var(--text-main);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.procurement-mobile-card__detail {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.procurement-mobile-card__remark {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.procurement-mobile-card__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.procurement-mobile-card__actions :deep(.el-button) {
+  flex: 1;
+}
+
 .pagination-container {
   margin-top: 16px;
   display: flex;
@@ -1233,10 +1366,6 @@ onMounted(() => {
   overflow: hidden;
 }
 
-:deep(.procurement-table .el-table__expanded-cell) {
-  background: var(--card-bg);
-}
-
 :deep(.procurement-table .el-table__header-wrapper th.el-table__cell) {
   font-weight: 700;
   color: var(--text-main);
@@ -1245,6 +1374,17 @@ onMounted(() => {
 
 :deep(.procurement-table .el-table__body-wrapper td.el-table__cell) {
   padding: 12px 0;
+}
+
+:deep(.procurement-table .el-table__expand-column),
+:deep(.procurement-table .el-table__expand-column .cell),
+:deep(.procurement-table .el-table__expand-icon) {
+  width: 0 !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  border: none !important;
 }
 
 .table-actions-row {
@@ -1266,16 +1406,101 @@ onMounted(() => {
   margin-bottom: 4px;
 }
 
+.procurement-view-descriptions :deep(.el-descriptions__body) {
+  background: var(--card-bg);
+  color: var(--text-main);
+}
+
+.procurement-view-descriptions :deep(.el-descriptions__cell) {
+  border-color: var(--surface-border) !important;
+}
+
+.procurement-view-descriptions :deep(.el-descriptions__label) {
+  background: var(--surface-muted) !important;
+  color: var(--text-regular);
+  font-weight: 700;
+}
+
+.procurement-view-descriptions :deep(.el-descriptions__content) {
+  background: var(--card-bg) !important;
+  color: var(--text-main);
+}
+
+:deep(.procurement-view-table) {
+  --el-table-header-bg-color: var(--surface-muted);
+  --el-table-tr-bg-color: var(--card-bg);
+  --el-table-bg-color: var(--card-bg);
+  --el-fill-color-blank: var(--card-bg);
+  --el-table-row-hover-bg-color: rgba(37, 99, 235, 0.06);
+  --el-table-border-color: var(--surface-border);
+  margin-top: 16px;
+  width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+:deep(.procurement-view-table .el-table__header-wrapper th.el-table__cell) {
+  background: var(--surface-muted);
+  color: var(--text-regular);
+  font-weight: 700;
+}
+
+:deep(.procurement-view-table .el-table__body-wrapper td.el-table__cell) {
+  background: var(--card-bg);
+  color: var(--text-main);
+}
+
+.procurement-view-mobile-list {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.procurement-view-mobile-card {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+}
+
+.procurement-view-mobile-card__title {
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.procurement-view-mobile-card__meta {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
 .view-image-list {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
+.procurement-view-mobile-images {
+  margin-top: 10px;
+}
+
 .upload-progress-text {
   margin-top: 8px;
   color: #64748b;
   font-size: 12px;
+}
+
+.procurement-image-uploader {
+  width: 100%;
+  min-width: 0;
+}
+
+.procurement-image-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .image-preview-wrap {
@@ -1350,8 +1575,61 @@ onMounted(() => {
 }
 
 @media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
   .search-input {
     width: 100%;
+  }
+
+  .header-operations {
+    width: 100%;
+  }
+
+  .header-operations :deep(.el-input),
+  .header-operations :deep(.el-button) {
+    flex: 1 1 calc(50% - 5px);
+  }
+
+  .procurement-image-field :deep(.el-form-item__content) {
+    min-width: 0;
+  }
+
+  .procurement-image-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .procurement-image-actions :deep(.el-upload),
+  .procurement-image-actions :deep(.el-button) {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .image-preview-wrap {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    width: 100%;
+  }
+
+  .image-box {
+    min-width: 0;
+  }
+
+  .image-box :deep(.el-button) {
+    width: 100%;
+  }
+
+  .image-thumb {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    height: auto;
   }
 }
 </style>

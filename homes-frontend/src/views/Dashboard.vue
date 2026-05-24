@@ -1,5 +1,5 @@
 <template>
-  <div class="dashboard-container">
+  <div class="dashboard-container" :class="{ 'dashboard-container--mobile': mobileMode }">
     <el-container class="main-layout">
       <el-aside :width="isCollapse ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)'" class="sidebar-container">
         <div class="logo-container">
@@ -109,7 +109,12 @@
       <el-container class="main-container">
         <div class="workspace-header">
           <div class="workspace-header__main">
-            <div class="breadcrumb">
+            <div class="workspace-header__left">
+              <el-button v-if="mobileMode" class="mobile-menu-button" circle text @click="openMobileMenu">
+                <el-icon><Operation /></el-icon>
+              </el-button>
+              <div v-if="mobileMode" class="mobile-page-title">{{ currentPage.title }}</div>
+              <div class="breadcrumb">
               <el-breadcrumb separator="/">
                 <el-breadcrumb-item>
                   <span class="breadcrumb-project">
@@ -127,8 +132,10 @@
                 </el-breadcrumb-item>
               </el-breadcrumb>
             </div>
+            </div>
 
             <div class="header-right">
+              <DisplayModeSwitch v-if="!mobileMode" />
               <ThemeModeSwitch />
 
               <div class="time-display">
@@ -165,6 +172,35 @@
         </div>
       </el-container>
     </el-container>
+
+    <el-drawer
+      v-model="mobileMenuVisible"
+      direction="ltr"
+      size="82%"
+      :with-header="false"
+      class="mobile-nav-drawer"
+    >
+      <div class="mobile-drawer__header">
+        <div>
+          <div class="mobile-drawer__title">从江房屋登记系统</div>
+          <div class="mobile-drawer__subtitle">当前：{{ currentPage.title }}</div>
+        </div>
+        <DisplayModeSwitch />
+      </div>
+
+      <el-scrollbar class="mobile-drawer__body">
+        <el-menu
+          :default-active="activeMenu"
+          class="mobile-drawer__menu"
+          @select="handleMenuSelect"
+        >
+          <el-menu-item v-for="item in navTabs" :key="item.path" :index="item.path">
+            <el-icon><component :is="item.icon" /></el-icon>
+            <span>{{ item.title }}</span>
+          </el-menu-item>
+        </el-menu>
+      </el-scrollbar>
+    </el-drawer>
 
     <!-- 修改密码对话框 -->
     <el-dialog
@@ -236,9 +272,12 @@ import {
   Document,
   Setting,
   ShoppingCart,
-  Coin
+  Coin,
+  Operation
 } from '@element-plus/icons-vue'
+import DisplayModeSwitch from '../components/DisplayModeSwitch.vue'
 import ThemeModeSwitch from '../components/ThemeModeSwitch.vue'
+import { DISPLAY_MODE_EVENT, getPreferredDisplayMode } from '../utils/displayMode'
 import { applyTheme, getPreferredTheme } from '../utils/theme'
 
 const router = useRouter()
@@ -246,6 +285,8 @@ const route = useRoute()
 const authStore = useAuthStore()
 
 const isCollapse = ref(false)
+const mobileMode = ref(false)
+const mobileMenuVisible = ref(false)
 const user = computed(() => authStore.user)
 const activeMenu = computed(() => route.path)
 const changePasswordDialogVisible = ref(false)
@@ -269,6 +310,13 @@ const navTabMap = Object.fromEntries(navTabs.map((item) => [item.path, item]))
 
 const currentPage = computed(() => navTabMap[route.path] || navTabMap['/dashboard'])
 
+const syncDisplayMode = () => {
+  mobileMode.value = getPreferredDisplayMode() === 'mobile'
+  if (!mobileMode.value) {
+    mobileMenuVisible.value = false
+  }
+}
+
 // 时间显示相关
 const currentTime = ref('')
 const updateTime = () => {
@@ -289,11 +337,14 @@ const updateTime = () => {
 let timeInterval
 onMounted(() => {
   applyTheme(getPreferredTheme(), { persist: true })
+  syncDisplayMode()
+  window.addEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
   updateTime()
   timeInterval = setInterval(updateTime, 1000)
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
   if (timeInterval) {
     clearInterval(timeInterval)
   }
@@ -372,11 +423,22 @@ const submitChangePassword = async () => {
 }
 
 const toggleSidebar = () => {
+  if (mobileMode.value) {
+    mobileMenuVisible.value = !mobileMenuVisible.value
+    return
+  }
   isCollapse.value = !isCollapse.value
+}
+
+const openMobileMenu = () => {
+  mobileMenuVisible.value = true
 }
 
 const handleMenuSelect = (index) => {
   if (typeof index !== 'string' || !index) return
+  if (mobileMode.value) {
+    mobileMenuVisible.value = false
+  }
   if (index === route.path) return
   router.push(index).catch(() => {})
 }
@@ -427,17 +489,17 @@ onBeforeUnmount(() => {
   height: 100vh;
   overflow: hidden;
   background: var(--bg-color);
-  padding: 16px;
+  padding: 8px;
   box-sizing: border-box;
 }
 
 .main-layout {
   height: 100%;
-  gap: 14px;
+  gap: 10px;
   background: transparent;
-  border: 1px solid var(--surface-border);
-  border-radius: 24px;
-  padding: 12px;
+  border: none;
+  border-radius: 0;
+  padding: 0;
   box-sizing: border-box;
 }
 
@@ -668,6 +730,13 @@ html.dark .workspace-header {
   min-height: 34px;
 }
 
+.workspace-header__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .breadcrumb {
   font-size: 14px;
   min-width: 0;
@@ -701,6 +770,20 @@ html.dark .workspace-header {
   align-items: center;
   gap: 12px;
   flex-shrink: 0;
+}
+
+.mobile-menu-button {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  color: var(--text-main);
+  background: var(--surface-muted);
+  border: 1px solid var(--surface-border);
+}
+
+.mobile-menu-button:hover {
+  color: var(--el-color-primary);
+  border-color: rgba(64, 158, 255, 0.4);
 }
 
 .time-display {
@@ -760,6 +843,111 @@ html.dark .user-info:hover {
   margin: 0 2px 2px;
   border-radius: 12px;
   border: 1px solid var(--surface-border);
+}
+
+:deep(.mobile-nav-drawer .el-drawer__body) {
+  padding: 0;
+}
+
+.mobile-drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.mobile-drawer__title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.mobile-drawer__subtitle {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.mobile-drawer__body {
+  height: calc(100vh - 86px);
+}
+
+.mobile-drawer__menu {
+  border-right: none !important;
+  padding: 12px;
+  background: transparent;
+}
+
+.dashboard-container--mobile {
+  padding: 0;
+}
+
+.dashboard-container--mobile .main-layout {
+  gap: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+}
+
+.dashboard-container--mobile .sidebar-container {
+  display: none;
+}
+
+.dashboard-container--mobile .workspace-header {
+  margin: 0;
+  padding: 12px 14px 10px;
+  border-radius: 0 0 18px 18px;
+}
+
+.dashboard-container--mobile .workspace-header__main {
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 10px;
+}
+
+.dashboard-container--mobile .breadcrumb-project > span:last-child {
+  display: none;
+}
+
+.dashboard-container--mobile .breadcrumb {
+  display: none;
+}
+
+.mobile-page-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.dashboard-container--mobile .header-right {
+  width: auto;
+  margin-left: auto;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.dashboard-container--mobile .user-info {
+  margin-left: 2px;
+  padding: 2px 4px;
+}
+
+.dashboard-container--mobile .time-display {
+  display: none;
+}
+
+.dashboard-container--mobile .username {
+  display: none;
+}
+
+.dashboard-container--mobile .content-area {
+  margin: 0;
+  padding: 12px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 
 </style>

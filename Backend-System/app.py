@@ -91,6 +91,7 @@ drop_legacy_audit_logs_table()
 
 SENSITIVE_LOG_KEYS = {
     "access_key_secret",
+    "api_key",
     "answer",
     "authorization",
     "id_card_image",

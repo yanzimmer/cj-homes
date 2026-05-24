@@ -1,6 +1,16 @@
 <template>
-  <div class="page-container">
+  <div class="page-container" :class="{ 'page-container--mobile': mobileMode }">
     <div class="page-header">
+      <div v-if="mobileMode" class="warehouse-mobile-overview">
+        <div class="warehouse-mobile-stat">
+          <strong>{{ pagination.total }}</strong>
+          <span>库存条目</span>
+        </div>
+        <div class="warehouse-mobile-stat">
+          <strong>{{ warehouseTotalQuantity }}</strong>
+          <span>本页数量合计</span>
+        </div>
+      </div>
       <div class="header-operations">
         <el-input
           class="search-input"
@@ -17,12 +27,55 @@
         <el-button class="toolbar-btn" type="primary" @click="handleSearch">搜索</el-button>
         <el-button class="toolbar-btn" type="primary" @click="openDialog('add')">新增</el-button>
         <el-button class="toolbar-btn" type="success" @click="linkDialogVisible = true">链接</el-button>
-        <el-button class="toolbar-btn" type="danger" :disabled="selectedItems.length === 0" @click="handleBatchDelete">删除</el-button>
+        <el-button v-if="!mobileMode" class="toolbar-btn" type="danger" :disabled="selectedItems.length === 0" @click="handleBatchDelete">删除</el-button>
       </div>
     </div>
 
     <div class="table-panel">
-      <el-table class="warehouse-table" :data="items" v-loading="loading" border style="width: 100%" @selection-change="handleSelectionChange">
+      <div v-if="mobileMode" class="warehouse-mobile-list" v-loading="loading">
+        <el-empty v-if="items.length === 0" description="暂无库存记录" :image-size="48" />
+        <article v-for="row in items" :key="row.id" class="warehouse-mobile-card">
+          <div class="warehouse-mobile-card__top">
+            <el-image
+              v-if="getImages(row).length > 0"
+              class="warehouse-mobile-card__image"
+              :src="resolveImageUrl(getImages(row)[0])"
+              :preview-src-list="getImages(row).map((item) => resolveImageUrl(item))"
+              fit="cover"
+              preview-teleported
+            />
+            <div v-else class="warehouse-mobile-card__image warehouse-mobile-card__image--empty">无图</div>
+            <div class="warehouse-mobile-card__main">
+              <div class="warehouse-mobile-card__title">{{ row.item_name || '未命名物品' }}</div>
+              <div class="warehouse-mobile-card__meta">{{ row.specification || '未填写规格' }}</div>
+              <div class="warehouse-mobile-card__meta">{{ row.location || '未填写位置' }}</div>
+            </div>
+          </div>
+
+          <div class="warehouse-mobile-card__stats">
+            <div>
+              <strong>{{ row.quantity ?? 0 }}</strong>
+              <span>{{ row.unit || '单位' }}</span>
+            </div>
+            <div>
+              <strong>{{ row.procurement_date || '-' }}</strong>
+              <span>入库时间</span>
+            </div>
+          </div>
+
+          <div v-if="row.remarks" class="warehouse-mobile-card__remark">{{ row.remarks }}</div>
+
+          <div class="warehouse-mobile-card__footer">
+            <span>更新于 {{ row.updated_at || '-' }}</span>
+            <div class="warehouse-mobile-card__actions">
+              <el-button size="small" type="primary" @click="openDialog('edit', row)">编辑</el-button>
+              <el-button size="small" type="danger" plain @click="handleDelete(row)">删除</el-button>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <el-table v-else class="warehouse-table" :data="items" v-loading="loading" border style="width: 100%" @selection-change="handleSelectionChange">
         <el-table-column type="selection" width="55" />
         <el-table-column label="序号" width="80" align="center">
           <template #default="{ $index }">
@@ -78,7 +131,7 @@
         v-model:page-size="pagination.pageSize"
         :total="pagination.total"
         :page-sizes="[10, 20, 50, 100]"
-        layout="total, sizes, prev, pager, next, jumper"
+        :layout="mobileMode ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next, jumper'"
         @size-change="handleSizeChange"
         @current-change="handleCurrentChange"
       />
@@ -87,7 +140,7 @@
       :title="dialog.title"
       v-model="dialog.visible"
       direction="rtl"
-      size="520px"
+      :size="mobileMode ? '100%' : '520px'"
       @close="resetForm"
     >
     <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
@@ -175,15 +228,17 @@
 </template>
 
 <script setup>
-import { computed, ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 import { warehouseApi } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Plus, MoreFilled } from '@element-plus/icons-vue'
 import { uploadFileByChunks } from '../utils/chunkUploader'
 import BusinessPublicLinkDialog from '../components/BusinessPublicLinkDialog.vue'
+import { DISPLAY_MODE_EVENT, getPreferredDisplayMode } from '../utils/displayMode'
 
 const loading = ref(false)
 const linkDialogVisible = ref(false)
+const mobileMode = ref(false)
 const items = ref([])
 const selectedItems = ref([])
 const searchQuery = ref('')
@@ -193,6 +248,7 @@ const pagination = reactive({
   total: 0
 })
 const warehouseRowStart = computed(() => (pagination.page - 1) * pagination.pageSize)
+const warehouseTotalQuantity = computed(() => items.value.reduce((sum, item) => sum + Number(item?.quantity || 0), 0))
 const formRef = ref(null)
 const imageUploading = ref(false)
 const imageUploadProgress = ref(0)
@@ -246,6 +302,10 @@ const getImages = (data) => {
     } catch (_) {}
   }
   return [raw]
+}
+
+const syncDisplayMode = () => {
+  mobileMode.value = getPreferredDisplayMode() === 'mobile'
 }
 
 const fetchItems = async () => {
@@ -465,7 +525,13 @@ const handleBatchDelete = async () => {
 }
 
 onMounted(() => {
+  syncDisplayMode()
+  window.addEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
   fetchItems()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
 })
 </script>
 
@@ -478,10 +544,41 @@ onMounted(() => {
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
 }
 
+.page-container--mobile {
+  padding: 16px;
+}
+
 .page-header {
   display: flex;
   align-items: center;
   margin-bottom: 18px;
+}
+
+.warehouse-mobile-overview {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.warehouse-mobile-stat {
+  flex: 1;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(20, 184, 166, 0.12));
+  border: 1px solid rgba(37, 99, 235, 0.12);
+}
+
+.warehouse-mobile-stat strong {
+  display: block;
+  font-size: 18px;
+  color: var(--text-main);
+}
+
+.warehouse-mobile-stat span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .header-operations {
@@ -505,6 +602,116 @@ onMounted(() => {
   border-radius: 16px;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
   padding: 10px 10px 16px;
+}
+
+.warehouse-mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.warehouse-mobile-card {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.warehouse-mobile-card__top {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.warehouse-mobile-card__image {
+  width: 72px;
+  height: 72px;
+  border-radius: 14px;
+  flex-shrink: 0;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+.warehouse-mobile-card__image--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.warehouse-mobile-card__main {
+  min-width: 0;
+  flex: 1;
+}
+
+.warehouse-mobile-card__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.warehouse-mobile-card__meta {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.warehouse-mobile-card__stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.warehouse-mobile-card__stats > div {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+
+.warehouse-mobile-card__stats strong,
+.warehouse-mobile-card__stats span {
+  display: block;
+}
+
+.warehouse-mobile-card__stats strong {
+  color: var(--text-main);
+  font-size: 14px;
+}
+
+.warehouse-mobile-card__stats span {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.warehouse-mobile-card__remark {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.warehouse-mobile-card__footer {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.warehouse-mobile-card__actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 :deep(.warehouse-table) {
@@ -625,8 +832,45 @@ onMounted(() => {
 }
 
 @media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
   .search-input {
     width: 100%;
+  }
+
+  .header-operations {
+    width: 100%;
+  }
+
+  .header-operations :deep(.el-button),
+  .header-operations :deep(.el-input) {
+    flex: 1 1 calc(50% - 5px);
+  }
+
+  .page-container--mobile .header-operations :deep(.el-button),
+  .page-container--mobile .header-operations :deep(.el-input) {
+    flex-basis: calc(50% - 5px);
+  }
+
+  .warehouse-mobile-card__stats {
+    grid-template-columns: 1fr;
+  }
+
+  .warehouse-mobile-card__footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .warehouse-mobile-card__actions {
+    width: 100%;
+  }
+
+  .warehouse-mobile-card__actions :deep(.el-button) {
+    flex: 1;
   }
 }
 </style>

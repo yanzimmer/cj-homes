@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from common import connect, parse_fields_arg, parse_pagination_args, project_fields
 from inventory_sync_service import ensure_inventory_sync_schema, sync_procurement_create, sync_procurement_delete, sync_procurement_update
+from ai_client import call_configured_ai, get_active_ai_model
 from local_ai_settings import load_ai_settings
 import sqlite3
 import os
@@ -8,14 +9,11 @@ import uuid
 import json
 import re
 import base64
-import urllib.error
-import urllib.request
 from datetime import datetime
 
 procurement_bp = Blueprint('procurement_api', __name__)
 MAX_PROCUREMENT_IMAGES = 20
 PURCHASE_CHANNEL_VALUES = {'线上', '线下'}
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
 PROCUREMENT_AI_TIMEOUT_SECONDS = int(os.getenv("PROCUREMENT_AI_TIMEOUT_SECONDS", "120"))
 
 
@@ -178,32 +176,12 @@ def _build_procurement_ai_prompt(user_text, image_count):
 
 
 def _call_ollama_generate(prompt, images):
-    settings = load_ai_settings()
-    model = settings.get('procurement_model') or os.getenv("PROCUREMENT_AI_MODEL", "qwen3.5:4b")
-    ollama_base_url = settings.get('ollama_base_url') or OLLAMA_BASE_URL
-    payload = {
-        'model': model,
-        'prompt': prompt,
-        'stream': False,
-        'think': False,
-        'options': {
-            'temperature': 0,
-        },
-    }
-    if images:
-        payload['images'] = images
-    req = urllib.request.Request(
-        f"{ollama_base_url.rstrip('/')}/api/generate",
-        data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
-        headers={'Content-Type': 'application/json'},
-        method='POST',
+    return call_configured_ai(
+        prompt,
+        images,
+        ollama_model_fallback=os.getenv("PROCUREMENT_AI_MODEL", "qwen3.5:4b"),
+        timeout_seconds=PROCUREMENT_AI_TIMEOUT_SECONDS,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=PROCUREMENT_AI_TIMEOUT_SECONDS) as resp:
-            body = resp.read().decode('utf-8')
-            return json.loads(body)
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"Ollama 连接失败: {e}") from e
 
 
 def ensure_procurement_schema():
@@ -359,7 +337,7 @@ def _group_procurements(procurements):
 @procurement_bp.route('/api/procurements/ai-draft', methods=['POST'])
 def create_procurement_ai_draft():
     if not load_ai_settings().get('enabled', True):
-        return jsonify({'error': '本地 AI 功能已停用，请在系统维护页面启用后再使用'}), 503
+        return jsonify({'error': 'AI 功能已停用，请在系统维护页面启用后再使用'}), 503
 
     user_text = ''
     images = []
@@ -400,7 +378,7 @@ def create_procurement_ai_draft():
         draft = _normalize_ai_procurement_payload(parsed)
         return jsonify({
             'draft': draft,
-            'model': load_ai_settings().get('procurement_model'),
+            'model': result.get('model') or get_active_ai_model(),
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 502

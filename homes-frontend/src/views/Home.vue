@@ -20,7 +20,43 @@
         </div>
       </div>
 
+      <div v-if="mobileMode" class="expiring-mobile-list" v-loading="loading.expiring">
+        <div v-if="expiringMobileList.length === 0" class="expiring-mobile-empty">
+          <el-empty description="暂无即将到期的租户" :image-size="42" />
+        </div>
+        <article
+          v-for="item in expiringMobileList"
+          :key="`${item.room_no}-${item.name}-${item.check_out_date}`"
+          class="expiring-mobile-card"
+          :class="{
+            'expiring-mobile-card--urgent': item.days_remaining <= 3,
+            'expiring-mobile-card--expired': item.days_remaining < 0
+          }"
+        >
+          <div class="expiring-mobile-card__top">
+            <div>
+              <div class="expiring-mobile-card__name">{{ item.name || '未登记租户' }}</div>
+              <div class="expiring-mobile-card__meta">
+                <el-tag size="small" effect="plain">{{ item.room_no || '-' }}</el-tag>
+                <span>{{ item.phone || '未登记电话' }}</span>
+              </div>
+            </div>
+            <div class="expiring-mobile-card__status">
+              <el-tag v-if="item.isPreview" size="small" type="info" effect="plain">示例</el-tag>
+              <el-tag :type="getRemainingDaysTagType(item.days_remaining)">
+                {{ getRemainingDaysText(item.days_remaining) }}
+              </el-tag>
+            </div>
+          </div>
+          <div class="expiring-mobile-card__bottom">
+            <span>到期日期：{{ item.check_out_date || '-' }}</span>
+            <el-tag type="success" size="small">在住</el-tag>
+          </div>
+        </article>
+      </div>
+
       <el-table 
+        v-else
         v-loading="loading.expiring" 
         :data="stats.expiring.list" 
         style="width: 100%" 
@@ -49,6 +85,69 @@
         <el-table-column label="状态" min-width="120">
           <template #default>
             <el-tag type="success" size="small">在住</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <div class="alert-panel">
+      <div class="section-header">
+        <div class="header-left">
+          <el-icon class="warning-icon warning-icon--primary"><House /></el-icon>
+          <h3 class="section-title">待确认入住提交</h3>
+          <el-tag type="warning" size="small" v-if="stats.selfCheckin.pendingCount > 0">
+            {{ stats.selfCheckin.pendingCount }} 条待确认
+          </el-tag>
+        </div>
+      </div>
+
+      <div v-if="mobileMode" class="submission-mobile-list" v-loading="loading.selfCheckin">
+        <div v-if="stats.selfCheckin.list.length === 0" class="submission-mobile-empty">
+          <el-empty description="暂无待确认入住提交" :image-size="42" />
+        </div>
+        <article
+          v-for="item in stats.selfCheckin.list"
+          v-else
+          :key="item.id"
+          class="submission-mobile-card"
+        >
+          <div class="submission-mobile-card__top">
+            <div>
+              <div class="submission-mobile-card__name">{{ item.name || '未填写姓名' }}</div>
+              <div class="submission-mobile-card__meta">
+                <el-tag size="small" effect="plain">{{ item.roomNo || '-' }}</el-tag>
+                <span>{{ item.phone || '未登记电话' }}</span>
+              </div>
+            </div>
+            <el-tag type="warning">待确认</el-tag>
+          </div>
+          <div class="submission-mobile-card__bottom">
+            <span>入住：{{ item.checkInDate || '-' }}</span>
+            <span>提交：{{ item.submittedAt || '-' }}</span>
+          </div>
+        </article>
+      </div>
+
+      <el-table
+        v-else
+        v-loading="loading.selfCheckin"
+        :data="stats.selfCheckin.list"
+        style="width: 100%"
+        empty-text="暂无待确认入住提交"
+      >
+        <el-table-column prop="roomNo" label="房间号" width="120">
+          <template #default="scope">
+            <el-tag size="small" effect="plain">{{ scope.row.roomNo || '-' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="name" label="姓名" min-width="120" />
+        <el-table-column prop="phone" label="联系电话" min-width="140" />
+        <el-table-column prop="checkInDate" label="入住日期" width="120" />
+        <el-table-column prop="checkOutDate" label="退房日期" width="120" />
+        <el-table-column prop="submittedAt" label="提交时间" min-width="170" />
+        <el-table-column label="状态" width="100">
+          <template #default>
+            <el-tag type="warning">待确认</el-tag>
           </template>
         </el-table-column>
       </el-table>
@@ -329,10 +428,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed, onBeforeUnmount } from 'vue'
 import { dashboardApi } from '../api'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElNotification } from 'element-plus'
 import { House, User, Tools, InfoFilled, Warning, Coin } from '@element-plus/icons-vue'
+import { DISPLAY_MODE_EVENT, getPreferredDisplayMode } from '../utils/displayMode'
 
 // 加载状态
 const loading = reactive({
@@ -343,14 +443,35 @@ const loading = reactive({
   ocr: true,
   procurements: true,
   utilityBills: true,
-  rentLedger: true
+  rentLedger: true,
+  selfCheckin: true
 })
 
 // 预警天数配置
 const advanceDays = ref(7)
+const mobileMode = ref(false)
+const latestSeenSubmissionId = ref(null)
+let dashboardRefreshTimer = null
 const todayLabel = computed(() => {
   const now = new Date()
   return now.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
+})
+
+const syncDisplayMode = () => {
+  mobileMode.value = getPreferredDisplayMode() === 'mobile'
+}
+
+const expiringMobileList = computed(() => {
+  if (stats.expiring.list.length > 0) return stats.expiring.list
+  if (!mobileMode.value || !import.meta.env.DEV) return []
+  return [{
+    name: '示例租户',
+    room_no: 'A-302',
+    phone: '138****5678',
+    check_out_date: '2026-05-27',
+    days_remaining: 3,
+    isPreview: true,
+  }]
 })
 
 // 统计数据
@@ -381,6 +502,11 @@ const stats = reactive({
     total: 0,
     totalAmount: 0,
     monthly: []
+  },
+  selfCheckin: {
+    pendingCount: 0,
+    latestSubmissionId: null,
+    list: []
   },
   rentLedger: {
     year: new Date().getFullYear(),
@@ -459,15 +585,22 @@ const getRemainingDaysText = (days) => {
   return `剩余 ${days} 天`
 }
 
-const fetchDashboardStats = async () => {
-  loading.rooms = true
-  loading.tenants = true
-  loading.repairs = true
-  loading.expiring = true
-  loading.ocr = true
-  loading.procurements = true
-  loading.rentLedger = true
-  loading.utilityBills = true
+const syncLoadingState = (value) => {
+  loading.rooms = value
+  loading.tenants = value
+  loading.repairs = value
+  loading.expiring = value
+  loading.ocr = value
+  loading.procurements = value
+  loading.rentLedger = value
+  loading.utilityBills = value
+  loading.selfCheckin = value
+}
+
+const fetchDashboardStats = async ({ silent = false } = {}) => {
+  if (!silent) {
+    syncLoadingState(true)
+  }
   try {
     const { data } = await dashboardApi.getStats()
     advanceDays.value = Number(data?.advance_days || 7)
@@ -476,28 +609,57 @@ const fetchDashboardStats = async () => {
     Object.assign(stats.tenants, data?.tenants || {})
     Object.assign(stats.repairs, data?.repairs || {})
     Object.assign(stats.procurements, data?.procurements || {})
+    Object.assign(stats.selfCheckin, data?.selfCheckin || { pendingCount: 0, latestSubmissionId: null, list: [] })
     Object.assign(stats.rentLedger, data?.rentLedger || {})
     Object.assign(stats.utilityBills, data?.utilityBills || {})
     Object.assign(stats.expiring, data?.expiring || { count: 0, list: [] })
     Object.assign(stats.ocr, data?.ocr || {})
+
+    const latestSubmissionId = data?.selfCheckin?.latestSubmissionId ?? null
+    if (latestSeenSubmissionId.value === null) {
+      latestSeenSubmissionId.value = latestSubmissionId
+    } else if (
+      latestSubmissionId &&
+      latestSeenSubmissionId.value &&
+      Number(latestSubmissionId) > Number(latestSeenSubmissionId.value)
+    ) {
+      latestSeenSubmissionId.value = latestSubmissionId
+      ElNotification({
+        title: '有新的待确认入住提交',
+        message: `当前共有 ${Number(data?.selfCheckin?.pendingCount || 0)} 条待确认记录，请及时处理。`,
+        type: 'warning',
+        duration: 4500,
+      })
+    } else if (latestSubmissionId && !latestSeenSubmissionId.value) {
+      latestSeenSubmissionId.value = latestSubmissionId
+    }
   } catch (error) {
     console.error('获取首页统计失败:', error)
-    ElMessage.error('获取首页统计失败')
+    if (!silent) {
+      ElMessage.error('获取首页统计失败')
+    }
   } finally {
-    loading.rooms = false
-    loading.tenants = false
-    loading.repairs = false
-    loading.expiring = false
-    loading.ocr = false
-    loading.procurements = false
-    loading.rentLedger = false
-    loading.utilityBills = false
+    if (!silent) {
+      syncLoadingState(false)
+    }
   }
 }
 
 // 页面加载时获取所有统计数据
 onMounted(() => {
+  syncDisplayMode()
+  window.addEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
   fetchDashboardStats()
+  dashboardRefreshTimer = window.setInterval(() => {
+    fetchDashboardStats({ silent: true })
+  }, 60000)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
+  if (dashboardRefreshTimer) {
+    window.clearInterval(dashboardRefreshTimer)
+  }
 })
 </script>
 
@@ -578,6 +740,124 @@ onMounted(() => {
   z-index: 0;
 }
 
+.expiring-mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.expiring-mobile-empty {
+  padding: 8px 0;
+}
+
+.submission-mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.submission-mobile-empty {
+  padding: 8px 0;
+}
+
+.expiring-mobile-card {
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.expiring-mobile-card--urgent {
+  border-color: rgba(230, 162, 60, 0.45);
+}
+
+.expiring-mobile-card--expired {
+  border-color: rgba(245, 108, 108, 0.45);
+}
+
+.expiring-mobile-card__top,
+.expiring-mobile-card__bottom {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.expiring-mobile-card__status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.expiring-mobile-card__bottom {
+  margin-top: 10px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.expiring-mobile-card__name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.expiring-mobile-card__meta {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.submission-mobile-card {
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(230, 162, 60, 0.38);
+  background: linear-gradient(180deg, var(--card-bg) 0%, rgba(230, 162, 60, 0.06) 100%);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.submission-mobile-card__top,
+.submission-mobile-card__bottom {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.submission-mobile-card__bottom {
+  margin-top: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.submission-mobile-card__actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.submission-mobile-card__name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.submission-mobile-card__meta {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 html.dark .overview-card,
 html.dark .alert-panel {
   border-color: var(--surface-border);
@@ -607,6 +887,16 @@ html.dark .alert-panel {
 
   .overview-card {
     padding: 18px;
+  }
+
+  .section-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .header-left {
+    flex-wrap: wrap;
   }
 }
 
@@ -806,6 +1096,11 @@ html.dark .alert-panel {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.warning-icon--primary {
+  color: var(--el-color-primary);
+  background: rgba(37, 99, 235, 0.12);
 }
 
 .section-title {

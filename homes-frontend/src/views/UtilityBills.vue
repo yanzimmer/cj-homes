@@ -1,6 +1,19 @@
 <template>
-  <div class="utility-bills-container page-container">
+  <div class="utility-bills-container page-container" :class="{ 'utility-bills-container--mobile': mobileMode }">
     <div class="page-header">
+      <div class="page-header__title">
+        <h2>水电费</h2>
+        <div v-if="mobileMode" class="utility-mobile-stats">
+          <div class="utility-mobile-stat">
+            <strong>{{ selectedYear }}</strong>
+            <span>统计年份</span>
+          </div>
+          <div class="utility-mobile-stat">
+            <strong>¥{{ formatAmount(totalAnnualAmount) }}</strong>
+            <span>年度总额</span>
+          </div>
+        </div>
+      </div>
       <div class="header-operations">
         <el-input-number
           v-model="selectedYear"
@@ -10,7 +23,7 @@
           class="year-input"
           @change="handleYearChange"
         />
-        <el-button type="success" plain :loading="exporting" @click="handleExportExcel">导出 Excel</el-button>
+        <el-button v-if="!mobileMode" type="success" plain :loading="exporting" @click="handleExportExcel">导出 Excel</el-button>
       </div>
     </div>
 
@@ -29,7 +42,44 @@
         <el-button type="primary" plain @click="openBillDialog(section.type)">新增{{ section.label }}</el-button>
       </div>
 
+      <div v-if="mobileMode" class="utility-mobile-list">
+        <div v-if="section.summary.subjects.length === 0" class="utility-mobile-empty">
+          <el-empty description="暂无账单" :image-size="40" />
+        </div>
+        <article v-for="subject in section.summary.subjects" :key="`${section.type}-${subject.account}`" class="utility-mobile-card">
+          <div class="utility-mobile-card__top">
+            <div>
+              <div class="utility-mobile-card__account">{{ subject.account || '未命名账户' }}</div>
+              <div class="utility-mobile-card__meta">
+                共 {{ subject.recordCount || 0 }} 条 · 年度合计 ¥{{ formatAmount(subject.totalAmount || 0) }}
+              </div>
+            </div>
+          </div>
+
+          <div v-if="getSubjectMonthRecords(subject).length > 0" class="utility-mobile-months">
+            <button
+              v-for="record in getSubjectMonthRecords(subject)"
+              :key="`${subject.account}-${record.month}`"
+              type="button"
+              class="utility-mobile-month"
+              @click="openBillDialog(section.type, subject.account, Number(record.month), record)"
+            >
+              <div class="utility-mobile-month__header">
+                <strong>{{ record.month }}月</strong>
+                <span>¥{{ formatAmount(record.amount) }}</span>
+              </div>
+              <div class="utility-mobile-month__meta">
+                <span>{{ record.payer || '未填写缴费人' }}</span>
+                <span>{{ parseBillImages(record).length }} 张图</span>
+              </div>
+            </button>
+          </div>
+          <div v-else class="utility-mobile-empty-text">该账户本年度暂无账单记录</div>
+        </article>
+      </div>
+
       <el-table
+        v-else
         :key="`${section.type}-${tableRenderKey}`"
         v-loading="loading"
         :data="section.rows"
@@ -93,7 +143,7 @@
       v-model="billDialog.visible"
       :title="billDialog.isEdit ? '编辑账单' : '录入账单'"
       direction="rtl"
-      size="560px"
+      :size="mobileMode ? '100%' : '560px'"
       @closed="resetBillForm"
     >
       <el-form
@@ -103,7 +153,7 @@
         label-width="96px"
       >
         <el-form-item label="费用类型" prop="utility_type">
-          <el-select v-model="billForm.utility_type" style="width: 100%">
+          <el-select v-model="billForm.utility_type" :disabled="Boolean(billDialog.lockedUtilityType)" style="width: 100%">
             <el-option label="电费" value="electricity" />
             <el-option label="水费" value="water" />
           </el-select>
@@ -146,39 +196,42 @@
         <el-form-item label="缴费人">
           <el-input v-model="billForm.payer" placeholder="例如：姑妈交、黎从交" />
         </el-form-item>
-        <el-form-item label="账单图片">
-          <el-upload
-            action=""
-            :auto-upload="false"
-            :show-file-list="false"
-            accept="image/*"
-            multiple
-            :limit="20"
-            :on-change="handleBillImageChange"
-          >
-            <el-button type="primary" plain>选择图片(最多20张)</el-button>
-          </el-upload>
-          <el-button
-            v-if="billForm.bill_images.length > 0"
-            style="margin-left: 8px"
-            type="danger"
-            plain
-            @click="clearAllBillImages"
-          >
-            全部删除图片
-          </el-button>
-          <div class="upload-progress-text" v-if="uploadingImages">上传进度 {{ uploadProgress }}%</div>
-          <div class="upload-progress-text">已选 {{ billForm.bill_images.length }} / 20</div>
-          <div v-if="billForm.bill_images.length > 0" class="bill-image-preview-wrap">
-            <div v-for="(img, index) in billForm.bill_images" :key="`${img}-${index}`" class="bill-image-box">
-              <el-image
-                class="bill-image-thumb"
-                :src="toImageUrl(img)"
-                :preview-src-list="billForm.bill_images.map((v) => toImageUrl(v))"
-                fit="cover"
-                preview-teleported
-              />
-              <el-button size="small" type="danger" plain @click="removeBillImage(index)">删除</el-button>
+        <el-form-item label="账单图片" class="bill-image-field">
+          <div class="bill-image-uploader">
+            <div class="bill-image-actions">
+              <el-upload
+                action=""
+                :auto-upload="false"
+                :show-file-list="false"
+                accept="image/*"
+                multiple
+                :limit="20"
+                :on-change="handleBillImageChange"
+              >
+                <el-button type="primary" plain>选择图片(最多20张)</el-button>
+              </el-upload>
+              <el-button
+                v-if="billForm.bill_images.length > 0"
+                type="danger"
+                plain
+                @click="clearAllBillImages"
+              >
+                全部删除图片
+              </el-button>
+            </div>
+            <div class="upload-progress-text" v-if="uploadingImages">上传进度 {{ uploadProgress }}%</div>
+            <div class="upload-progress-text">已选 {{ billForm.bill_images.length }} / 20</div>
+            <div v-if="billForm.bill_images.length > 0" class="bill-image-preview-wrap">
+              <div v-for="(img, index) in billForm.bill_images" :key="`${img}-${index}`" class="bill-image-box">
+                <el-image
+                  class="bill-image-thumb"
+                  :src="toImageUrl(img)"
+                  :preview-src-list="billForm.bill_images.map((v) => toImageUrl(v))"
+                  fit="cover"
+                  preview-teleported
+                />
+                <el-button size="small" type="danger" plain @click="removeBillImage(index)">删除</el-button>
+              </div>
             </div>
           </div>
         </el-form-item>
@@ -197,14 +250,16 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 import { utilityBillsApi } from '../api'
 import { uploadFileByChunks } from '../utils/chunkUploader'
+import { DISPLAY_MODE_EVENT, getPreferredDisplayMode } from '../utils/displayMode'
 
 const months = Array.from({ length: 12 }, (_, index) => index + 1)
 const currentYear = new Date().getFullYear()
+const mobileMode = ref(false)
 
 const sectionMeta = [
   { type: 'electricity', label: '电费' },
@@ -250,6 +305,7 @@ const MAX_UTILITY_IMAGES = 20
 const billDialog = reactive({
   visible: false,
   isEdit: false,
+  lockedUtilityType: '',
 })
 
 const billForm = reactive({
@@ -301,6 +357,14 @@ const currentAccountOptions = computed(() => {
     .filter((item) => item)
   return [...new Set([...presetOptions, ...existingAccounts])]
 })
+const totalAnnualAmount = computed(() => (
+  Number(summaryPayload.value.summaries?.electricity?.annualTotal || 0)
+  + Number(summaryPayload.value.summaries?.water?.annualTotal || 0)
+))
+
+const syncDisplayMode = () => {
+  mobileMode.value = getPreferredDisplayMode() === 'mobile'
+}
 
 function getUtilityLabel(type) {
   return type === 'water' ? '水费' : '电费'
@@ -387,6 +451,12 @@ function buildDisplayRows(summary) {
     })
   })
   return rows
+}
+
+function getSubjectMonthRecords(subject) {
+  return months
+    .map((month) => subject?.months?.[String(month)] || null)
+    .filter((record) => record && (record.amount !== null && record.amount !== undefined && record.amount !== ''))
 }
 
 function buildSummaryExportRows(summary) {
@@ -581,11 +651,14 @@ function resetBillForm() {
   billForm.payer = ''
   billForm.bill_images = []
   billDialog.isEdit = false
+  billDialog.lockedUtilityType = ''
 }
 
 function openBillDialog(utilityType, account = '', month = 1, record = null) {
   resetBillForm()
-  billForm.utility_type = utilityType || 'electricity'
+  const targetUtilityType = utilityType || 'electricity'
+  billForm.utility_type = targetUtilityType
+  billDialog.lockedUtilityType = targetUtilityType
   billForm.account = account || ''
   billForm.year = selectedYear.value
   billForm.month = month || 1
@@ -593,6 +666,7 @@ function openBillDialog(utilityType, account = '', month = 1, record = null) {
     billDialog.isEdit = true
     billForm.id = record.id
     billForm.utility_type = record.utility_type
+    billDialog.lockedUtilityType = record.utility_type || targetUtilityType
     billForm.account = record.account || record.subject
     billForm.year = record.year
     billForm.month = record.month
@@ -707,7 +781,13 @@ async function handleDeleteBill() {
 }
 
 onMounted(() => {
+  syncDisplayMode()
+  window.addEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
   loadSummary()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
 })
 </script>
 
@@ -723,11 +803,22 @@ onMounted(() => {
   padding: 20px;
 }
 
+.page-header__title {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .page-header {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 16px;
+}
+
+.page-header h2 {
+  margin: 0;
+  color: #409EFF;
 }
 
 .header-operations {
@@ -739,6 +830,33 @@ onMounted(() => {
 
 .year-input {
   width: 150px;
+}
+
+.utility-mobile-stats {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.utility-mobile-stat {
+  min-width: 92px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.utility-mobile-stat strong {
+  font-size: 18px;
+  color: var(--text-main);
+}
+
+.utility-mobile-stat span {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .table-panel {
@@ -771,6 +889,85 @@ onMounted(() => {
   margin: 6px 0 0;
   color: var(--text-secondary);
   font-size: 13px;
+}
+
+.utility-mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.utility-mobile-empty {
+  padding: 10px 0;
+}
+
+.utility-mobile-card {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  box-shadow: 0 14px 26px rgba(15, 23, 42, 0.06);
+}
+
+.utility-mobile-card__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.utility-mobile-card__account {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.utility-mobile-card__meta {
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.utility-mobile-months {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.utility-mobile-month {
+  width: 100%;
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.utility-mobile-month__header,
+.utility-mobile-month__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.utility-mobile-month__header strong {
+  font-size: 14px;
+  color: var(--text-main);
+}
+
+.utility-mobile-month__header span,
+.utility-mobile-month__meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.utility-mobile-empty-text {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 .table-month-header {
@@ -813,6 +1010,18 @@ onMounted(() => {
   margin-top: 8px;
   color: #64748b;
   font-size: 12px;
+}
+
+.bill-image-uploader {
+  width: 100%;
+  min-width: 0;
+}
+
+.bill-image-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .bill-image-preview-wrap {
@@ -899,5 +1108,64 @@ onMounted(() => {
   .year-input {
     width: 100%;
   }
+
+  .bill-image-field :deep(.el-form-item__content) {
+    min-width: 0;
+  }
+
+  .bill-image-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .bill-image-actions :deep(.el-upload),
+  .bill-image-actions :deep(.el-button) {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .bill-image-preview-wrap {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    width: 100%;
+  }
+
+  .bill-image-box {
+    min-width: 0;
+  }
+
+  .bill-image-box :deep(.el-button) {
+    width: 100%;
+  }
+
+  .bill-image-thumb {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    height: auto;
+  }
+}
+
+.utility-bills-container--mobile {
+  padding: 16px;
+  border-radius: 16px;
+}
+
+.utility-bills-container--mobile .header-operations {
+  width: 100%;
+}
+
+.utility-bills-container--mobile .header-operations > * {
+  width: 100%;
+}
+
+.utility-bills-container--mobile .utility-panel {
+  padding: 14px;
+}
+
+.utility-bills-container--mobile .utility-panel__header {
+  gap: 10px;
 }
 </style>

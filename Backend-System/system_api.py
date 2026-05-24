@@ -156,6 +156,201 @@ def _warm_ollama_model(model):
     })
 
 
+def _serialize_ai_settings(settings=None):
+    current = settings or load_ai_settings()
+    return {
+        'enabled': current.get('enabled', True),
+        'provider': current.get('provider', 'ollama'),
+        'procurement_model': current.get('procurement_model'),
+        'ollama_base_url': current.get('ollama_base_url'),
+        'base_url': current.get('base_url', ''),
+        'chat_completions_url': current.get('chat_completions_url', ''),
+        'responses_url': current.get('responses_url', ''),
+        'model': current.get('model', ''),
+        'api_key': current.get('api_key', ''),
+        'available_procurement_models': ALLOWED_PROCUREMENT_MODELS,
+        'updated_at': current.get('updated_at', ''),
+        'switch_status': _get_ai_switch_status(),
+    }
+
+
+def _validate_api_ai_settings(settings):
+    if not str(settings.get('model') or '').strip():
+        return '请填写 API 模型名'
+    if not str(settings.get('api_key') or '').strip():
+        return '请填写 API Key'
+    if not (str(settings.get('chat_completions_url') or '').strip() or str(settings.get('base_url') or '').strip()):
+        return '请填写 API 地址'
+    return ''
+
+
+def _normalize_url_for_test(value, default_scheme):
+    text = str(value or '').strip().rstrip('/')
+    if not text:
+        return ''
+    if text.startswith(('http://', 'https://')):
+        return text
+    return f'{default_scheme}://{text}'
+
+
+def _resolve_ai_test_chat_url(settings):
+    direct = _normalize_url_for_test(settings.get('chat_completions_url'), 'https')
+    if direct:
+        return direct
+    base_url = _normalize_url_for_test(settings.get('base_url'), 'https')
+    if not base_url:
+        return ''
+    return f'{base_url}/chat/completions'
+
+
+def _resolve_ai_models_url(settings):
+    base_url = _normalize_url_for_test(settings.get('base_url'), 'https')
+    if base_url:
+        return f'{base_url}/models'
+
+    direct = _normalize_url_for_test(settings.get('chat_completions_url'), 'https')
+    if direct and '/chat/completions' in direct:
+        return direct.rsplit('/chat/completions', 1)[0] + '/models'
+    return ''
+
+
+def _test_ollama_settings(settings):
+    ollama_base_url = _normalize_url_for_test(settings.get('ollama_base_url'), 'http') or OLLAMA_BASE_URL
+    selected_model = str(settings.get('procurement_model') or '').strip()
+    req = urllib.request.Request(f"{ollama_base_url}/api/tags", method='GET')
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read().decode('utf-8'))
+    models = data.get('models') or []
+    available_models = [str(item.get('name') or item.get('model') or '').strip() for item in models if isinstance(item, dict)]
+    available_models = [name for name in available_models if name]
+    if selected_model and selected_model not in available_models:
+        return {
+            'ok': False,
+            'provider': 'ollama',
+            'model': selected_model,
+            'base_url': ollama_base_url,
+            'message': f'Ollama 服务已连接，但未找到模型 {selected_model}',
+            'available_models': available_models,
+        }
+    return {
+        'ok': True,
+        'provider': 'ollama',
+        'model': selected_model,
+        'base_url': ollama_base_url,
+        'message': f'Ollama 连接正常，已找到模型 {selected_model or "未指定"}',
+        'available_models': available_models,
+    }
+
+
+def _test_api_settings(settings):
+    error_message = _validate_api_ai_settings(settings)
+    if error_message:
+        return {
+            'ok': False,
+            'provider': 'api',
+            'model': str(settings.get('model') or '').strip(),
+            'base_url': _normalize_url_for_test(settings.get('base_url'), 'https'),
+            'message': error_message,
+        }
+
+    url = _resolve_ai_test_chat_url(settings)
+    model = str(settings.get('model') or '').strip()
+    api_key = str(settings.get('api_key') or '').strip()
+    payload = {
+        'model': model,
+        'messages': [{'role': 'user', 'content': 'ping'}],
+        'temperature': 0,
+        'max_tokens': 8,
+    }
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+        headers={
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {api_key}',
+        },
+        method='POST',
+    )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        raw = json.loads(resp.read().decode('utf-8'))
+    choices = raw.get('choices') or []
+    preview_text = ''
+    if isinstance(choices, list) and choices:
+        preview_text = str((choices[0].get('message') or {}).get('content') or '').strip()
+    return {
+        'ok': True,
+        'provider': 'api',
+        'model': model,
+        'base_url': _normalize_url_for_test(settings.get('base_url'), 'https'),
+        'message': f'API 连接正常，模型 {model} 可用',
+        'preview': preview_text[:120],
+    }
+
+
+def _list_api_models(settings):
+    error_message = _validate_api_ai_settings(settings)
+    if error_message and error_message != '请填写 API 模型名':
+        raise RuntimeError(error_message)
+
+    url = _resolve_ai_models_url(settings)
+    api_key = str(settings.get('api_key') or '').strip()
+    if not url:
+        raise RuntimeError('请先填写 API 地址')
+    if not api_key:
+        raise RuntimeError('请先填写 API Key')
+
+    req = urllib.request.Request(
+        url,
+        headers={
+            'Accept': 'application/json',
+            'Authorization': f'Bearer {api_key}',
+        },
+        method='GET',
+    )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        payload = json.loads(resp.read().decode('utf-8'))
+
+    data = payload.get('data') or []
+    models = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        model_id = str(item.get('id') or '').strip()
+        if not model_id:
+            continue
+        models.append({
+            'id': model_id,
+            'owned_by': str(item.get('owned_by') or '').strip(),
+            'object': str(item.get('object') or '').strip(),
+        })
+    return models
+
+
+def _build_ai_test_settings(data):
+    current = load_ai_settings()
+    preview = dict(current)
+    if not isinstance(data, dict):
+        return preview
+    if 'provider' in data:
+        provider_text = str(data.get('provider') or '').strip().lower()
+        preview['provider'] = 'api' if provider_text in {'api', 'openai', 'compatible'} else 'ollama'
+    if 'procurement_model' in data:
+        preview['procurement_model'] = str(data.get('procurement_model') or '').strip()
+    if 'ollama_base_url' in data:
+        preview['ollama_base_url'] = data.get('ollama_base_url')
+    if 'base_url' in data:
+        preview['base_url'] = data.get('base_url')
+    if 'chat_completions_url' in data:
+        preview['chat_completions_url'] = data.get('chat_completions_url')
+    if 'responses_url' in data:
+        preview['responses_url'] = data.get('responses_url')
+    if 'model' in data:
+        preview['model'] = str(data.get('model') or '').strip()
+    if 'api_key' in data:
+        preview['api_key'] = str(data.get('api_key') or '').strip()
+    return preview
+
+
 def _run_ai_model_switch(task_id, old_model, new_model):
     settings = load_ai_settings()
     is_local_ollama = _is_local_ollama_url(settings.get('ollama_base_url'))
@@ -271,7 +466,7 @@ def _run_ai_enable(task_id, current_model):
     )
     try:
         _warm_ollama_model(current_model)
-        saved = save_ai_settings({'enabled': True})
+        saved = save_ai_settings({'enabled': True, 'procurement_model': current_model})
         _set_ai_switch_status(
             status='completed',
             phase='enabled',
@@ -351,33 +546,118 @@ def update_ocr_settings_api(current_user):
 @system_bp.route('/ai-settings', methods=['GET'])
 @token_required
 def get_ai_settings_api(current_user):
-    settings = load_ai_settings()
-    return jsonify({
-        'enabled': settings.get('enabled', True),
-        'procurement_model': settings.get('procurement_model'),
-        'ollama_base_url': settings.get('ollama_base_url'),
-        'available_procurement_models': ALLOWED_PROCUREMENT_MODELS,
-        'updated_at': settings.get('updated_at', ''),
-        'switch_status': _get_ai_switch_status(),
-    })
+    return jsonify(_serialize_ai_settings())
 
 
 @system_bp.route('/ai-settings', methods=['PUT'])
 @token_required
 def update_ai_settings_api(current_user):
     data = request.json or {}
-    action = str(data.get('action') or 'switch_model').strip()
-    model = str(data.get('procurement_model') or '').strip()
+    action = str(data.get('action') or 'save_config').strip()
+    requested_model = str(data.get('procurement_model') or '').strip()
+    provider = str(data.get('provider') or '').strip()
     requested_ollama_base_url = data.get('ollama_base_url')
-    if model not in ALLOWED_PROCUREMENT_MODELS:
-        return jsonify({'error': '不支持的采购 AI 模型'}), 400
+    requested_enabled = data.get('enabled') if 'enabled' in data else None
     current = load_ai_settings()
+    previous_model = str(current.get('procurement_model') or '').strip()
+    update_payload = {}
+    if provider:
+        update_payload['provider'] = provider
+    if requested_model:
+        update_payload['procurement_model'] = requested_model
     if requested_ollama_base_url is not None:
-        current = save_ai_settings({'ollama_base_url': requested_ollama_base_url})
-    old_model = current.get('procurement_model') or ''
+        update_payload['ollama_base_url'] = requested_ollama_base_url
+    if requested_enabled is not None:
+        update_payload['enabled'] = bool(requested_enabled)
+    if 'base_url' in data:
+        update_payload['base_url'] = data.get('base_url')
+    if 'chat_completions_url' in data:
+        update_payload['chat_completions_url'] = data.get('chat_completions_url')
+    if 'responses_url' in data:
+        update_payload['responses_url'] = data.get('responses_url')
+    if 'model' in data:
+        update_payload['model'] = data.get('model')
+    if 'api_key' in data:
+        update_payload['api_key'] = data.get('api_key')
+
     current_status = _get_ai_switch_status()
     if current_status.get('status') == 'running':
         return jsonify({'error': '模型正在切换中，请稍后再试'}), 409
+
+    preview = dict(current)
+    preview.update(update_payload)
+    provider_text = str(preview.get('provider') or 'ollama').strip().lower()
+    current_provider = 'api' if provider_text in {'api', 'openai', 'compatible'} else 'ollama'
+    current_model = str(preview.get('procurement_model') or previous_model).strip()
+
+    if current_provider == 'ollama' and current_model not in ALLOWED_PROCUREMENT_MODELS:
+        return jsonify({'error': '不支持的采购 AI 模型'}), 400
+
+    if action == 'save':
+        action = 'save_config'
+
+    if action == 'save_config':
+        current = save_ai_settings(update_payload) if update_payload else current
+        now_text = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        saved_model = current.get('model') if current_provider == 'api' else current.get('procurement_model')
+        _set_ai_switch_status(
+            id=str(uuid.uuid4()),
+            status='completed',
+            phase='settings_saved',
+            message='AI 配置已保存',
+            from_model='',
+            to_model=str(saved_model or '').strip(),
+            started_at=now_text,
+            finished_at=now_text,
+            error='',
+        )
+        return jsonify(_serialize_ai_settings(current))
+
+    if current_provider == 'api':
+        enabled = current.get('enabled', True)
+        if action == 'disable':
+            enabled = False
+        elif action in {'enable', 'switch_model'}:
+            enabled = True
+        else:
+            return jsonify({'error': '不支持的 AI 操作'}), 400
+
+        preview['enabled'] = enabled
+        if enabled:
+            error_message = _validate_api_ai_settings(preview)
+            if error_message:
+                return jsonify({'error': error_message}), 400
+
+        save_payload = dict(update_payload)
+        save_payload['enabled'] = enabled
+        current = save_ai_settings(save_payload)
+        now_text = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        phase = 'disabled' if not enabled else 'enabled' if action == 'enable' else 'api_saved'
+        message = (
+            'AI 功能已停用'
+            if not enabled
+            else 'AI 功能已启用'
+            if action == 'enable'
+            else 'API 模式配置已保存'
+        )
+        _set_ai_switch_status(
+            id=str(uuid.uuid4()),
+            status='completed',
+            phase=phase,
+            message=message,
+            from_model='',
+            to_model=current.get('model') or '',
+            started_at=now_text,
+            finished_at=now_text,
+            error='',
+        )
+        return jsonify(_serialize_ai_settings(current))
+
+    immediate_payload = dict(update_payload)
+    if action == 'switch_model':
+        immediate_payload.pop('procurement_model', None)
+    if immediate_payload:
+        current = save_ai_settings(immediate_payload)
 
     task_id = str(uuid.uuid4())
     if action == 'disable':
@@ -386,43 +666,30 @@ def update_ai_settings_api(current_user):
             status='running',
             phase='stopping_old',
             message='本地 AI 功能停用任务已开始',
-            from_model=old_model,
+            from_model=previous_model,
             to_model='',
             started_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             finished_at='',
             error='',
         )
-        Thread(target=_run_ai_disable, args=(task_id, old_model), daemon=True).start()
-        return jsonify({
-            'enabled': current.get('enabled', True),
-            'procurement_model': old_model,
-            'ollama_base_url': current.get('ollama_base_url'),
-            'available_procurement_models': ALLOWED_PROCUREMENT_MODELS,
-            'updated_at': current.get('updated_at', ''),
-            'switch_status': _get_ai_switch_status(),
-        })
+        Thread(target=_run_ai_disable, args=(task_id, previous_model), daemon=True).start()
+        return jsonify(_serialize_ai_settings(current))
 
     if action == 'enable':
+        enabled_model = str(current.get('procurement_model') or current_model or previous_model).strip()
         _set_ai_switch_status(
             id=task_id,
             status='running',
             phase='starting_new',
             message='本地 AI 功能启用任务已开始',
-            from_model=old_model,
-            to_model=old_model,
+            from_model=enabled_model,
+            to_model=enabled_model,
             started_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             finished_at='',
             error='',
         )
-        Thread(target=_run_ai_enable, args=(task_id, old_model), daemon=True).start()
-        return jsonify({
-            'enabled': current.get('enabled', True),
-            'procurement_model': old_model,
-            'ollama_base_url': current.get('ollama_base_url'),
-            'available_procurement_models': ALLOWED_PROCUREMENT_MODELS,
-            'updated_at': current.get('updated_at', ''),
-            'switch_status': _get_ai_switch_status(),
-        })
+        Thread(target=_run_ai_enable, args=(task_id, enabled_model), daemon=True).start()
+        return jsonify(_serialize_ai_settings(current))
 
     if action != 'switch_model':
         return jsonify({'error': '不支持的 AI 操作'}), 400
@@ -432,35 +699,95 @@ def update_ai_settings_api(current_user):
         status='running',
         phase='queued',
         message='模型切换任务已开始',
-        from_model=old_model,
-        to_model=model,
+        from_model=previous_model,
+        to_model=current_model,
         started_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         finished_at='',
         error='',
     )
-    Thread(target=_run_ai_model_switch, args=(task_id, old_model, model), daemon=True).start()
-    return jsonify({
-        'enabled': current.get('enabled', True),
-        'procurement_model': old_model,
-        'ollama_base_url': current.get('ollama_base_url'),
-        'available_procurement_models': ALLOWED_PROCUREMENT_MODELS,
-        'updated_at': current.get('updated_at', ''),
-        'switch_status': _get_ai_switch_status(),
-    })
+    Thread(target=_run_ai_model_switch, args=(task_id, previous_model, current_model), daemon=True).start()
+    return jsonify(_serialize_ai_settings(current))
 
 
 @system_bp.route('/ai-settings/switch-status', methods=['GET'])
 @token_required
 def get_ai_switch_status_api(current_user):
-    settings = load_ai_settings()
-    return jsonify({
-        'enabled': settings.get('enabled', True),
-        'procurement_model': settings.get('procurement_model'),
-        'ollama_base_url': settings.get('ollama_base_url'),
-        'available_procurement_models': ALLOWED_PROCUREMENT_MODELS,
-        'updated_at': settings.get('updated_at', ''),
-        'switch_status': _get_ai_switch_status(),
-    })
+    return jsonify(_serialize_ai_settings())
+
+
+@system_bp.route('/ai-settings/test', methods=['POST'])
+@token_required
+def test_ai_settings_api(current_user):
+    preview = _build_ai_test_settings(request.json or {})
+    provider = str(preview.get('provider') or 'ollama').strip().lower()
+    tested_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        if provider == 'api':
+            result = _test_api_settings(preview)
+        else:
+            result = _test_ollama_settings(preview)
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode('utf-8', errors='ignore')
+        result = {
+            'ok': False,
+            'provider': provider,
+            'model': str(preview.get('model') if provider == 'api' else preview.get('procurement_model') or '').strip(),
+            'message': f'连接失败: {detail or e.reason}',
+        }
+    except Exception as e:
+        result = {
+            'ok': False,
+            'provider': provider,
+            'model': str(preview.get('model') if provider == 'api' else preview.get('procurement_model') or '').strip(),
+            'message': str(e) or '连接测试失败',
+        }
+    result['tested_at'] = tested_at
+    return jsonify(result)
+
+
+@system_bp.route('/ai-settings/models', methods=['POST'])
+@token_required
+def list_ai_models_api(current_user):
+    preview = _build_ai_test_settings(request.json or {})
+    provider = str(preview.get('provider') or 'ollama').strip().lower()
+    tested_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        if provider == 'api':
+            models = _list_api_models(preview)
+            return jsonify({
+                'ok': True,
+                'provider': 'api',
+                'models': models,
+                'message': f'已获取 {len(models)} 个 API 模型',
+                'tested_at': tested_at,
+            })
+
+        result = _test_ollama_settings(preview)
+        models = [{'id': item, 'owned_by': 'ollama', 'object': 'model'} for item in result.get('available_models') or []]
+        return jsonify({
+            'ok': True,
+            'provider': 'ollama',
+            'models': models,
+            'message': f'已获取 {len(models)} 个本地模型',
+            'tested_at': tested_at,
+        })
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode('utf-8', errors='ignore')
+        return jsonify({
+            'ok': False,
+            'provider': provider,
+            'models': [],
+            'message': f'获取模型列表失败: {detail or e.reason}',
+            'tested_at': tested_at,
+        }), 400
+    except Exception as e:
+        return jsonify({
+            'ok': False,
+            'provider': provider,
+            'models': [],
+            'message': str(e) or '获取模型列表失败',
+            'tested_at': tested_at,
+        }), 400
 
 
 def _resolve_upload_url_to_path(file_url):

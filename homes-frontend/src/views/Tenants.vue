@@ -1,8 +1,24 @@
 <template>
   <div>
-  <div class="tenants-container">
+  <div class="tenants-container" :class="{ 'tenants-container--mobile': mobileMode }">
     <div class="page-header">
-      <h2>租户详情</h2>
+      <div class="page-header__title">
+        <h2>租户详情</h2>
+        <div v-if="mobileMode" class="tenant-mobile-stats">
+          <div class="tenant-mobile-stat">
+            <strong>{{ tenants.length }}</strong>
+            <span>总租户</span>
+          </div>
+          <div class="tenant-mobile-stat">
+            <strong>{{ activeTenantCount }}</strong>
+            <span>在住</span>
+          </div>
+          <div class="tenant-mobile-stat">
+            <strong>{{ inactiveTenantCount }}</strong>
+            <span>已退租</span>
+          </div>
+        </div>
+      </div>
       <div class="header-operations">
         <el-input
           v-model="searchQuery"
@@ -17,8 +33,8 @@
         </el-input>
 
         <!-- 视图切换按钮 -->
-        <el-radio-group v-model="currentView" size="default" style="margin-right: 15px;">
-          <el-radio-button label="table">
+        <el-radio-group v-if="!mobileMode" v-model="currentView" size="default" class="view-switch-group">
+          <el-radio-button v-if="!mobileMode" label="table">
             <el-icon><List /></el-icon> 列表
           </el-radio-button>
           <el-radio-button label="card">
@@ -32,6 +48,21 @@
         <el-button class="toolbar-btn" type="primary" @click="openAddDialog">新增</el-button>
         <el-button class="toolbar-btn" type="primary" plain @click="openAiDialog">AI 输入</el-button>
         <el-button
+          v-if="mobileMode"
+          class="toolbar-btn"
+          :type="currentView === 'card' ? 'primary' : 'default'"
+          :plain="currentView !== 'card'"
+          @click="currentView = 'card'"
+        >卡片</el-button>
+        <el-button
+          v-if="mobileMode"
+          class="toolbar-btn"
+          :type="currentView === 'group' ? 'primary' : 'default'"
+          :plain="currentView !== 'group'"
+          @click="currentView = 'group'"
+        >分组</el-button>
+        <el-button
+          v-if="!mobileMode"
           class="toolbar-btn"
           type="warning"
           :disabled="selectedTenants.length === 0"
@@ -39,13 +70,14 @@
           @click="handleBatchCheckout"
         >退租</el-button>
         <el-button
+          v-if="!mobileMode"
           class="toolbar-btn"
           type="danger"
           :disabled="selectedTenants.length === 0"
           :loading="batchDeleting"
           @click="handleBatchDelete"
         >删除</el-button>
-        <el-dropdown trigger="click" @command="handleExportCommand">
+        <el-dropdown v-if="!mobileMode" trigger="click" @command="handleExportCommand">
           <el-button class="toolbar-btn" type="success">
             导出 <el-icon style="margin-left:4px"><Filter /></el-icon>
           </el-button>
@@ -57,6 +89,14 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+      </div>
+
+      <div v-if="mobileMode" class="mobile-secondary-controls">
+        <el-select v-model="statusFilter" class="mobile-filter-select" placeholder="状态">
+          <el-option label="全部状态" value="all" />
+          <el-option label="在住" value="在住" />
+          <el-option label="已退租" value="已退租" />
+        </el-select>
       </div>
     </div>
 
@@ -152,12 +192,13 @@
     </div>
     
     <!-- 分页控件 -->
-    <div v-if="currentView === 'table' || currentView === 'card'" class="pagination-container">
+    <div v-if="currentView === 'table' || currentView === 'card'" class="pagination-container" :class="{ 'pagination-container--mobile': mobileMode }">
       <el-pagination
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
         :page-sizes="[10, 20, 50, 100]"
-        layout="total, sizes, prev, pager, next, jumper"
+        :layout="paginationLayout"
+        :small="mobileMode"
         :total="filteredTenants.length"
         @size-change="handleSizeChange"
         @current-change="handleCurrentChange"
@@ -242,7 +283,7 @@
     </div>
 
     <!-- 租户详情对话框 -->
-    <el-dialog title="租户详情" v-model="detailsDialogVisible" width="800px" custom-class="tenant-details-dialog">
+    <el-dialog title="租户详情" v-model="detailsDialogVisible" :width="mobileMode ? '96%' : '800px'" custom-class="tenant-details-dialog">
       <div v-if="currentTenant.id" class="tenant-details-container">
         <!-- 头部信息 -->
         <div class="details-header">
@@ -264,7 +305,49 @@
           </div>
         </div>
 
-        <el-tabs v-model="activeDetailTab" class="details-tabs">
+        <div v-if="mobileMode" class="tenant-mobile-details">
+          <section class="tenant-mobile-section">
+            <h4>基本信息</h4>
+            <div class="tenant-mobile-grid">
+              <div class="tenant-mobile-item"><span>姓名</span><strong>{{ currentTenant.name || '-' }}</strong></div>
+              <div class="tenant-mobile-item"><span>性别</span><strong>{{ currentTenant.gender || '-' }}</strong></div>
+              <div class="tenant-mobile-item"><span>民族</span><strong>{{ currentTenant.nation || '-' }}</strong></div>
+              <div class="tenant-mobile-item"><span>出生日期</span><strong>{{ currentTenant.birth_date || '-' }}</strong></div>
+              <div class="tenant-mobile-item"><span>联系电话</span><strong>{{ currentTenant.phone || '-' }}</strong></div>
+              <div class="tenant-mobile-item"><span>身份证号</span><strong>{{ currentTenant.id_card || '-' }}</strong></div>
+              <div class="tenant-mobile-item tenant-mobile-item--full"><span>户籍地址</span><strong>{{ currentTenant.address || '-' }}</strong></div>
+            </div>
+          </section>
+
+          <section class="tenant-mobile-section">
+            <h4>租赁信息</h4>
+            <div class="tenant-mobile-grid">
+              <div class="tenant-mobile-item"><span>楼栋</span><strong>{{ currentTenant.building || '-' }}</strong></div>
+              <div class="tenant-mobile-item"><span>房间号</span><strong>{{ currentTenant.room_no || '-' }}</strong></div>
+              <div class="tenant-mobile-item"><span>入住日期</span><strong>{{ currentTenant.check_in_date || '-' }}</strong></div>
+              <div class="tenant-mobile-item"><span>退房日期</span><strong>{{ currentTenant.check_out_date || '未定' }}</strong></div>
+              <div class="tenant-mobile-item"><span>紧急联系人</span><strong>{{ currentTenant.emergency_contact_name || currentTenant.emergency_contact || '-' }}</strong></div>
+              <div class="tenant-mobile-item"><span>紧急电话</span><strong>{{ currentTenant.emergency_contact_phone || currentTenant.emergency_phone || '-' }}</strong></div>
+              <div class="tenant-mobile-item tenant-mobile-item--full"><span>备注</span><strong>{{ currentTenant.remarks || currentTenant.notes || '无' }}</strong></div>
+            </div>
+          </section>
+
+          <section v-if="currentTenant.room_no" class="tenant-mobile-section">
+            <h4>关联维修</h4>
+            <div v-loading="repairsLoading" class="tenant-mobile-repairs">
+              <div v-if="tenantRepairs.length === 0" class="tenant-mobile-empty">该房间暂无维修记录</div>
+              <article v-for="repair in tenantRepairs" :key="`${repair.create_time}-${repair.description}`" class="tenant-mobile-repair-card">
+                <div class="tenant-mobile-repair-card__top">
+                  <strong>{{ repair.create_time || '-' }}</strong>
+                  <el-tag size="small" :type="getRepairStatusType(repair.status)">{{ repair.status }}</el-tag>
+                </div>
+                <p>{{ repair.description || '暂无问题描述' }}</p>
+              </article>
+            </div>
+          </section>
+        </div>
+
+        <el-tabs v-else v-model="activeDetailTab" class="details-tabs">
           <el-tab-pane label="基本信息" name="basic">
             <el-descriptions :column="2" border>
               <el-descriptions-item label="姓名">{{ currentTenant.name }}</el-descriptions-item>
@@ -322,7 +405,7 @@
       :title="dialogTitle"
       v-model="dialogVisible"
       direction="rtl"
-      size="700px"
+      :size="mobileMode ? '100%' : '700px'"
     >
       <div class="narrow-fields">
         <el-form :model="tenantForm" :rules="rules" ref="tenantFormRef" label-width="120px">
@@ -459,7 +542,9 @@
     <el-dialog
       title="AI 输入租户"
       v-model="aiDialog.visible"
-      width="620px"
+      :width="mobileMode ? '96%' : '620px'"
+      class="tenant-ai-dialog app-ai-dialog"
+      modal-class="app-ai-dialog-overlay"
       @close="resetAiDialog"
     >
       <el-form label-width="92px">
@@ -516,7 +601,12 @@
     </el-dialog>
 
     <!-- 退租确认对话框 -->
-    <el-dialog title="确认退租" v-model="checkoutDialogVisible" width="400px">
+    <el-dialog
+      title="确认退租"
+      v-model="checkoutDialogVisible"
+      :width="mobileMode ? '92%' : '400px'"
+      custom-class="tenant-checkout-dialog"
+    >
       <div class="checkout-confirm">
         <p>确定要将租户 <strong>{{ checkoutTenant.name }}</strong> 办理退租吗？</p>
         <p>公民身份证号: {{ checkoutTenant.id_card || '未填写' }}</p>
@@ -576,10 +666,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed, nextTick, watch } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, computed, nextTick, watch } from 'vue'
 import { tenantsApi, roomsApi, repairRecordsApi, systemApi } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Filter, UserFilled, List, Grid, Operation, Iphone, Timer, MoreFilled } from '@element-plus/icons-vue'
+import { DISPLAY_MODE_EVENT, getPreferredDisplayMode } from '../utils/displayMode'
 import * as XLSX from 'xlsx'
 import { jsPDF } from 'jspdf'
 import { Document, Packer, Paragraph, Table as DocxTable, TableRow, TableCell, TextRun } from 'docx'
@@ -588,6 +679,7 @@ import html2canvas from 'html2canvas'
 
 // 视图切换
 const currentView = ref('table') // 'table', 'card', 'group'
+const mobileMode = ref(false)
 
 // 数据
 const tenants = ref([])
@@ -627,6 +719,19 @@ const pageSize = ref(20)
 const showPrintArea = ref(false)
 const printAreaRef = ref(null)
 const tenantRowStart = computed(() => (currentPage.value - 1) * pageSize.value)
+const activeTenantCount = computed(() => tenants.value.filter((tenant) => tenant.status === '在住').length)
+const inactiveTenantCount = computed(() => tenants.value.filter((tenant) => tenant.status === '已退租').length)
+const paginationLayout = computed(() => (
+  mobileMode.value ? 'prev, pager, next' : 'total, sizes, prev, pager, next, jumper'
+))
+
+const syncDisplayMode = () => {
+  const isMobile = getPreferredDisplayMode() === 'mobile'
+  mobileMode.value = isMobile
+  if (isMobile && currentView.value === 'table') {
+    currentView.value = 'card'
+  }
+}
 
 // 当前页数据（基于 filteredTenants 的稳定切片）
 const paginatedTenants = computed(() => {
@@ -1005,8 +1110,14 @@ const applyLeasePreset = (months) => {
 
 // 生命周期
 onMounted(async () => {
+  syncDisplayMode()
+  window.addEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
   fetchTenants()
   await fetchAvailableRooms()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
 })
 
 // 方法
@@ -1527,6 +1638,91 @@ const exportToPDF = async () => {
 }
 </script>
 
+<style>
+.tenant-details-dialog,
+.tenant-ai-dialog,
+.tenant-checkout-dialog {
+  border-radius: 18px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+}
+
+.tenant-details-dialog .el-dialog__header,
+.tenant-ai-dialog .el-dialog__header,
+.tenant-checkout-dialog .el-dialog__header {
+  margin-right: 0;
+  padding: 16px 18px 14px;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.tenant-details-dialog .el-dialog__title,
+.tenant-ai-dialog .el-dialog__title,
+.tenant-checkout-dialog .el-dialog__title {
+  color: var(--text-main);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.tenant-details-dialog .el-dialog__headerbtn,
+.tenant-ai-dialog .el-dialog__headerbtn,
+.tenant-checkout-dialog .el-dialog__headerbtn {
+  top: 14px;
+  right: 16px;
+}
+
+.tenant-details-dialog .el-dialog__close,
+.tenant-ai-dialog .el-dialog__close,
+.tenant-checkout-dialog .el-dialog__close {
+  color: var(--text-secondary);
+}
+
+.tenant-details-dialog .el-dialog__body,
+.tenant-ai-dialog .el-dialog__body,
+.tenant-checkout-dialog .el-dialog__body {
+  padding: 16px 18px 18px;
+  background: var(--card-bg);
+}
+
+.tenant-details-dialog .el-dialog__footer,
+.tenant-ai-dialog .el-dialog__footer,
+.tenant-checkout-dialog .el-dialog__footer {
+  padding: 0 18px 18px;
+  background: var(--card-bg);
+}
+
+html.mobile-mode .tenant-details-dialog,
+html.mobile-mode .tenant-ai-dialog,
+html.mobile-mode .tenant-checkout-dialog {
+  border-radius: 18px;
+}
+
+html.mobile-mode .tenant-details-dialog .el-dialog__header,
+html.mobile-mode .tenant-ai-dialog .el-dialog__header,
+html.mobile-mode .tenant-checkout-dialog .el-dialog__header {
+  padding: 14px 16px 12px;
+}
+
+html.mobile-mode .tenant-details-dialog .el-dialog__title,
+html.mobile-mode .tenant-ai-dialog .el-dialog__title,
+html.mobile-mode .tenant-checkout-dialog .el-dialog__title {
+  font-size: 18px;
+}
+
+html.mobile-mode .tenant-details-dialog .el-dialog__body,
+html.mobile-mode .tenant-ai-dialog .el-dialog__body,
+html.mobile-mode .tenant-checkout-dialog .el-dialog__body {
+  padding: 14px 16px 16px;
+}
+
+html.mobile-mode .tenant-details-dialog .el-dialog__footer,
+html.mobile-mode .tenant-ai-dialog .el-dialog__footer,
+html.mobile-mode .tenant-checkout-dialog .el-dialog__footer {
+  padding: 0 16px 16px;
+}
+</style>
 <style scoped>
 /* 统一收窄添加/编辑租户表单中的控件宽度 */
 .narrow-fields {
@@ -1570,6 +1766,12 @@ const exportToPDF = async () => {
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
 }
 
+.page-header__title {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .page-header {
   display: flex;
   justify-content: space-between;
@@ -1582,7 +1784,18 @@ const exportToPDF = async () => {
   color: #409EFF;
 }
 
+.view-switch-group {
+  margin-right: 15px;
+}
+
 .header-operations {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mobile-secondary-controls {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1595,6 +1808,37 @@ const exportToPDF = async () => {
 
 .toolbar-btn {
   margin-left: 0 !important;
+}
+
+.mobile-filter-select {
+  width: 120px;
+}
+
+.tenant-mobile-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tenant-mobile-stat {
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tenant-mobile-stat strong {
+  font-size: 18px;
+  color: var(--text-main);
+}
+
+.tenant-mobile-stat span {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .table-panel {
@@ -1649,6 +1893,60 @@ const exportToPDF = async () => {
   gap: 10px;
 }
 
+:deep(.tenant-details-dialog),
+:deep(.tenant-ai-dialog),
+:deep(.tenant-checkout-dialog) {
+  border-radius: 18px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+}
+
+:deep(.tenant-details-dialog .el-dialog__header),
+:deep(.tenant-ai-dialog .el-dialog__header),
+:deep(.tenant-checkout-dialog .el-dialog__header) {
+  margin-right: 0;
+  padding: 16px 18px 14px;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--surface-border);
+}
+
+:deep(.tenant-details-dialog .el-dialog__title),
+:deep(.tenant-ai-dialog .el-dialog__title),
+:deep(.tenant-checkout-dialog .el-dialog__title) {
+  color: var(--text-main);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+:deep(.tenant-details-dialog .el-dialog__headerbtn),
+:deep(.tenant-ai-dialog .el-dialog__headerbtn),
+:deep(.tenant-checkout-dialog .el-dialog__headerbtn) {
+  top: 14px;
+  right: 16px;
+}
+
+:deep(.tenant-details-dialog .el-dialog__close),
+:deep(.tenant-ai-dialog .el-dialog__close),
+:deep(.tenant-checkout-dialog .el-dialog__close) {
+  color: var(--text-secondary);
+}
+
+:deep(.tenant-details-dialog .el-dialog__body),
+:deep(.tenant-ai-dialog .el-dialog__body),
+:deep(.tenant-checkout-dialog .el-dialog__body) {
+  padding: 16px 18px 18px;
+  background: var(--card-bg);
+}
+
+:deep(.tenant-details-dialog .el-dialog__footer),
+:deep(.tenant-ai-dialog .el-dialog__footer),
+:deep(.tenant-checkout-dialog .el-dialog__footer) {
+  padding: 0 18px 18px;
+  background: var(--card-bg);
+}
+
 /* 隐藏打印区域样式，宽度较大以保证截图清晰 */
 .print-area {
   position: fixed;
@@ -1678,6 +1976,92 @@ const exportToPDF = async () => {
 /* 租户详情样式 */
 .tenant-details-container {
   padding: 0 10px;
+}
+
+.tenant-mobile-details {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tenant-mobile-section {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.tenant-mobile-section h4 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  color: var(--text-main);
+}
+
+.tenant-mobile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tenant-mobile-item {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tenant-mobile-item span {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.tenant-mobile-item strong {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-main);
+  word-break: break-all;
+}
+
+.tenant-mobile-item--full {
+  grid-column: 1 / -1;
+}
+
+.tenant-mobile-repairs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tenant-mobile-empty {
+  padding: 18px 0;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.tenant-mobile-repair-card {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+}
+
+.tenant-mobile-repair-card__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.tenant-mobile-repair-card p {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--text-regular);
+  line-height: 1.6;
 }
 .details-header {
   display: flex;
@@ -1847,6 +2231,159 @@ const exportToPDF = async () => {
   display: flex;
   justify-content: flex-end;
   gap: 4px;
+}
+
+.tenants-container--mobile {
+  padding: 16px;
+  border-radius: 16px;
+}
+
+.tenants-container--mobile .page-header {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+
+.tenants-container--mobile .header-operations {
+  gap: 10px;
+}
+
+.tenants-container--mobile .header-operations :deep(.el-input),
+.tenants-container--mobile .header-operations :deep(.el-button) {
+  flex: 1 1 calc(50% - 5px);
+}
+
+.tenants-container--mobile .search-input {
+  width: 100%;
+}
+
+.tenants-container--mobile .view-switch-group {
+  margin-right: 0;
+}
+
+.tenants-container--mobile :deep(.view-switch-group .el-radio-button__inner) {
+  width: 100%;
+}
+
+.tenants-container--mobile .mobile-secondary-controls {
+  gap: 10px;
+}
+
+.tenants-container--mobile .mobile-filter-select {
+  width: 100%;
+}
+
+.tenants-container--mobile .tenant-mobile-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tenants-container--mobile .tenant-mobile-stat {
+  padding: 10px;
+}
+
+.tenants-container--mobile .tenant-cards-grid {
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.tenants-container--mobile .card-content {
+  padding: 14px;
+}
+
+.tenants-container--mobile .card-actions {
+  justify-content: space-between;
+}
+
+.tenants-container--mobile .building-group-card {
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--card-bg);
+}
+
+.tenants-container--mobile .floor-row {
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tenants-container--mobile .floor-label {
+  width: auto;
+  padding-top: 0;
+}
+
+.tenants-container--mobile .details-header {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+:deep(.tenant-details-dialog),
+:deep(.tenant-ai-dialog),
+:deep(.tenant-checkout-dialog) {
+  border-radius: 18px;
+}
+
+.tenants-container--mobile :deep(.tenant-details-dialog .el-dialog__header),
+.tenants-container--mobile :deep(.tenant-ai-dialog .el-dialog__header),
+.tenants-container--mobile :deep(.tenant-checkout-dialog .el-dialog__header) {
+  padding: 14px 16px 12px;
+}
+
+.tenants-container--mobile :deep(.tenant-details-dialog .el-dialog__title),
+.tenants-container--mobile :deep(.tenant-ai-dialog .el-dialog__title),
+.tenants-container--mobile :deep(.tenant-checkout-dialog .el-dialog__title) {
+  font-size: 18px;
+}
+
+.tenants-container--mobile :deep(.tenant-details-dialog .el-dialog__body),
+.tenants-container--mobile :deep(.tenant-ai-dialog .el-dialog__body),
+.tenants-container--mobile :deep(.tenant-checkout-dialog .el-dialog__body) {
+  padding: 14px 16px 16px;
+}
+
+.tenants-container--mobile :deep(.tenant-details-dialog .el-dialog__footer),
+.tenants-container--mobile :deep(.tenant-ai-dialog .el-dialog__footer),
+.tenants-container--mobile :deep(.tenant-checkout-dialog .el-dialog__footer) {
+  padding: 0 16px 16px;
+}
+
+.tenants-container--mobile .avatar-section {
+  width: 100%;
+}
+
+.tenants-container--mobile .basic-identity .tenant-name {
+  font-size: 18px;
+  flex-wrap: wrap;
+}
+
+.tenants-container--mobile .room-badge {
+  width: 100%;
+  text-align: left;
+}
+
+.tenants-container--mobile .narrow-fields {
+  max-width: none;
+}
+
+.tenants-container--mobile .narrow-fields :deep(.el-input),
+.tenants-container--mobile .narrow-fields :deep(.el-select),
+.tenants-container--mobile .narrow-fields :deep(.el-date-editor),
+.tenants-container--mobile .narrow-fields :deep(.el-input-number),
+.tenants-container--mobile .narrow-fields :deep(.el-radio-group),
+.tenants-container--mobile .narrow-fields :deep(.el-textarea),
+.tenants-container--mobile .lease-preset-row {
+  width: 100% !important;
+}
+
+.pagination-container--mobile {
+  margin-top: 14px;
+  padding-top: 0;
+  border-top: none;
+}
+
+@media (max-width: 640px) {
+  .tenant-mobile-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* 分组视图样式 */

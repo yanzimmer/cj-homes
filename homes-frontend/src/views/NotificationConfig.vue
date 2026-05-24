@@ -1,8 +1,8 @@
 <template>
-  <div class="notification-config">
+  <div class="notification-config" :class="{ 'notification-config--mobile': mobileMode }">
     <div class="page-header">
       <div class="header-operations">
-        <div v-if="config.last_updated" class="last-updated">
+        <div v-if="config.last_updated && !mobileMode" class="last-updated">
           <el-icon><Timer /></el-icon>
           <span>最后更新: {{ config.last_updated }}</span>
         </div>
@@ -34,7 +34,20 @@
       :rules="rules"
       class="config-form"
     >
-      <el-tabs v-model="activeTab" tab-position="left" class="config-tabs">
+      <div v-if="mobileMode" class="mobile-tab-strip">
+        <button
+          v-for="item in mobileTabs"
+          :key="item.name"
+          type="button"
+          class="mobile-tab-chip"
+          :class="{ 'mobile-tab-chip--active': activeTab === item.name }"
+          @click="activeTab = item.name"
+        >
+          {{ item.label }}
+        </button>
+      </div>
+
+      <el-tabs v-model="activeTab" :tab-position="tabPosition" class="config-tabs">
         
         <!-- Tab 1: 基础设置 -->
         <el-tab-pane name="basic" label="基础设置">
@@ -406,7 +419,16 @@
             
             <el-alert title="列表中的第一个房东将作为合同模板中的默认甲方信息" type="info" show-icon class="mb-3" :closable="false" />
             
-            <el-table :data="config.landlords" border style="width: 100%">
+            <div v-if="mobileMode" class="landlord-mobile-list">
+              <article v-for="(landlord, index) in landlordList" :key="`landlord-${index}`" class="landlord-mobile-card">
+                <el-input v-model="landlord.name" placeholder="姓名" />
+                <el-input v-model="landlord.phone" placeholder="电话" />
+                <el-input v-model="landlord.email" placeholder="邮箱" />
+                <el-button type="danger" plain @click="removeLandlord(index)">删除</el-button>
+              </article>
+            </div>
+
+            <el-table v-else :data="config.landlords" border style="width: 100%">
               <el-table-column prop="name" label="姓名" width="180">
                 <template #default="scope">
                   <el-input v-model="scope.row.name" placeholder="姓名" />
@@ -439,9 +461,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { notifyApi } from '../api/index.js'
+import { DISPLAY_MODE_EVENT, getPreferredDisplayMode } from '../utils/displayMode'
 import { 
   Refresh, 
   Message, 
@@ -460,6 +483,7 @@ import {
 
 const activeTab = ref('basic')
 const configForm = ref(null)
+const mobileMode = ref(false)
 const loading = ref(true)
 const saving = ref(false)
 const testingEmail = ref(false)
@@ -470,6 +494,20 @@ const testingTenantEmail = ref(false)
 const tenantSmsTextareaRef = ref(null)
 const landlordSmsTextareaRef = ref(null)
 const error = ref('')
+const tabPosition = computed(() => (mobileMode.value ? 'top' : 'left'))
+const landlordList = computed(() => (Array.isArray(config.landlords) ? config.landlords : []))
+const mobileTabs = [
+  { name: 'basic', label: '基础设置' },
+  { name: 'email_service', label: '邮件服务' },
+  { name: 'sms_service', label: '短信服务' },
+  { name: 'tenant_notify', label: '租户通知' },
+  { name: 'landlord_notify', label: '房东通知' },
+  { name: 'landlord_list', label: '房东列表' }
+]
+
+const syncDisplayMode = () => {
+  mobileMode.value = getPreferredDisplayMode() === 'mobile'
+}
 
 // 变量定义，方便模板使用
 const tenantVars = [
@@ -855,7 +893,13 @@ const testLandlordSmsSending = async () => {
 }
 
 onMounted(() => {
+  syncDisplayMode()
+  window.addEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
   fetchConfig()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
 })
 </script>
 
@@ -869,6 +913,12 @@ onMounted(() => {
   border: 1px solid var(--surface-border);
   border-radius: 18px;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+.notification-config--mobile {
+  padding: 16px;
+  height: auto;
+  min-height: calc(100vh - 100px);
 }
 
 .page-header {
@@ -888,6 +938,22 @@ onMounted(() => {
   gap: 10px;
 }
 
+.landlord-mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.landlord-mobile-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+}
+
 .header-action-btn {
   margin-left: 0 !important;
 }
@@ -905,6 +971,40 @@ onMounted(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.mobile-tab-strip {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 0 2px 12px;
+  margin-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.mobile-tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-tab-chip {
+  flex: 0 0 auto;
+  min-width: max-content;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+  color: var(--text-regular);
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  transition: all 0.2s ease;
+}
+
+.mobile-tab-chip--active {
+  background: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+  color: #fff;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.2);
 }
 
 .config-tabs {
@@ -1071,5 +1171,48 @@ onMounted(() => {
 .empty-tip {
   padding: 40px;
   text-align: center;
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    align-items: stretch;
+  }
+
+  .header-operations {
+    width: 100%;
+  }
+
+  .header-operations :deep(.el-button) {
+    flex: 1 1 calc(50% - 5px);
+  }
+
+  :deep(.el-tabs__header) {
+    display: none;
+  }
+
+  :deep(.el-tabs__nav-wrap) {
+    padding: 0 10px;
+  }
+
+  :deep(.el-tabs__item) {
+    border-left: none;
+    border-bottom: 3px solid transparent;
+    justify-content: center;
+    min-width: 112px;
+  }
+
+  :deep(.el-tabs__item.is-active) {
+    border-bottom-color: var(--el-color-primary);
+  }
+
+  :deep(.el-tabs__content) {
+    padding: 16px;
+  }
+
+  .card-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
 }
 </style>

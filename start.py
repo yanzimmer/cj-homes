@@ -17,6 +17,17 @@ def pick_backend_port(start_port=5000, max_port=5010):
     raise RuntimeError(f"未找到可用端口（尝试范围: {start_port}-{max_port}）")
 
 
+def pick_frontend_port(start_port=5173, max_port=5183):
+    for port in range(start_port, max_port + 1):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind(("0.0.0.0", port))
+                return port
+            except OSError:
+                continue
+    raise RuntimeError(f"未找到可用前端端口（尝试范围: {start_port}-{max_port}）")
+
+
 def get_lan_ip():
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -52,6 +63,10 @@ def main():
     if backend_port != 5000:
         print(f"Warning: 端口 5000 已被占用，后端将改用端口 {backend_port}")
 
+    frontend_port = pick_frontend_port()
+    if frontend_port != 5173:
+        print(f"Warning: 端口 5173 已被占用，前端将改用端口 {frontend_port}")
+
     backend_env = os.environ.copy()
     backend_env["PORT"] = str(backend_port)
     backend_env["HOST"] = "127.0.0.1"
@@ -60,7 +75,7 @@ def main():
     frontend_env["VITE_API_BASE_URL"] = "/api"
     frontend_env["VITE_API_PROXY_TARGET"] = f"http://127.0.0.1:{backend_port}"
     lan_ip = get_lan_ip()
-    frontend_env["VITE_PUBLIC_APP_ORIGIN"] = f"http://{lan_ip}:5173"
+    frontend_env["VITE_PUBLIC_APP_ORIGIN"] = f"http://{lan_ip}:{frontend_port}"
 
     processes = []
 
@@ -84,7 +99,7 @@ def main():
         print(f"[前端] 正在启动 (目录: {frontend_dir})...")
         npm_cmd = 'npm.cmd' if sys.platform == 'win32' else 'npm'
         frontend_process = subprocess.Popen(
-            [npm_cmd, 'run', 'dev'],
+            [npm_cmd, 'run', 'dev', '--', '--host', '0.0.0.0', '--port', str(frontend_port), '--strictPort'],
             cwd=frontend_dir,
             env=frontend_env,
             shell=False
@@ -95,8 +110,8 @@ def main():
         print("="*50)
         print("服务启动中。按 Ctrl+C 停止所有服务。")
         print(f"后端地址(仅本机): http://127.0.0.1:{backend_port}")
-        print(f"前端地址(本机): http://localhost:5173")
-        print(f"前端地址(局域网): http://{lan_ip}:5173")
+        print(f"前端地址(本机): http://localhost:{frontend_port}")
+        print(f"前端地址(局域网): http://{lan_ip}:{frontend_port}")
         print("="*50)
 
         # 监控进程状态

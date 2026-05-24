@@ -1,5 +1,12 @@
 <template>
-  <el-dialog :model-value="modelValue" :title="title" width="760px" @close="handleClose">
+  <el-dialog
+    :model-value="modelValue"
+    :title="title"
+    width="min(760px, calc(100vw - 24px))"
+    class="business-public-link-dialog"
+    modal-class="business-public-link-overlay"
+    @close="handleClose"
+  >
     <div class="link-panel">
       <div class="link-toolbar">
         <div class="link-toolbar-text">
@@ -238,5 +245,80 @@ watch(
   gap: 8px;
   flex-wrap: nowrap;
   white-space: nowrap;
+}
+
+:deep(.business-public-link-dialog) {
+  border-radius: 18px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  color: var(--text-main);
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+}
+
+:deep(.business-public-link-dialog .el-dialog__header) {
+  margin-right: 0;
+  padding: 16px 18px 14px;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--surface-border);
+}
+
+:deep(.business-public-link-dialog .el-dialog__title) {
+  color: var(--text-main);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+:deep(.business-public-link-dialog .el-dialog__body) {
+  padding: 16px 18px 18px;
+  background: var(--card-bg);
+}
+
+@media (max-width: 768px) {
+  :deep(.business-public-link-dialog) {
+    width: calc(100% - 24px) !important;
+    max-width: calc(100% - 24px);
+    margin: 12px auto;
+  }
+
+  :deep(.business-public-link-dialog .el-dialog__header) {
+    padding: 14px 16px 12px;
+  }
+
+  :deep(.business-public-link-dialog .el-dialog__title) {
+    font-size: 18px;
+  }
+
+  :deep(.business-public-link-dialog .el-dialog__body) {
+    max-height: calc(100dvh - 112px);
+    overflow-y: auto;
+    padding: 14px 16px 16px;
+  }
+
+  .link-toolbar,
+  .link-meta {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .link-toolbar :deep(.el-button),
+  .link-actions :deep(.el-button) {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .link-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    white-space: normal;
+  }
+
+  .link-url {
+    max-height: 96px;
+    overflow-y: auto;
+    padding: 8px;
+    border-radius: 8px;
+    background: var(--card-bg);
+  }
 }
 </style>

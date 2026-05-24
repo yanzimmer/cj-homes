@@ -9,6 +9,7 @@ from flask import Blueprint, jsonify, request
 from aliyun_ocr_utils import aliyun_ocr_is_configured, recognize_cn_id_card
 from auth_api import token_required
 from common import connect
+from ai_client import get_active_ai_model
 from local_ai_settings import load_ai_settings
 from ocr_settings import build_ocr_status, record_ocr_usage
 from tenants_api import (
@@ -737,7 +738,7 @@ def api_recognize_public_self_checkin_id_card(token):
 @self_checkin_bp.route("/public/self-checkin/<token>/ai-draft", methods=["POST"])
 def api_create_public_self_checkin_ai_draft(token):
     if not load_ai_settings().get("enabled", True):
-        return jsonify({"error": "本地 AI 功能已停用，请联系管理员启用后再使用"}), 503
+        return jsonify({"error": "AI 功能已停用，请联系管理员启用后再使用"}), 503
 
     ensure_self_checkin_schema()
     conn = connect()
@@ -794,7 +795,7 @@ def api_create_public_self_checkin_ai_draft(token):
         draft = _normalize_tenant_ai_payload(parsed)
         return jsonify({
             "draft": draft,
-            "model": load_ai_settings().get("procurement_model"),
+            "model": result.get("model") or get_active_ai_model(),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 502

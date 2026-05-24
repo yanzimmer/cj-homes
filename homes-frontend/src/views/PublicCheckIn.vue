@@ -6,7 +6,10 @@
     <div class="public-checkin-card">
       <div class="header">
         <h2>自助入住登记</h2>
-        <p v-if="roomInfo.room_no">房间：{{ roomInfo.building }}栋 {{ roomInfo.room_no }}</p>
+        <div v-if="roomDisplayLabel" class="room-summary">
+          <div class="room-summary__label">当前房间号</div>
+          <div class="room-summary__value">{{ roomDisplayLabel }}</div>
+        </div>
       </div>
 
       <div v-if="loading" class="loading-state">正在加载链接信息...</div>
@@ -94,7 +97,8 @@
         title="AI识别入住信息"
         v-model="aiDialog.visible"
         width="min(640px, calc(100vw - 24px))"
-        class="ai-checkin-dialog"
+        class="ai-checkin-dialog app-ai-dialog"
+        modal-class="app-ai-dialog-overlay"
         @close="resetAiDialog"
       >
         <el-form label-position="top">
@@ -155,7 +159,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { publicSelfCheckinApi } from '../api'
@@ -236,6 +240,14 @@ const deriveBirthDateFromIdCard = (value) => {
 }
 
 const derivedBirthDate = computed(() => deriveBirthDateFromIdCard(form.id_card))
+const roomDisplayLabel = computed(() => {
+  const roomNo = String(roomInfo.room_no || '').trim()
+  const building = String(roomInfo.building || '').trim()
+  if (!roomNo) return ''
+  if (roomNo.includes('-')) return roomNo
+  if (building) return `${building}-${roomNo}`
+  return roomNo
+})
 
 const validateIdCard = (_, value, callback) => {
   const raw = String(value || '').trim()
@@ -602,6 +614,7 @@ const submitForm = async () => {
 }
 
 onMounted(() => {
+  document.documentElement.classList.add('public-checkin-route')
   applyTheme(getPreferredTheme())
   fetchLinkInfo()
   loadDraftFromLocal()
@@ -609,6 +622,10 @@ onMounted(() => {
   if (String(route.query.ai || '') === '1') {
     openAiDialog()
   }
+})
+
+onUnmounted(() => {
+  document.documentElement.classList.remove('public-checkin-route')
 })
 
 watch(
@@ -655,8 +672,27 @@ html.dark .public-checkin-page {
   color: var(--text-main);
 }
 
-.header p {
+.room-summary {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.room-summary__label {
+  font-size: 12px;
   color: var(--text-secondary);
+}
+
+.room-summary__value {
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--text-main);
 }
 
 .loading-state {
@@ -756,6 +792,15 @@ html.dark .public-checkin-page {
 
   .public-checkin-card {
     padding: 16px 12px;
+  }
+
+  .room-summary {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .room-summary__value {
+    font-size: 20px;
   }
 
   :deep(.ai-checkin-dialog) {

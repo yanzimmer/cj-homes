@@ -1,6 +1,15 @@
 <template>
-  <div class="templates-container">
+  <div class="templates-container" :class="{ 'templates-container--mobile': mobileMode }">
     <div class="page-header">
+      <div class="page-header__title">
+        <h2>合同模板</h2>
+        <div v-if="mobileMode" class="template-mobile-stats">
+          <div class="template-mobile-stat">
+            <strong>{{ templates.length }}</strong>
+            <span>模板总数</span>
+          </div>
+        </div>
+      </div>
       <div class="header-operations">
         <el-input
           class="search-input"
@@ -15,7 +24,7 @@
 
         <!-- 视图切换 -->
         <el-radio-group v-model="currentView" size="default" class="view-switch">
-          <el-radio-button label="table">
+          <el-radio-button v-if="!mobileMode" label="table">
             <el-icon><List /></el-icon> 列表
           </el-radio-button>
           <el-radio-button label="grid">
@@ -28,6 +37,7 @@
 
         <el-button class="toolbar-btn" type="primary" @click="openAddDialog">新增</el-button>
         <el-button
+          v-if="!mobileMode"
           class="toolbar-btn"
           type="danger"
           :disabled="multipleSelection.length === 0"
@@ -84,13 +94,14 @@
       </el-table-column>
     </el-table>
 
-    <div v-if="currentView === 'table' || currentView === 'grid'" class="pagination-container">
+    <div v-if="currentView === 'table' || currentView === 'grid'" class="pagination-container" :class="{ 'pagination-container--mobile': mobileMode }">
       <el-pagination
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
         :page-sizes="[10, 20, 50, 100]"
         :total="filteredTemplates.length"
-        layout="total, sizes, prev, pager, next, jumper"
+        :layout="paginationLayout"
+        :small="mobileMode"
         @size-change="handleSizeChange"
         @current-change="handleCurrentChange"
       />
@@ -166,7 +177,7 @@
       :title="dialogTitle"
       v-model="dialogVisible"
       direction="rtl"
-      size="760px"
+      :size="mobileMode ? '100%' : '760px'"
     >
       <div class="narrow-fields">
         <el-form :model="tplForm" :rules="rules" ref="formRef" label-width="120px">
@@ -219,7 +230,7 @@
     </el-drawer>
 
     <!-- 预览/打印对话框 -->
-    <el-dialog title="预览与导出" v-model="previewVisible" width="980px" top="2vh">
+    <el-dialog title="预览与导出" v-model="previewVisible" :width="mobileMode ? '96%' : '980px'" top="2vh">
       <div class="preview-toolbar">
         <el-form inline label-width="100px">
           <el-form-item label="甲方(出租方)">
@@ -279,14 +290,16 @@
   </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
+import { ref, onMounted, onUnmounted, onBeforeUnmount, watch, nextTick, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { contractTemplatesApi, tenantsApi, roomsApi, contractsApi, notifyApi } from '../api/index'
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
 import { List, Grid, Timer, Document, Printer, Edit, Delete, Search, View, MoreFilled } from '@element-plus/icons-vue'
+import { DISPLAY_MODE_EVENT, getPreferredDisplayMode } from '../utils/displayMode'
 
 const currentView = ref('table') // 'table', 'grid', 'timeline'
+const mobileMode = ref(false)
 const templates = ref([])
 const loading = ref(false)
 // 表格高度随窗口自适应
@@ -487,6 +500,9 @@ const groupedTemplatesByDate = computed(() => {
 const currentPage = ref(1)
 const pageSize = ref(20)
 const contractTemplateRowStart = computed(() => (currentPage.value - 1) * pageSize.value)
+const paginationLayout = computed(() => (
+  mobileMode.value ? 'prev, pager, next' : 'total, sizes, prev, pager, next, jumper'
+))
 const sortBy = ref('')
 const sortOrder = ref('')
 const pagedTemplates = computed(() => {
@@ -509,6 +525,14 @@ const pagedTemplates = computed(() => {
   const end = currentPage.value * pageSize.value
   return list.slice(start, end)
 })
+
+const syncDisplayMode = () => {
+  const isMobile = getPreferredDisplayMode() === 'mobile'
+  mobileMode.value = isMobile
+  if (isMobile && currentView.value === 'table') {
+    currentView.value = 'grid'
+  }
+}
 
 const handleSortChange = ({ prop, order }) => {
   sortBy.value = prop || ''
@@ -1013,12 +1037,17 @@ const loadDefaultLandlord = async () => {
 }
 
 onMounted(async () => {
+  syncDisplayMode()
+  window.addEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
   window.addEventListener('resize', handleResize)
   await fetchTemplates()
   await loadDefaultLandlord()
 })
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
 })
 </script>
 
@@ -1031,15 +1060,49 @@ onUnmounted(() => {
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
 }
 
+.page-header__title {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .page-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   margin-bottom: 18px;
 }
 
 .page-header h2 {
   margin: 0;
   color: #409EFF;
+}
+
+.template-mobile-stats {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.template-mobile-stat {
+  min-width: 96px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.template-mobile-stat strong {
+  font-size: 18px;
+  color: var(--text-main);
+}
+
+.template-mobile-stat span {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .header-operations {
@@ -1067,6 +1130,12 @@ onUnmounted(() => {
   justify-content: center;
   padding-top: 12px;
   border-top: 1px solid var(--surface-border);
+}
+
+.pagination-container--mobile {
+  margin-top: 14px;
+  padding-top: 0;
+  border-top: none;
 }
 
 :deep(.templates-table) {
@@ -1324,5 +1393,95 @@ onUnmounted(() => {
 @media print {
   body * { visibility: hidden; }
   .print-area, .print-area * { visibility: visible; }
+}
+
+.templates-container--mobile {
+  padding: 16px;
+  border-radius: 16px;
+}
+
+.templates-container--mobile .page-header {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+
+.templates-container--mobile .header-operations {
+  gap: 10px;
+}
+
+.templates-container--mobile .search-input,
+.templates-container--mobile .view-switch,
+.templates-container--mobile .toolbar-btn {
+  width: 100%;
+}
+
+.templates-container--mobile .view-switch {
+  margin-right: 0;
+}
+
+.templates-container--mobile :deep(.view-switch .el-radio-button__inner) {
+  width: 100%;
+}
+
+.templates-container--mobile .templates-grid {
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.templates-container--mobile .card-preview {
+  height: 140px;
+}
+
+.templates-container--mobile .timeline-view-container {
+  padding: 8px 0;
+}
+
+.templates-container--mobile .timeline-card {
+  padding: 12px;
+  border-radius: 12px;
+}
+
+.templates-container--mobile .timeline-card-body {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.templates-container--mobile .timeline-card-body .desc {
+  max-width: none;
+  white-space: normal;
+}
+
+.templates-container--mobile .preview-toolbar {
+  flex-direction: column;
+  gap: 12px;
+}
+
+.templates-container--mobile .preview-toolbar :deep(.el-form--inline) {
+  display: flex;
+  flex-direction: column;
+}
+
+.templates-container--mobile .preview-toolbar :deep(.el-form-item) {
+  width: 100%;
+  margin-right: 0;
+}
+
+.templates-container--mobile .preview-toolbar :deep(.el-form-item__content) {
+  width: 100%;
+}
+
+.templates-container--mobile .preview-toolbar :deep(.el-input),
+.templates-container--mobile .preview-toolbar :deep(.el-select),
+.templates-container--mobile .preview-toolbar :deep(.el-autocomplete),
+.templates-container--mobile .preview-toolbar :deep(.el-input__wrapper) {
+  width: 100% !important;
+}
+
+.templates-container--mobile .actions {
+  width: 100%;
+  justify-content: space-between;
+  flex-wrap: wrap;
 }
 </style>

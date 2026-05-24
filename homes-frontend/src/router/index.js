@@ -11,8 +11,9 @@ const routes = [
     component: () => import('../views/Login.vue')
   },
   {
-    path: '/check-in/:token',
+    path: '/:building([A-Za-z]+)/:roomNo(\\d+)/:token([A-Za-z0-9]+)',
     name: 'PublicCheckIn',
+    alias: ['/check-in/:token'],
     component: () => import('../views/PublicCheckIn.vue')
   },
   {
