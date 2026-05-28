@@ -636,29 +636,46 @@
             type="textarea"
             :rows="5"
             placeholder="例如：A栋 301 洗手间漏水，张三报修，今天待处理。也可以上传现场照片、报修截图或支付截图让 AI 识别。"
+            @paste="handleAiPaste"
           />
         </el-form-item>
         <el-form-item label="图片识别">
-          <el-upload
-            action=""
-            :auto-upload="false"
-            :show-file-list="false"
-            accept="image/*"
-            multiple
-            :limit="20"
-            :on-change="handleAiImageChange"
-          >
-            <el-button type="primary" plain>选择图片</el-button>
-          </el-upload>
-          <el-button
-            v-if="aiDialog.images.length"
-            style="margin-left: 8px"
-            type="danger"
-            plain
-            @click="clearAiImages"
-          >
-            清空图片
-          </el-button>
+          <div class="ai-upload-panel">
+            <div
+              class="ai-dropzone"
+              :class="{ 'ai-dropzone--active': aiDialog.dragActive }"
+              @dragenter.prevent="aiDialog.dragActive = true"
+              @dragover.prevent="aiDialog.dragActive = true"
+              @dragleave.prevent="aiDialog.dragActive = false"
+              @drop.prevent="handleAiDrop"
+              @paste="handleAiPaste"
+              tabindex="0"
+            >
+              <div class="ai-dropzone__title">拖拽图片到这里识别</div>
+              <div class="ai-dropzone__hint">也可以点击下面按钮选择图片，或直接粘贴截图，识别后会自动带入维修前图片</div>
+            </div>
+            <div class="ai-upload-actions">
+              <el-upload
+                action=""
+                :auto-upload="false"
+                :show-file-list="false"
+                accept="image/*"
+                multiple
+                :limit="20"
+                :on-change="handleAiImageChange"
+              >
+                <el-button type="primary" plain>选择图片</el-button>
+              </el-upload>
+              <el-button
+                v-if="aiDialog.images.length"
+                type="danger"
+                plain
+                @click="clearAiImages"
+              >
+                清空图片
+              </el-button>
+            </div>
+          </div>
           <div class="upload-progress-text">已选 {{ aiDialog.images.length }} / 20</div>
           <div v-if="aiDialog.images.length" class="ai-image-list">
             <div v-for="(item, index) in aiDialog.images" :key="item.url" class="ai-image-item">
@@ -783,7 +800,8 @@ const aiDialog = reactive({
   visible: false,
   loading: false,
   text: '',
-  images: []
+  images: [],
+  dragActive: false
 })
 const repairImageFilesBefore = ref([])
 const repairImageFilesAfter = ref([])
@@ -1285,6 +1303,7 @@ const resetAiDialog = () => {
   aiDialog.loading = false
   aiDialog.text = ''
   aiDialog.images = []
+  aiDialog.dragActive = false
 }
 
 const openAiDialog = () => {
@@ -1292,24 +1311,51 @@ const openAiDialog = () => {
   aiDialog.visible = true
 }
 
-const handleAiImageChange = (file) => {
-  if (!file || !file.raw) return
+const appendAiImageFile = (rawFile) => {
+  if (!rawFile) return
   if (aiDialog.images.length >= 20) {
     ElMessage.warning('最多选择 20 张图片')
     return
   }
-  if (!String(file.raw.type || '').startsWith('image/')) {
+  if (!String(rawFile.type || '').startsWith('image/')) {
     ElMessage.warning('请上传图片文件')
     return
   }
-  if (file.raw.size && file.raw.size > 8 * 1024 * 1024) {
+  if (rawFile.size && rawFile.size > 8 * 1024 * 1024) {
     ElMessage.warning('单张图片请控制在 8MB 以内')
     return
   }
   aiDialog.images.push({
-    file: file.raw,
-    url: URL.createObjectURL(file.raw)
+    file: rawFile,
+    url: URL.createObjectURL(rawFile)
   })
+}
+
+const handleAiImageChange = (file) => {
+  if (!file || !file.raw) return
+  appendAiImageFile(file.raw)
+}
+
+const handleAiDrop = (event) => {
+  aiDialog.dragActive = false
+  const files = Array.from(event?.dataTransfer?.files || [])
+  if (!files.length) return
+  for (const file of files) {
+    appendAiImageFile(file)
+  }
+}
+
+const handleAiPaste = (event) => {
+  const clipboardItems = Array.from(event?.clipboardData?.items || [])
+  const imageItems = clipboardItems.filter((item) => String(item?.type || '').startsWith('image/'))
+  if (!imageItems.length) return
+  event.preventDefault()
+  for (const item of imageItems) {
+    const file = item.getAsFile()
+    if (file) {
+      appendAiImageFile(file)
+    }
+  }
 }
 
 const removeAiImage = (index) => {
@@ -1326,7 +1372,7 @@ const clearAiImages = () => {
   aiDialog.images = []
 }
 
-const applyAiDraftToForm = (draft = {}) => {
+const applyAiDraftToForm = (draft = {}, aiImages = []) => {
   openAddDialog()
   const scopeType = String(draft.scope_type || '单个房间')
   recordForm.value.scope_type = REPAIR_SCOPE_OPTIONS.includes(scopeType) ? scopeType : '单个房间'
@@ -1343,6 +1389,17 @@ const applyAiDraftToForm = (draft = {}) => {
   recordForm.value.repair_person = String(draft.repair_person || '')
   recordForm.value.payment_person = String(draft.payment_person || '')
   recordForm.value.remarks = String(draft.remarks || '')
+
+  const copiedAiImages = aiImages
+    .filter(item => item?.file)
+    .slice(0, MAX_REPAIR_IMAGES)
+    .map(item => ({
+      file: item.file,
+      url: URL.createObjectURL(item.file)
+    }))
+
+  repairImageFilesBefore.value = copiedAiImages
+  recordForm.value.repair_images_before = copiedAiImages.map(item => item.url)
 
   if (recordForm.value.building && recordForm.value.scope_type === '单个房间') {
     filteredRooms.value = allRooms.value.filter(room => room.building === recordForm.value.building)
@@ -1365,7 +1422,7 @@ const submitAiDraft = async () => {
       formData.append('images', item.file)
     })
     const response = await repairRecordsApi.createAiDraft(formData)
-    applyAiDraftToForm(response?.data?.draft || {})
+    applyAiDraftToForm(response?.data?.draft || {}, aiDialog.images)
     aiDialog.visible = false
     ElMessage.success('AI 草稿已填入维修表单，请确认后保存')
   } catch (error) {
@@ -1896,6 +1953,45 @@ const handleImportFile = async (file) => {
   font-size: 12px;
 }
 
+.ai-upload-panel {
+  width: 100%;
+}
+
+.ai-upload-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.ai-dropzone {
+  width: 100%;
+  padding: 16px;
+  border: 1px dashed var(--surface-border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ai-dropzone--active {
+  border-color: var(--el-color-primary);
+  background: rgba(37, 99, 235, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
+}
+
+.ai-dropzone__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.ai-dropzone__hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .repair-image-thumb {
   width: 92px;
   height: 92px;
@@ -2095,6 +2191,19 @@ const handleImportFile = async (file) => {
 
   .repair-image-actions :deep(.el-upload),
   .repair-image-actions :deep(.el-button) {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .ai-upload-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .ai-upload-actions :deep(.el-upload),
+  .ai-upload-actions :deep(.el-button) {
     width: 100%;
     margin-left: 0;
   }
