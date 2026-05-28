@@ -55,9 +55,24 @@
               <div class="ledger-mobile-card__title">{{ group.tenantName || '未命名租户' }}</div>
               <div class="ledger-mobile-card__meta">{{ group.roomDisplay || '-' }} · {{ formatRent(group) }}</div>
             </div>
-            <el-button size="small" plain type="primary" @click="toggleMobilePeriods(group)">
-              {{ isMobilePeriodsExpanded(group) ? '收起明细' : '查看明细' }}
-            </el-button>
+            <div class="ledger-mobile-card__tools">
+              <el-button
+                size="small"
+                plain
+                type="primary"
+                @click="toggleMobilePeriods(group)"
+              >
+                {{ isMobilePeriodsExpanded(group) ? '收起明细' : '查看/编辑' }}
+              </el-button>
+              <el-button
+                size="small"
+                plain
+                :loading="exportingTenantId === group.tenantId"
+                @click="exportTenantExcel(group)"
+              >
+                导出 Excel
+              </el-button>
+            </div>
           </div>
 
           <div class="ledger-mobile-card__stats">
@@ -201,13 +216,6 @@
           </template>
         </el-table-column>
         <el-table-column prop="tenantName" label="租户" min-width="110" fixed="left" />
-        <el-table-column label="明细" width="110" align="center">
-          <template #default="{ row }">
-            <el-button size="small" plain type="primary" @click="toggleRowDetails(row)">
-              {{ isRowExpanded(row) ? '收起明细' : '查看明细' }}
-            </el-button>
-          </template>
-        </el-table-column>
         <el-table-column prop="roomDisplay" label="房间" min-width="100" />
         <el-table-column label="租金" min-width="120">
           <template #default="{ row }">
@@ -244,6 +252,23 @@
         <el-table-column label="待收" min-width="110" align="right">
           <template #default="{ row }">
             <span class="outstanding-text">¥{{ formatAmount(row.stats.outstandingAmount) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="220" fixed="right" align="center">
+          <template #default="{ row }">
+            <div class="operation-buttons">
+              <el-button size="small" plain type="primary" @click="toggleRowDetails(row)">
+                {{ isRowExpanded(row) ? '收起明细' : '查看/编辑' }}
+              </el-button>
+              <el-button
+                size="small"
+                plain
+                :loading="exportingTenantId === row.tenantId"
+                @click="exportTenantExcel(row)"
+              >
+                导出 Excel
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -366,6 +391,7 @@
 <script setup>
 import { computed, onMounted, onBeforeUnmount, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import * as XLSX from 'xlsx'
 import { rentLedgerApi } from '../api'
 import { uploadFileByChunks } from '../utils/chunkUploader'
 import { DISPLAY_MODE_EVENT, getPreferredDisplayMode } from '../utils/displayMode'
@@ -379,6 +405,7 @@ const submitting = ref(false)
 const uploadingImages = ref(false)
 const uploadProgress = ref(0)
 const savingEntryId = ref(null)
+const exportingTenantId = ref(null)
 const ledgerTableRef = ref(null)
 const expandedRowKeys = ref([])
 const mobileExpandedTenantIds = ref([])
@@ -486,6 +513,86 @@ function getStatusType(status) {
   if (status === '已交') return 'success'
   if (status === '部分已交') return 'warning'
   return 'danger'
+}
+
+function sanitizeFileNameSegment(value, fallback) {
+  const text = String(value || '').trim()
+  const cleaned = text.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_')
+  return cleaned || fallback
+}
+
+function buildTenantExportRows(group) {
+  const entries = Array.isArray(group?.entries) ? group.entries : []
+  return entries.map((entry) => ({
+    租户: group?.tenantName || '-',
+    房间: group?.roomDisplay || '-',
+    租金: formatRent(group),
+    租期开始: group?.leaseStart || '-',
+    租期结束: group?.leaseEnd || '-',
+    期次: entry?.period_index || '-',
+    账期: formatPeriodRange(entry),
+    状态: entry?.status || '未交',
+    应收金额: Number(entry?.due_amount || 0),
+    实收金额: Number(entry?.actual_amount || 0),
+    收款日期: entry?.payment_date || '',
+    收款人: entry?.payment_person || '',
+    收款方式: entry?.payment_method || '',
+    备注: entry?.remarks || '',
+  }))
+}
+
+function buildTenantWorksheet(rows) {
+  const headers = ['租户', '房间', '租金', '租期开始', '租期结束', '期次', '账期', '状态', '应收金额', '实收金额', '收款日期', '收款人', '收款方式', '备注']
+  const worksheet = XLSX.utils.json_to_sheet(rows, { header: headers })
+  if (rows.length === 0) {
+    XLSX.utils.sheet_add_aoa(worksheet, [headers], { origin: 'A1' })
+  }
+  worksheet['!cols'] = headers.map((header) => ({
+    wch: header === '备注' ? 24 : header === '账期' ? 22 : 14,
+  }))
+  return worksheet
+}
+
+function downloadWorkbook(workbook, fileName) {
+  const workbookBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
+  const blob = new Blob([workbookBuffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url)
+  }, 1000)
+}
+
+function exportTenantExcel(group) {
+  if (!group?.tenantId) {
+    ElMessage.warning('当前租户数据不完整，暂时无法导出')
+    return
+  }
+
+  exportingTenantId.value = group.tenantId
+  try {
+    const workbook = XLSX.utils.book_new()
+    const rows = buildTenantExportRows(group)
+    const tenantName = sanitizeFileNameSegment(group?.tenantName, '租户')
+    const roomName = sanitizeFileNameSegment(group?.roomDisplay, '房间')
+    const worksheet = buildTenantWorksheet(rows)
+
+    XLSX.utils.book_append_sheet(workbook, worksheet, '缴费记录')
+    downloadWorkbook(workbook, `收租台账_${tenantName}_${roomName}_${selectedYear.value}.xlsx`)
+    ElMessage.success('Excel 导出完成')
+  } catch (error) {
+    console.error('导出租户收租记录失败', error)
+    ElMessage.error('Excel 导出失败')
+  } finally {
+    exportingTenantId.value = null
+  }
 }
 
 function toImageUrl(value) {
@@ -885,6 +992,14 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
+.ledger-mobile-card__tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+  flex-shrink: 0;
+}
+
 .ledger-mobile-card__meta,
 .ledger-mobile-card__lease {
   margin-top: 4px;
@@ -1138,6 +1253,18 @@ onBeforeUnmount(() => {
 
   .ledger-mobile-card__stats {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .ledger-mobile-card__header {
+    flex-direction: column;
+  }
+
+  .ledger-mobile-card__tools {
+    width: 100%;
+  }
+
+  .ledger-mobile-card__tools :deep(.el-button) {
+    width: 100%;
   }
 
   .ledger-mobile-period__amounts,

@@ -19,6 +19,50 @@ logger = logging.getLogger('expiry_notification')
 # 配置文件路径（迁移至 config 目录）
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'config', 'notification_config.json')
 MASKED_VALUE = "********"
+NOTIFICATION_SCENES = {"lease_expiry", "rent_reminder"}
+
+DEFAULT_CONFIG = {
+    "enabled": True,
+    "lease_advance_days": 7,
+    "rent_advance_days": 7,
+    "advance_days": 7,
+    "reminder_count": 1,
+    "tenant_notification_methods": ["email"],
+    "landlord_notification_methods": ["email"],
+    "tenant_notification_scenes": ["lease_expiry"],
+    "landlord_notification_scenes": ["lease_expiry"],
+    "smtp_config": {
+        "server": "",
+        "port": 587,
+        "username": "",
+        "password": "",
+        "use_tls": True,
+    },
+    "sms_config": {
+        "secret_id": "",
+        "secret_key": "",
+        "app_id": "",
+        "sign_name": "",
+        "tenant_template_id": "",
+        "landlord_template_id": "",
+        "tenant_template_text": "",
+        "landlord_template_text": "",
+    },
+    "tenant_email_config": {
+        "sender": "",
+        "subject": "",
+        "template": "",
+        "recipients": [],
+    },
+    "landlord_email_config": {
+        "sender": "",
+        "subject": "",
+        "template": "",
+        "recipients": [],
+    },
+    "landlords": [],
+    "last_updated": "",
+}
 
 ENV_FIELD_MAP = {
     ("smtp_config", "server"): ("SMTP_SERVER", str),
@@ -72,8 +116,51 @@ def _read_config_raw():
         return {}
 
 
+def _deep_merge_dict(base, override):
+    result = deepcopy(base) if isinstance(base, dict) else {}
+    if not isinstance(override, dict):
+        return result
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _deep_merge_dict(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def _normalize_config_shape(config):
+    merged = _deep_merge_dict(DEFAULT_CONFIG, config if isinstance(config, dict) else {})
+
+    legacy_advance_days = merged.get("advance_days")
+    try:
+        legacy_days = int(legacy_advance_days)
+    except Exception:
+        legacy_days = 7
+
+    if "lease_advance_days" not in (config or {}):
+        merged["lease_advance_days"] = legacy_days
+    if "rent_advance_days" not in (config or {}):
+        merged["rent_advance_days"] = legacy_days
+    merged["advance_days"] = merged["lease_advance_days"]
+
+    if "notification_methods" in merged:
+        merged.setdefault("tenant_notification_methods", merged.get("notification_methods") or [])
+        merged.setdefault("landlord_notification_methods", merged.get("notification_methods") or [])
+
+    if "tenant_notification_scenes" not in (config or {}):
+        merged["tenant_notification_scenes"] = ["lease_expiry"]
+    if "landlord_notification_scenes" not in (config or {}):
+        merged["landlord_notification_scenes"] = ["lease_expiry"]
+
+    tenant_scenes = [item for item in merged.get("tenant_notification_scenes", []) if item in NOTIFICATION_SCENES]
+    landlord_scenes = [item for item in merged.get("landlord_notification_scenes", []) if item in NOTIFICATION_SCENES]
+    merged["tenant_notification_scenes"] = tenant_scenes or ["lease_expiry"]
+    merged["landlord_notification_scenes"] = landlord_scenes or ["lease_expiry"]
+    return merged
+
+
 def _apply_env_overrides(config, include_secrets=False):
-    merged = deepcopy(config) if isinstance(config, dict) else {}
+    merged = _normalize_config_shape(config)
     for (section, field), (env_name, caster) in ENV_FIELD_MAP.items():
         raw = os.getenv(env_name)
         if raw is None or raw == "":
@@ -108,7 +195,7 @@ def _strip_masked_values(value):
 
 
 def _remove_stored_secrets(config):
-    cleaned = deepcopy(config) if isinstance(config, dict) else {}
+    cleaned = _normalize_config_shape(config)
     for section, field in SENSITIVE_FIELDS:
         if isinstance(cleaned.get(section), dict):
             cleaned[section][field] = ""
@@ -123,18 +210,18 @@ def update_config(new_config):
     ensure_config_file()
     try:
         # 读取当前配置
-        current_config = _read_config_raw()
+        current_config = _normalize_config_shape(_read_config_raw())
         new_config = _strip_masked_values(new_config)
         
         # 更新配置
         for key, value in new_config.items():
-            if key in current_config:
-                if isinstance(value, dict) and isinstance(current_config[key], dict):
-                    # 如果是嵌套字典，递归更新
-                    for sub_key, sub_value in value.items():
-                        current_config[key][sub_key] = sub_value
-                else:
-                    current_config[key] = value
+            if isinstance(value, dict) and isinstance(current_config.get(key), dict):
+                for sub_key, sub_value in value.items():
+                    current_config[key][sub_key] = sub_value
+            else:
+                current_config[key] = value
+
+        current_config = _normalize_config_shape(current_config)
         
         # 更新最后修改时间
         current_config["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -161,23 +248,17 @@ def validate_config(config):
     config = _strip_masked_values(config)
 
     # 构建合并视图（不写盘，仅用于校验）
-    merged = {}
-    if isinstance(current, dict):
-        merged.update(current)
-    for key, value in config.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            d = merged.get(key, {}).copy()
-            d.update(value)
-            merged[key] = d
-        else:
-            merged[key] = value
+    merged = _normalize_config_shape(_deep_merge_dict(current, config))
 
     required_fields = [
         "enabled",
-        "advance_days",
+        "lease_advance_days",
+        "rent_advance_days",
         "reminder_count",
         "tenant_notification_methods",
         "landlord_notification_methods",
+        "tenant_notification_scenes",
+        "landlord_notification_scenes",
     ]
     missing = [f for f in required_fields if f not in merged]
     if missing:
@@ -186,14 +267,24 @@ def validate_config(config):
     # 类型校验
     if not isinstance(merged["enabled"], bool):
         return False, "enabled 字段必须是布尔类型"
-    if not isinstance(merged["advance_days"], int) or merged["advance_days"] < 0:
-        return False, "advance_days 字段必须是非负整数"
+    if not isinstance(merged["lease_advance_days"], int) or merged["lease_advance_days"] < 0:
+        return False, "lease_advance_days 字段必须是非负整数"
+    if not isinstance(merged["rent_advance_days"], int) or merged["rent_advance_days"] < 0:
+        return False, "rent_advance_days 字段必须是非负整数"
     if not isinstance(merged["reminder_count"], int) or merged["reminder_count"] < 0:
         return False, "reminder_count 字段必须是非负整数"
     if not isinstance(merged["tenant_notification_methods"], list):
         return False, "tenant_notification_methods 字段必须是列表"
     if not isinstance(merged["landlord_notification_methods"], list):
         return False, "landlord_notification_methods 字段必须是列表"
+    if not isinstance(merged["tenant_notification_scenes"], list):
+        return False, "tenant_notification_scenes 字段必须是列表"
+    if not isinstance(merged["landlord_notification_scenes"], list):
+        return False, "landlord_notification_scenes 字段必须是列表"
+    if any(item not in NOTIFICATION_SCENES for item in merged["tenant_notification_scenes"]):
+        return False, "tenant_notification_scenes 包含不支持的提醒场景"
+    if any(item not in NOTIFICATION_SCENES for item in merged["landlord_notification_scenes"]):
+        return False, "landlord_notification_scenes 包含不支持的提醒场景"
 
     # SMTP 配置
     if "smtp_config" not in merged or not isinstance(merged["smtp_config"], dict):

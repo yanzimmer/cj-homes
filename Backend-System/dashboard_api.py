@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from flask import Blueprint, jsonify
 
@@ -7,6 +7,7 @@ from auth_api import token_required
 from common import connect
 import expiry_notification_config as notify_config
 from ocr_settings import build_ocr_status
+from rent_ledger_api import _rebuild_rent_ledger_year
 from tenants_api import _refresh_room_statuses, _refresh_tenant_statuses
 
 
@@ -23,12 +24,20 @@ def _safe_parse_date(value):
         return None
 
 
-def _load_advance_days():
+def _load_notification_days():
     config = notify_config.get_config() or {}
     try:
-        return max(0, int(config.get("advance_days", 7)))
+        lease_advance_days = max(0, int(config.get("lease_advance_days", config.get("advance_days", 7))))
     except Exception:
-        return 7
+        lease_advance_days = 7
+    try:
+        rent_advance_days = max(0, int(config.get("rent_advance_days", config.get("advance_days", 7))))
+    except Exception:
+        rent_advance_days = 7
+    return {
+        "leaseAdvanceDays": lease_advance_days,
+        "rentAdvanceDays": rent_advance_days,
+    }
 
 
 def _load_monthly_repair_stats(cursor, limit=12):
@@ -244,6 +253,90 @@ def _load_monthly_rent_ledger_stats(cursor, year):
     }
 
 
+def _load_rent_reminder_stats(conn, advance_days, today):
+    current_year = today.year
+    next_due_date = today + timedelta(days=max(0, int(advance_days or 0)))
+    target_years = {current_year, next_due_date.year}
+
+    for year in sorted(target_years):
+        rebuilt = _rebuild_rent_ledger_year(conn, year)
+        if rebuilt > 0:
+            conn.commit()
+
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT
+            id,
+            tenant_id,
+            room_id,
+            tenant_name,
+            building,
+            room_no,
+            period_start,
+            period_end,
+            due_amount,
+            actual_amount,
+            status
+        FROM rent_ledger_entries
+        WHERE COALESCE(TRIM(period_start), '') <> ''
+          AND COALESCE(due_amount, 0) > COALESCE(actual_amount, 0)
+          AND COALESCE(TRIM(status), '未交') <> '已交'
+        ORDER BY date(period_start) ASC, id ASC
+        """
+    )
+
+    items = []
+    overdue_count = 0
+    upcoming_count = 0
+    for row in cursor.fetchall():
+        due_date = _safe_parse_date(row["period_start"])
+        if due_date is None:
+            continue
+        days_until_due = (due_date - today).days
+        if days_until_due > advance_days:
+            continue
+
+        outstanding_amount = round(max(float(row["due_amount"] or 0) - float(row["actual_amount"] or 0), 0), 2)
+        if outstanding_amount <= 0:
+            continue
+
+        reminder_type = "overdue" if days_until_due < 0 else "upcoming"
+        if reminder_type == "overdue":
+            overdue_count += 1
+        else:
+            upcoming_count += 1
+
+        items.append(
+            {
+                "id": int(row["id"]),
+                "tenantId": int(row["tenant_id"] or 0),
+                "roomId": row["room_id"],
+                "tenantName": row["tenant_name"] or "",
+                "building": row["building"] or "",
+                "roomNo": row["room_no"] or "",
+                "roomDisplay": row["room_no"] or "",
+                "periodStart": row["period_start"] or "",
+                "periodEnd": row["period_end"] or "",
+                "dueDate": row["period_start"] or "",
+                "daysUntilDue": days_until_due,
+                "outstandingAmount": outstanding_amount,
+                "status": row["status"] or "未交",
+                "reminderType": reminder_type,
+            }
+        )
+
+    items.sort(key=lambda item: (item["daysUntilDue"] >= 0, item["daysUntilDue"], item["dueDate"], item["id"]))
+    visible_list = items[:10]
+    return {
+        "count": len(items),
+        "overdueCount": overdue_count,
+        "upcomingCount": upcoming_count,
+        "list": visible_list,
+    }
+
+
 @dashboard_bp.route("/stats", methods=["GET"])
 @token_required
 def api_dashboard_stats(current_user):
@@ -303,7 +396,9 @@ def api_dashboard_stats(current_user):
         lease_days_count = 0
 
         today = date.today()
-        advance_days = _load_advance_days()
+        notification_days = _load_notification_days()
+        lease_advance_days = notification_days["leaseAdvanceDays"]
+        rent_advance_days = notification_days["rentAdvanceDays"]
         expiring_list = []
 
         for row in tenant_rows:
@@ -323,7 +418,7 @@ def api_dashboard_stats(current_user):
 
             if status == "在住" and check_out_date:
                 days_remaining = (check_out_date - today).days
-                if days_remaining <= advance_days:
+                if days_remaining <= lease_advance_days:
                     expiring_list.append(
                         {
                             "id": row["id"],
@@ -410,11 +505,14 @@ def api_dashboard_stats(current_user):
         utility_year = date.today().year
         utility_stats = _load_monthly_utility_stats(cursor, utility_year)
         rent_ledger_stats = _load_monthly_rent_ledger_stats(cursor, utility_year)
+        rent_reminder_stats = _load_rent_reminder_stats(conn, rent_advance_days, today)
         ocr_status = build_ocr_status()
 
         return jsonify(
             {
-                "advance_days": advance_days,
+                "advance_days": lease_advance_days,
+                "lease_advance_days": lease_advance_days,
+                "rent_advance_days": rent_advance_days,
                 "rooms": {
                     "total": room_total,
                     "occupied": room_occupied,
@@ -449,6 +547,7 @@ def api_dashboard_stats(current_user):
                 },
                 "utilityBills": utility_stats,
                 "rentLedger": rent_ledger_stats,
+                "rentReminder": rent_reminder_stats,
                 "expiring": {
                     "count": len(expiring_list),
                     "list": expiring_list,

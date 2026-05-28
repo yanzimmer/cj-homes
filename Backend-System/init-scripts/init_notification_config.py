@@ -14,9 +14,13 @@ from datetime import datetime
 DEFAULT_CONFIG = {
     "enabled": True,
     "advance_days": 7,
+    "lease_advance_days": 7,
+    "rent_advance_days": 7,
     "reminder_count": 1,
     "tenant_notification_methods": ["email"],
     "landlord_notification_methods": ["email"],
+    "tenant_notification_scenes": ["lease_expiry"],
+    "landlord_notification_scenes": ["lease_expiry"],
     "smtp_config": {
         "server": "smtp.example.com",
         "port": 587,

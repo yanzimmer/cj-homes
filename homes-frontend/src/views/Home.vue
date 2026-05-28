@@ -16,7 +16,7 @@
           <el-tag type="danger" size="small" v-if="stats.expiring.count > 0">{{ stats.expiring.count }} 人即将到期</el-tag>
         </div>
         <div class="header-right">
-          <span class="advance-days-info">当前预警天数：{{ advanceDays }} 天</span>
+          <span class="advance-days-info">租期提前提醒：{{ leaseAdvanceDays }} 天</span>
         </div>
       </div>
 
@@ -85,6 +85,91 @@
         <el-table-column label="状态" min-width="120">
           <template #default>
             <el-tag type="success" size="small">在住</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <div class="alert-panel">
+      <div class="section-header">
+        <div class="header-left">
+          <el-icon class="warning-icon warning-icon--rent"><Coin /></el-icon>
+          <h3 class="section-title">收租提醒</h3>
+          <el-tag type="danger" size="small" v-if="stats.rentReminder.overdueCount > 0">
+            {{ stats.rentReminder.overdueCount }} 条已逾期
+          </el-tag>
+          <el-tag type="warning" size="small" v-if="stats.rentReminder.upcomingCount > 0">
+            {{ stats.rentReminder.upcomingCount }} 条即将到期
+          </el-tag>
+        </div>
+        <div class="header-right">
+          <span class="advance-days-info">收租提前提醒：{{ rentAdvanceDays }} 天</span>
+        </div>
+      </div>
+
+      <div v-if="mobileMode" class="rent-reminder-mobile-list" v-loading="loading.rentReminder">
+        <div v-if="stats.rentReminder.list.length === 0" class="rent-reminder-mobile-empty">
+          <el-empty description="暂无需要提醒的收租记录" :image-size="42" />
+        </div>
+        <article
+          v-for="item in stats.rentReminder.list"
+          :key="item.id"
+          class="rent-reminder-mobile-card"
+          :class="{
+            'rent-reminder-mobile-card--overdue': item.reminderType === 'overdue',
+            'rent-reminder-mobile-card--upcoming': item.reminderType !== 'overdue'
+          }"
+        >
+          <div class="rent-reminder-mobile-card__top">
+            <div>
+              <div class="rent-reminder-mobile-card__name">{{ item.tenantName || '未登记租户' }}</div>
+              <div class="rent-reminder-mobile-card__meta">
+                <el-tag size="small" effect="plain">{{ item.roomDisplay || '-' }}</el-tag>
+                <span>{{ item.status || '未交' }}</span>
+              </div>
+            </div>
+            <el-tag :type="getRentReminderTagType(item)">
+              {{ getRentReminderText(item) }}
+            </el-tag>
+          </div>
+          <div class="rent-reminder-mobile-card__bottom">
+            <span>应缴日期：{{ item.dueDate || '-' }}</span>
+            <strong>待收 ¥{{ Number(item.outstandingAmount || 0).toFixed(2) }}</strong>
+          </div>
+        </article>
+      </div>
+
+      <el-table
+        v-else
+        v-loading="loading.rentReminder"
+        :data="stats.rentReminder.list"
+        style="width: 100%"
+        :row-class-name="rentReminderRowClassName"
+        empty-text="暂无需要提醒的收租记录"
+      >
+        <el-table-column prop="tenantName" label="租户" min-width="120" />
+        <el-table-column prop="roomDisplay" label="房间" width="120">
+          <template #default="scope">
+            <el-tag size="small" effect="plain">{{ scope.row.roomDisplay || '-' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="账期" min-width="220">
+          <template #default="scope">
+            {{ scope.row.periodStart || '-' }} 至 {{ scope.row.periodEnd || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="dueDate" label="应缴日期" width="130" sortable />
+        <el-table-column label="待收金额" width="130">
+          <template #default="scope">
+            <span class="rent-reminder-amount">¥{{ Number(scope.row.outstandingAmount || 0).toFixed(2) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="status" label="缴费状态" width="120" />
+        <el-table-column label="提醒状态" width="130">
+          <template #default="scope">
+            <el-tag :type="getRentReminderTagType(scope.row)">
+              {{ getRentReminderText(scope.row) }}
+            </el-tag>
           </template>
         </el-table-column>
       </el-table>
@@ -440,6 +525,7 @@ const loading = reactive({
   tenants: true,
   repairs: true,
   expiring: true,
+  rentReminder: true,
   ocr: true,
   procurements: true,
   utilityBills: true,
@@ -448,7 +534,8 @@ const loading = reactive({
 })
 
 // 预警天数配置
-const advanceDays = ref(7)
+const leaseAdvanceDays = ref(7)
+const rentAdvanceDays = ref(7)
 const mobileMode = ref(false)
 const latestSeenSubmissionId = ref(null)
 let dashboardRefreshTimer = null
@@ -521,6 +608,12 @@ const stats = reactive({
     collectionRate: 0,
     monthly: []
   },
+  rentReminder: {
+    count: 0,
+    overdueCount: 0,
+    upcomingCount: 0,
+    list: []
+  },
   utilityBills: {
     year: new Date().getFullYear(),
     totalAmount: 0,
@@ -571,6 +664,13 @@ const tableRowClassName = ({ row }) => {
   return 'warning-row'
 }
 
+const rentReminderRowClassName = ({ row }) => {
+  if (row.reminderType === 'overdue') {
+    return 'rent-overdue-row'
+  }
+  return 'rent-upcoming-row'
+}
+
 // 获取剩余天数标签类型
 const getRemainingDaysTagType = (days) => {
   if (days < 0) return 'danger'
@@ -585,11 +685,23 @@ const getRemainingDaysText = (days) => {
   return `剩余 ${days} 天`
 }
 
+const getRentReminderTagType = (item) => {
+  return item?.reminderType === 'overdue' ? 'danger' : 'warning'
+}
+
+const getRentReminderText = (item) => {
+  const days = Number(item?.daysUntilDue || 0)
+  if (days < 0) return `逾期 ${Math.abs(days)} 天`
+  if (days === 0) return '今天应缴'
+  return `${days} 天后应缴`
+}
+
 const syncLoadingState = (value) => {
   loading.rooms = value
   loading.tenants = value
   loading.repairs = value
   loading.expiring = value
+  loading.rentReminder = value
   loading.ocr = value
   loading.procurements = value
   loading.rentLedger = value
@@ -603,7 +715,8 @@ const fetchDashboardStats = async ({ silent = false } = {}) => {
   }
   try {
     const { data } = await dashboardApi.getStats()
-    advanceDays.value = Number(data?.advance_days || 7)
+    leaseAdvanceDays.value = Number(data?.lease_advance_days ?? data?.advance_days ?? 7)
+    rentAdvanceDays.value = Number(data?.rent_advance_days ?? data?.advance_days ?? 7)
 
     Object.assign(stats.rooms, data?.rooms || {})
     Object.assign(stats.tenants, data?.tenants || {})
@@ -611,6 +724,7 @@ const fetchDashboardStats = async ({ silent = false } = {}) => {
     Object.assign(stats.procurements, data?.procurements || {})
     Object.assign(stats.selfCheckin, data?.selfCheckin || { pendingCount: 0, latestSubmissionId: null, list: [] })
     Object.assign(stats.rentLedger, data?.rentLedger || {})
+    Object.assign(stats.rentReminder, data?.rentReminder || { count: 0, overdueCount: 0, upcomingCount: 0, list: [] })
     Object.assign(stats.utilityBills, data?.utilityBills || {})
     Object.assign(stats.expiring, data?.expiring || { count: 0, list: [] })
     Object.assign(stats.ocr, data?.ocr || {})
@@ -760,6 +874,16 @@ onBeforeUnmount(() => {
   padding: 8px 0;
 }
 
+.rent-reminder-mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rent-reminder-mobile-empty {
+  padding: 8px 0;
+}
+
 .expiring-mobile-card {
   padding: 14px;
   border-radius: 14px;
@@ -811,6 +935,60 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.rent-reminder-mobile-card {
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.rent-reminder-mobile-card--overdue {
+  border-color: rgba(245, 108, 108, 0.4);
+  background: linear-gradient(180deg, var(--card-bg) 0%, rgba(245, 108, 108, 0.06) 100%);
+}
+
+.rent-reminder-mobile-card--upcoming {
+  border-color: rgba(230, 162, 60, 0.38);
+  background: linear-gradient(180deg, var(--card-bg) 0%, rgba(230, 162, 60, 0.06) 100%);
+}
+
+.rent-reminder-mobile-card__top,
+.rent-reminder-mobile-card__bottom {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rent-reminder-mobile-card__bottom {
+  margin-top: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.rent-reminder-mobile-card__name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.rent-reminder-mobile-card__meta {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.rent-reminder-amount {
+  color: var(--el-color-danger);
+  font-weight: 700;
 }
 
 .submission-mobile-card {
@@ -1103,6 +1281,11 @@ html.dark .alert-panel {
   background: rgba(37, 99, 235, 0.12);
 }
 
+.warning-icon--rent {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.14);
+}
+
 .section-title {
   font-size: 18px;
   font-weight: 600;
@@ -1132,6 +1315,14 @@ html.dark .alert-panel {
 :deep(.el-table .expired-row) {
   --el-table-tr-bg-color: var(--el-color-danger-light-9);
   color: var(--el-color-danger);
+}
+
+:deep(.el-table .rent-overdue-row) {
+  --el-table-tr-bg-color: var(--el-color-danger-light-9);
+}
+
+:deep(.el-table .rent-upcoming-row) {
+  --el-table-tr-bg-color: var(--el-color-warning-light-9);
 }
 
 </style>

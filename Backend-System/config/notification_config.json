@@ -1,14 +1,20 @@
 {
     "enabled": false,
-    "advance_days": 32,
-    "notification_methods": [
-        "email"
-    ],
+    "lease_advance_days": 30,
+    "rent_advance_days": 7,
+    "advance_days": 30,
+    "reminder_count": 2,
     "tenant_notification_methods": [
         "email"
     ],
     "landlord_notification_methods": [
         "email"
+    ],
+    "tenant_notification_scenes": [
+        "lease_expiry"
+    ],
+    "landlord_notification_scenes": [
+        "lease_expiry"
     ],
     "smtp_config": {
         "server": "smtp.qq.com",
@@ -46,6 +52,8 @@
             "phone": "15286304124"
         }
     ],
-    "last_updated": "2026-03-08 21:27:23",
-    "reminder_count": 2
+    "last_updated": "2026-05-28 15:04:23",
+    "notification_methods": [
+        "email"
+    ]
 }

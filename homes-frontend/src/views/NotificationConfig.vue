@@ -66,32 +66,33 @@
             </template>
             
             <el-row :gutter="24">
-              <el-col :span="8">
-                <el-form-item label="启用通知系统" prop="enabled">
-                  <el-switch
-                    v-model="config.enabled"
-                    active-text="已启用"
-                    inactive-text="已禁用"
-                    inline-prompt
-                    size="large"
-                  />
-                </el-form-item>
-              </el-col>
-              
-              <el-col :span="8">
-                <el-form-item label="提前通知天数" prop="advance_days">
+              <el-col :span="6">
+                <el-form-item label="租期提前提醒天数" prop="lease_advance_days">
                   <el-input-number 
-                    v-model="config.advance_days" 
-                    :min="1" 
+                    v-model="config.lease_advance_days" 
+                    :min="0" 
                     :max="365"
                     controls-position="right"
                     style="width: 100%"
                   />
-                  <div class="form-hint">租期到期前多少天开始发送通知</div>
+                  <div class="form-hint">首页“即将到期预警”和租期通知使用这个天数</div>
                 </el-form-item>
               </el-col>
-              
-              <el-col :span="8">
+
+              <el-col :span="6">
+                <el-form-item label="收租提前提醒天数" prop="rent_advance_days">
+                  <el-input-number 
+                    v-model="config.rent_advance_days" 
+                    :min="0" 
+                    :max="365"
+                    controls-position="right"
+                    style="width: 100%"
+                  />
+                  <div class="form-hint">首页“收租提醒”和后续收租通知使用这个天数</div>
+                </el-form-item>
+              </el-col>
+
+              <el-col :span="6">
                 <el-form-item label="重复提醒次数" prop="reminder_count">
                   <el-input-number 
                     v-model="config.reminder_count" 
@@ -101,6 +102,18 @@
                     style="width: 100%"
                   />
                   <div class="form-hint">0表示不重复，大于0表示总共发送几次</div>
+                </el-form-item>
+              </el-col>
+
+              <el-col :span="6">
+                <el-form-item label="启用通知系统" prop="enabled">
+                  <el-switch
+                    v-model="config.enabled"
+                    active-text="已启用"
+                    inactive-text="已禁用"
+                    inline-prompt
+                    size="large"
+                  />
                 </el-form-item>
               </el-col>
             </el-row>
@@ -125,6 +138,12 @@
                     </el-checkbox>
                   </el-checkbox-group>
                 </el-form-item>
+                <el-form-item label="租户提醒场景" prop="tenant_notification_scenes">
+                  <el-checkbox-group v-model="config.tenant_notification_scenes">
+                    <el-checkbox label="lease_expiry" border>即将到期预警</el-checkbox>
+                    <el-checkbox label="rent_reminder" border>收租提醒</el-checkbox>
+                  </el-checkbox-group>
+                </el-form-item>
               </el-col>
               
               <el-col :span="12">
@@ -136,6 +155,12 @@
                     <el-checkbox label="sms" border>
                       <el-icon class="mr-1"><ChatDotRound /></el-icon> 短信
                     </el-checkbox>
+                  </el-checkbox-group>
+                </el-form-item>
+                <el-form-item label="房东提醒场景" prop="landlord_notification_scenes">
+                  <el-checkbox-group v-model="config.landlord_notification_scenes">
+                    <el-checkbox label="lease_expiry" border>即将到期预警</el-checkbox>
+                    <el-checkbox label="rent_reminder" border>收租提醒</el-checkbox>
                   </el-checkbox-group>
                 </el-form-item>
               </el-col>
@@ -532,9 +557,13 @@ const landlordVars = [
 const config = reactive({
   enabled: true,
   advance_days: 7,
+  lease_advance_days: 7,
+  rent_advance_days: 7,
   reminder_count: 1,
   tenant_notification_methods: ['email'],
   landlord_notification_methods: ['email'],
+  tenant_notification_scenes: ['lease_expiry'],
+  landlord_notification_scenes: ['lease_expiry'],
   smtp_config: {
     server: '',
     port: 587,
@@ -569,9 +598,13 @@ const config = reactive({
 })
 
 const rules = {
-  advance_days: [
-    { required: true, message: '请设置提前通知天数', trigger: 'blur' },
-    { type: 'number', min: 1, message: '天数必须大于等于1', trigger: 'blur' }
+  lease_advance_days: [
+    { required: true, message: '请设置租期提前提醒天数', trigger: 'blur' },
+    { type: 'number', min: 0, message: '天数必须大于等于0', trigger: 'blur' }
+  ],
+  rent_advance_days: [
+    { required: true, message: '请设置收租提前提醒天数', trigger: 'blur' },
+    { type: 'number', min: 0, message: '天数必须大于等于0', trigger: 'blur' }
   ],
   reminder_count: [
     { required: true, message: '请设置重复提醒次数', trigger: 'blur' },
@@ -624,7 +657,14 @@ const fetchConfig = async () => {
     
     if (typeof data === 'object' && data !== null) {
       config.enabled = data.enabled !== undefined ? data.enabled : true
-      config.advance_days = parseInt(data.advance_days) || 7
+      const legacyAdvanceDays = parseInt(data.advance_days)
+      config.lease_advance_days = Number.isFinite(parseInt(data.lease_advance_days))
+        ? parseInt(data.lease_advance_days)
+        : (Number.isFinite(legacyAdvanceDays) ? legacyAdvanceDays : 7)
+      config.rent_advance_days = Number.isFinite(parseInt(data.rent_advance_days))
+        ? parseInt(data.rent_advance_days)
+        : (Number.isFinite(legacyAdvanceDays) ? legacyAdvanceDays : 7)
+      config.advance_days = config.lease_advance_days
       config.reminder_count = parseInt(data.reminder_count) || 1
       
       // 兼容旧的 notification_methods
@@ -643,6 +683,13 @@ const fetchConfig = async () => {
       } else {
         config.landlord_notification_methods = ['email']
       }
+
+      config.tenant_notification_scenes = Array.isArray(data.tenant_notification_scenes) && data.tenant_notification_scenes.length > 0
+        ? data.tenant_notification_scenes
+        : ['lease_expiry']
+      config.landlord_notification_scenes = Array.isArray(data.landlord_notification_scenes) && data.landlord_notification_scenes.length > 0
+        ? data.landlord_notification_scenes
+        : ['lease_expiry']
       
       // SMTP Config
       if (data.smtp_config) {
@@ -691,6 +738,7 @@ const saveConfig = async () => {
     
     saving.value = true
     try {
+      config.advance_days = Number(config.lease_advance_days) || 0
       const payload = { ...config }
       const { data } = await notifyApi.updateConfig(payload)
       config.last_updated = data?.last_updated || new Date().toLocaleString()
@@ -758,7 +806,7 @@ const testLandlordEmailSending = async () => {
       tenant_name: '李四',
       building: 'A栋',
       room_no: '101',
-      expiry_date: new Date(Date.now() + (Number(config.advance_days) || 7) * 86400000).toLocaleDateString(),
+      expiry_date: new Date(Date.now() + (Number(config.lease_advance_days) || 7) * 86400000).toLocaleDateString(),
       rent_amount: '2000',
       contact_phone: config.landlords[0]?.phone || '13800000000'
     }
@@ -801,7 +849,7 @@ const testTenantEmailSending = async () => {
       tenant_name: '李四',
       building: 'A栋',
       room_no: '101',
-      expiry_date: new Date(Date.now() + (Number(config.advance_days) || 7) * 86400000).toLocaleDateString(),
+      expiry_date: new Date(Date.now() + (Number(config.lease_advance_days) || 7) * 86400000).toLocaleDateString(),
       rent_amount: '2000',
       contact_phone: (Array.isArray(config.landlords) && config.landlords[0]?.phone) || '13800000000'
     }
@@ -845,7 +893,7 @@ const testTenantSmsSending = async () => {
         tenant_name: '李四',
         building: 'A栋',
         room_no: '101',
-        expiry_date: new Date(Date.now() + (Number(config.advance_days) || 7) * 86400000).toLocaleDateString()
+        expiry_date: new Date(Date.now() + (Number(config.lease_advance_days) || 7) * 86400000).toLocaleDateString()
       }
     }
     const { data } = await notifyApi.testSms(payload)
@@ -875,7 +923,7 @@ const testLandlordSmsSending = async () => {
         tenant_name: '李四',
         building: 'A栋',
         room_no: '101',
-        expiry_date: new Date(Date.now() + (Number(config.advance_days) || 7) * 86400000).toLocaleDateString(),
+        expiry_date: new Date(Date.now() + (Number(config.lease_advance_days) || 7) * 86400000).toLocaleDateString(),
         rent_amount: '2000'
       }
     }
