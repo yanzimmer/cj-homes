@@ -339,6 +339,19 @@
         </el-form-item>
         <el-form-item label="收款凭证">
           <div class="payment-upload-field">
+            <div
+              class="form-image-dropzone"
+              :class="{ 'form-image-dropzone--active': entryImageDragActive }"
+              @dragenter.prevent="entryImageDragActive = true"
+              @dragover.prevent="entryImageDragActive = true"
+              @dragleave.prevent="entryImageDragActive = false"
+              @drop.prevent="handleEntryImageDrop"
+              @paste="handleEntryImagePaste"
+              tabindex="0"
+            >
+              <div class="form-image-dropzone__title">拖拽图片到这里</div>
+              <div class="form-image-dropzone__hint">也支持直接粘贴截图</div>
+            </div>
             <div class="payment-upload-actions">
               <el-upload
                 action=""
@@ -404,6 +417,7 @@ const mobileMode = ref(false)
 const submitting = ref(false)
 const uploadingImages = ref(false)
 const uploadProgress = ref(0)
+const entryImageDragActive = ref(false)
 const savingEntryId = ref(null)
 const exportingTenantId = ref(null)
 const ledgerTableRef = ref(null)
@@ -441,6 +455,8 @@ const entryForm = reactive({
   id: null,
   tenant_id: null,
   period_label: '',
+  period_start: '',
+  period_end: '',
   due_amount: 0,
   status: '未交',
   actual_amount: 0,
@@ -506,7 +522,8 @@ function formatPeriodRange(entry) {
   if (start && end) {
     return `${start} ~ ${end}`
   }
-  return start || end || '-'
+  const periodLabel = String(entry?.period_label || '').trim()
+  return start || end || periodLabel || '-'
 }
 
 function getStatusType(status) {
@@ -708,9 +725,12 @@ function resetEntryForm() {
   entryImageFiles.value = []
   uploadingImages.value = false
   uploadProgress.value = 0
+  entryImageDragActive.value = false
   entryForm.id = null
   entryForm.tenant_id = null
   entryForm.period_label = ''
+  entryForm.period_start = ''
+  entryForm.period_end = ''
   entryForm.due_amount = 0
   entryForm.status = '未交'
   entryForm.actual_amount = 0
@@ -728,6 +748,8 @@ function openEntryDialog(group, entry) {
   entryForm.id = entry.id
   entryForm.tenant_id = entry.tenant_id
   entryForm.period_label = entry.period_label || ''
+  entryForm.period_start = entry.period_start || ''
+  entryForm.period_end = entry.period_end || ''
   entryForm.due_amount = Number(entry.due_amount || 0)
   entryForm.status = entry.status || '未交'
   entryForm.actual_amount = Number(entry.actual_amount || 0)
@@ -740,22 +762,44 @@ function openEntryDialog(group, entry) {
 }
 
 function handleEntryImageChange(file) {
-  if (!file?.raw) return
+  const raw = file?.raw || file
+  if (!raw) return
   if (entryForm.payment_images.length >= MAX_PAYMENT_IMAGES) {
     ElMessage.warning(`最多上传${MAX_PAYMENT_IMAGES}张图片`)
     return
   }
-  if (!String(file.raw.type || '').startsWith('image/')) {
+  if (!String(raw.type || '').startsWith('image/')) {
     ElMessage.warning('请上传图片文件')
     return
   }
-  if (file.raw.size && file.raw.size > 20 * 1024 * 1024) {
+  if (raw.size && raw.size > 20 * 1024 * 1024) {
     ElMessage.warning('图片请控制在 20MB 以内')
     return
   }
-  const url = URL.createObjectURL(file.raw)
-  entryImageFiles.value.push({ file: file.raw, url })
+  const url = URL.createObjectURL(raw)
+  entryImageFiles.value.push({ file: raw, url })
   entryForm.payment_images.push(url)
+}
+
+function handleEntryImageDrop(event) {
+  entryImageDragActive.value = false
+  const files = Array.from(event?.dataTransfer?.files || [])
+  for (const file of files) {
+    handleEntryImageChange(file)
+  }
+}
+
+function handleEntryImagePaste(event) {
+  const clipboardItems = Array.from(event?.clipboardData?.items || [])
+  const imageItems = clipboardItems.filter((item) => String(item?.type || '').startsWith('image/'))
+  if (!imageItems.length) return
+  event.preventDefault()
+  for (const item of imageItems) {
+    const file = item.getAsFile()
+    if (file) {
+      handleEntryImageChange(file)
+    }
+  }
 }
 
 function removeEntryImage(index) {
@@ -1166,6 +1210,34 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: flex-start;
   width: 100%;
+}
+
+.form-image-dropzone {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 14px 16px;
+  border: 1px dashed var(--surface-border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-image-dropzone--active {
+  border-color: var(--el-color-primary);
+  background: rgba(37, 99, 235, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
+}
+
+.form-image-dropzone__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.form-image-dropzone__hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .payment-upload-actions {

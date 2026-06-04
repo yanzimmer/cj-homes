@@ -198,6 +198,19 @@
         </el-form-item>
         <el-form-item label="账单图片" class="bill-image-field">
           <div class="bill-image-uploader">
+            <div
+              class="form-image-dropzone"
+              :class="{ 'form-image-dropzone--active': billImageDragActive }"
+              @dragenter.prevent="billImageDragActive = true"
+              @dragover.prevent="billImageDragActive = true"
+              @dragleave.prevent="billImageDragActive = false"
+              @drop.prevent="handleBillImageDrop"
+              @paste="handleBillImagePaste"
+              tabindex="0"
+            >
+              <div class="form-image-dropzone__title">拖拽图片到这里</div>
+              <div class="form-image-dropzone__hint">也支持直接粘贴截图</div>
+            </div>
             <div class="bill-image-actions">
               <el-upload
                 action=""
@@ -291,6 +304,7 @@ const exporting = ref(false)
 const submitting = ref(false)
 const uploadingImages = ref(false)
 const uploadProgress = ref(0)
+const billImageDragActive = ref(false)
 const tableRenderKey = ref(0)
 const selectedYear = ref(currentYear)
 const summaryPayload = ref(createInitialPayload(currentYear))
@@ -591,22 +605,44 @@ function buildBillUploadSubDir(targetId) {
 }
 
 function handleBillImageChange(file) {
-  if (!file || !file.raw) return
+  const raw = file?.raw || file
+  if (!raw) return
   if (billForm.bill_images.length >= MAX_UTILITY_IMAGES) {
     ElMessage.warning(`最多上传${MAX_UTILITY_IMAGES}张图片`)
     return
   }
-  if (!String(file.raw.type || '').startsWith('image/')) {
+  if (!String(raw.type || '').startsWith('image/')) {
     ElMessage.warning('请上传图片文件')
     return
   }
-  if (file.raw.size && file.raw.size > 20 * 1024 * 1024) {
+  if (raw.size && raw.size > 20 * 1024 * 1024) {
     ElMessage.warning('图片请控制在 20MB 以内')
     return
   }
-  const url = URL.createObjectURL(file.raw)
-  billImageFiles.value.push({ file: file.raw, url })
+  const url = URL.createObjectURL(raw)
+  billImageFiles.value.push({ file: raw, url })
   billForm.bill_images.push(url)
+}
+
+function handleBillImageDrop(event) {
+  billImageDragActive.value = false
+  const files = Array.from(event?.dataTransfer?.files || [])
+  for (const file of files) {
+    handleBillImageChange(file)
+  }
+}
+
+function handleBillImagePaste(event) {
+  const clipboardItems = Array.from(event?.clipboardData?.items || [])
+  const imageItems = clipboardItems.filter((item) => String(item?.type || '').startsWith('image/'))
+  if (!imageItems.length) return
+  event.preventDefault()
+  for (const item of imageItems) {
+    const file = item.getAsFile()
+    if (file) {
+      handleBillImageChange(file)
+    }
+  }
 }
 
 function removeBillImage(index) {
@@ -642,6 +678,7 @@ function resetBillForm() {
   billImageFiles.value = []
   uploadingImages.value = false
   uploadProgress.value = 0
+  billImageDragActive.value = false
   billForm.id = null
   billForm.utility_type = 'electricity'
   billForm.account = ''
@@ -1015,6 +1052,34 @@ onBeforeUnmount(() => {
 .bill-image-uploader {
   width: 100%;
   min-width: 0;
+}
+
+.form-image-dropzone {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 14px 16px;
+  border: 1px dashed var(--surface-border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-image-dropzone--active {
+  border-color: var(--el-color-primary);
+  background: rgba(37, 99, 235, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
+}
+
+.form-image-dropzone__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.form-image-dropzone__hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .bill-image-actions {

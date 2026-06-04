@@ -170,24 +170,38 @@
       </el-form-item>
       <el-form-item label="图片" prop="images">
         <div class="image-upload-row">
-          <el-upload
-            class="image-uploader"
-            action="#"
-            :show-file-list="false"
-            :auto-upload="false"
-            accept="image/*"
-            multiple
-            :limit="30"
-            :on-change="handleImageUpload"
+          <div
+            class="image-dropzone"
+            :class="{ 'image-dropzone--active': imageDragActive }"
+            @dragenter.prevent="imageDragActive = true"
+            @dragover.prevent="imageDragActive = true"
+            @dragleave.prevent="imageDragActive = false"
+            @drop.prevent="handleImageDrop"
+            @paste="handleImagePaste"
+            tabindex="0"
           >
-            <div class="image-upload-card">
-              <img loading="lazy" v-if="form.images.length > 0" :src="resolveImageUrl(form.images[0])" class="image-preview" />
-              <div v-else class="image-placeholder">
-                <el-icon class="image-placeholder-icon"><Plus /></el-icon>
-                <span>点击上传</span>
+            <el-upload
+              class="image-uploader"
+              action="#"
+              :show-file-list="false"
+              :auto-upload="false"
+              accept="image/*"
+              multiple
+              :limit="30"
+              :on-change="handleImageUpload"
+            >
+              <div class="image-upload-card">
+                <img loading="lazy" v-if="form.images.length > 0" :src="resolveImageUrl(form.images[0])" class="image-preview" />
+                <div v-else class="image-placeholder">
+                  <el-icon class="image-placeholder-icon"><Plus /></el-icon>
+                  <span>点击上传</span>
+                </div>
               </div>
+            </el-upload>
+            <div class="image-dropzone__hint">
+              也支持拖拽图片到这里，或直接粘贴截图
             </div>
-          </el-upload>
+          </div>
           <div class="image-upload-actions">
             <el-button v-if="form.images.length > 0" type="danger" plain @click="clearImages">全部删除图片</el-button>
             <span class="image-upload-tip">支持 JPG/PNG/WEBP，最多 30 张，建议单张小于 2MB</span>
@@ -239,6 +253,7 @@ import { DISPLAY_MODE_EVENT, getPreferredDisplayMode } from '../utils/displayMod
 const loading = ref(false)
 const linkDialogVisible = ref(false)
 const mobileMode = ref(false)
+const imageDragActive = ref(false)
 const items = ref([])
 const selectedItems = ref([])
 const searchQuery = ref('')
@@ -363,6 +378,7 @@ const resetForm = () => {
   })
   imageUploading.value = false
   imageUploadProgress.value = 0
+  imageDragActive.value = false
 }
 
 const openDialog = async (type, row = null) => {
@@ -423,6 +439,27 @@ const handleImageUpload = async (file) => {
     ElMessage.error(error?.response?.data?.error || error?.message || '图片上传失败')
   } finally {
     imageUploading.value = false
+  }
+}
+
+const handleImageDrop = async (event) => {
+  imageDragActive.value = false
+  const files = Array.from(event?.dataTransfer?.files || [])
+  for (const file of files) {
+    await handleImageUpload(file)
+  }
+}
+
+const handleImagePaste = async (event) => {
+  const clipboardItems = Array.from(event?.clipboardData?.items || [])
+  const imageItems = clipboardItems.filter((item) => String(item?.type || '').startsWith('image/'))
+  if (!imageItems.length) return
+  event.preventDefault()
+  for (const item of imageItems) {
+    const file = item.getAsFile()
+    if (file) {
+      await handleImageUpload(file)
+    }
   }
 }
 
@@ -754,6 +791,19 @@ onBeforeUnmount(() => {
   gap: 14px;
 }
 
+.image-dropzone {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.image-dropzone--active .image-upload-card {
+  border-color: var(--el-color-primary);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.14);
+  background: rgba(37, 99, 235, 0.08);
+}
+
 .image-upload-card {
   width: 120px;
   height: 120px;
@@ -766,6 +816,12 @@ onBeforeUnmount(() => {
 
 .image-upload-card:hover {
   border-color: var(--brand);
+}
+
+.image-dropzone__hint {
+  font-size: 12px;
+  color: var(--text-sub);
+  text-align: center;
 }
 
 .image-preview {
@@ -858,6 +914,21 @@ onBeforeUnmount(() => {
 
   .warehouse-mobile-card__stats {
     grid-template-columns: 1fr;
+  }
+
+  .image-upload-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .image-dropzone {
+    width: 100%;
+  }
+
+  .image-upload-card {
+    width: 100%;
+    max-width: 180px;
+    margin: 0 auto;
   }
 
   .warehouse-mobile-card__footer {
