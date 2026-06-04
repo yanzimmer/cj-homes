@@ -414,6 +414,19 @@
         </el-form-item>
         <el-form-item label="维修前图片" class="repair-image-field">
           <div class="repair-image-uploader">
+            <div
+              class="form-image-dropzone"
+              :class="{ 'form-image-dropzone--active': repairImageDragActive.before }"
+              @dragenter.prevent="repairImageDragActive.before = true"
+              @dragover.prevent="repairImageDragActive.before = true"
+              @dragleave.prevent="repairImageDragActive.before = false"
+              @drop.prevent="handleRepairImageDrop('before', $event)"
+              @paste="handleRepairImagePaste('before', $event)"
+              tabindex="0"
+            >
+              <div class="form-image-dropzone__title">拖拽图片到这里</div>
+              <div class="form-image-dropzone__hint">也支持直接粘贴截图</div>
+            </div>
             <div class="repair-image-actions">
               <el-upload
                 action=""
@@ -453,6 +466,19 @@
         </el-form-item>
         <el-form-item label="维修后图片" class="repair-image-field">
           <div class="repair-image-uploader">
+            <div
+              class="form-image-dropzone"
+              :class="{ 'form-image-dropzone--active': repairImageDragActive.after }"
+              @dragenter.prevent="repairImageDragActive.after = true"
+              @dragover.prevent="repairImageDragActive.after = true"
+              @dragleave.prevent="repairImageDragActive.after = false"
+              @drop.prevent="handleRepairImageDrop('after', $event)"
+              @paste="handleRepairImagePaste('after', $event)"
+              tabindex="0"
+            >
+              <div class="form-image-dropzone__title">拖拽图片到这里</div>
+              <div class="form-image-dropzone__hint">也支持直接粘贴截图</div>
+            </div>
             <div class="repair-image-actions">
               <el-upload
                 action=""
@@ -491,6 +517,19 @@
         </el-form-item>
         <el-form-item label="支付截图" class="repair-image-field">
           <div class="repair-image-uploader">
+            <div
+              class="form-image-dropzone"
+              :class="{ 'form-image-dropzone--active': repairImageDragActive.payment }"
+              @dragenter.prevent="repairImageDragActive.payment = true"
+              @dragover.prevent="repairImageDragActive.payment = true"
+              @dragleave.prevent="repairImageDragActive.payment = false"
+              @drop.prevent="handleRepairImageDrop('payment', $event)"
+              @paste="handleRepairImagePaste('payment', $event)"
+              tabindex="0"
+            >
+              <div class="form-image-dropzone__title">拖拽图片到这里</div>
+              <div class="form-image-dropzone__hint">也支持直接粘贴截图</div>
+            </div>
             <div class="repair-image-actions">
               <el-upload
                 action=""
@@ -806,6 +845,11 @@ const aiDialog = reactive({
 const repairImageFilesBefore = ref([])
 const repairImageFilesAfter = ref([])
 const repairPaymentImageFiles = ref([])
+const repairImageDragActive = reactive({
+  before: false,
+  after: false,
+  payment: false,
+})
 const uploadingRepairImages = ref(false)
 const uploadProgress = ref(0)
 const MAX_REPAIR_IMAGES = 30
@@ -1136,6 +1180,9 @@ const openAddDialog = () => {
   repairImageFilesBefore.value = []
   repairImageFilesAfter.value = []
   repairPaymentImageFiles.value = []
+  repairImageDragActive.before = false
+  repairImageDragActive.after = false
+  repairImageDragActive.payment = false
   uploadingRepairImages.value = false
   uploadProgress.value = 0
   recordForm.value = {
@@ -1189,6 +1236,9 @@ const editRecord = (row) => {
   repairImageFilesBefore.value = []
   repairImageFilesAfter.value = []
   repairPaymentImageFiles.value = []
+  repairImageDragActive.before = false
+  repairImageDragActive.after = false
+  repairImageDragActive.payment = false
   uploadingRepairImages.value = false
   uploadProgress.value = 0
   recordForm.value = {
@@ -1235,23 +1285,45 @@ const buildRepairUploadSubDir = (imageType, formData, targetId) => {
 }
 
 const handleRepairImageChange = (type, file) => {
-  if (!file || !file.raw) return
+  const raw = file?.raw || file
+  if (!raw) return
   const field = getFormImageField(type)
   if ((recordForm.value[field] || []).length >= MAX_REPAIR_IMAGES) {
     ElMessage.warning(`最多上传 ${MAX_REPAIR_IMAGES} 张图片`)
     return
   }
-  if (!String(file.raw.type || '').startsWith('image/')) {
+  if (!String(raw.type || '').startsWith('image/')) {
     ElMessage.warning('请上传图片文件')
     return
   }
-  if (file.raw.size && file.raw.size > 20 * 1024 * 1024) {
+  if (raw.size && raw.size > 20 * 1024 * 1024) {
     ElMessage.warning('图片请控制在 20MB 以内')
     return
   }
-  const url = URL.createObjectURL(file.raw)
-  getPendingImageFiles(type).value.push({ file: file.raw, url })
+  const url = URL.createObjectURL(raw)
+  getPendingImageFiles(type).value.push({ file: raw, url })
   recordForm.value[field] = [...(recordForm.value[field] || []), url]
+}
+
+const handleRepairImageDrop = (type, event) => {
+  repairImageDragActive[type] = false
+  const files = Array.from(event?.dataTransfer?.files || [])
+  for (const file of files) {
+    handleRepairImageChange(type, file)
+  }
+}
+
+const handleRepairImagePaste = (type, event) => {
+  const clipboardItems = Array.from(event?.clipboardData?.items || [])
+  const imageItems = clipboardItems.filter((item) => String(item?.type || '').startsWith('image/'))
+  if (!imageItems.length) return
+  event.preventDefault()
+  for (const item of imageItems) {
+    const file = item.getAsFile()
+    if (file) {
+      handleRepairImageChange(type, file)
+    }
+  }
 }
 
 const addInventoryUsage = () => {
@@ -1951,6 +2023,34 @@ const handleImportFile = async (file) => {
   margin-top: 8px;
   color: #64748b;
   font-size: 12px;
+}
+
+.form-image-dropzone {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 14px 16px;
+  border: 1px dashed var(--surface-border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-image-dropzone--active {
+  border-color: var(--el-color-primary);
+  background: rgba(37, 99, 235, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
+}
+
+.form-image-dropzone__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.form-image-dropzone__hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .ai-upload-panel {

@@ -465,6 +465,19 @@
         </el-form-item>
         <el-form-item label="水二维码">
           <div class="room-meter-form-block">
+            <div
+              class="form-image-dropzone"
+              :class="{ 'form-image-dropzone--active': roomMeterDragActive.water }"
+              @dragenter.prevent="roomMeterDragActive.water = true"
+              @dragover.prevent="roomMeterDragActive.water = true"
+              @dragleave.prevent="roomMeterDragActive.water = false"
+              @drop.prevent="handleRoomMeterQrDrop('water', $event)"
+              @paste="handleRoomMeterQrPaste('water', $event)"
+              tabindex="0"
+            >
+              <div class="form-image-dropzone__title">拖拽图片到这里</div>
+              <div class="form-image-dropzone__hint">也支持直接粘贴截图</div>
+            </div>
             <div class="room-meter-form-actions">
               <el-button type="primary" plain @click="openRoomMeterQrPicker('water')">选择图片</el-button>
               <span class="room-meter-form-tip">支持一次上传多张水表图片，适合套间两个水表</span>
@@ -485,6 +498,19 @@
         </el-form-item>
         <el-form-item label="电二维码">
           <div class="room-meter-form-block">
+            <div
+              class="form-image-dropzone"
+              :class="{ 'form-image-dropzone--active': roomMeterDragActive.electricity }"
+              @dragenter.prevent="roomMeterDragActive.electricity = true"
+              @dragover.prevent="roomMeterDragActive.electricity = true"
+              @dragleave.prevent="roomMeterDragActive.electricity = false"
+              @drop.prevent="handleRoomMeterQrDrop('electricity', $event)"
+              @paste="handleRoomMeterQrPaste('electricity', $event)"
+              tabindex="0"
+            >
+              <div class="form-image-dropzone__title">拖拽图片到这里</div>
+              <div class="form-image-dropzone__hint">也支持直接粘贴截图</div>
+            </div>
             <div class="room-meter-form-actions">
               <el-button type="primary" plain @click="openRoomMeterQrPicker('electricity')">选择图片</el-button>
               <span class="room-meter-form-tip">支持上传并预览电二维码图片</span>
@@ -1080,6 +1106,10 @@ const pendingRoomMeterFiles = reactive({
   water: [],
   electricity: null
 })
+const roomMeterDragActive = reactive({
+  water: false,
+  electricity: false
+})
 // 选择与删除相关
 const roomsTableRef = ref(null)
 const selectedRooms = ref([])
@@ -1465,9 +1495,8 @@ const revokeRoomMeterPreview = (value) => {
   if (text.startsWith('blob:')) URL.revokeObjectURL(text)
 }
 
-const handleRoomMeterQrFileChange = (type, event) => {
-  const files = Array.from(event?.target?.files || [])
-  event.target.value = ''
+const applyRoomMeterQrFiles = (type, inputFiles) => {
+  const files = Array.from(inputFiles || [])
   if (!files.length) return
   for (const file of files) {
     if (!String(file.type || '').startsWith('image/')) {
@@ -1487,6 +1516,27 @@ const handleRoomMeterQrFileChange = (type, event) => {
     revokeRoomMeterPreview(roomForm.electricity_meter_img)
     roomForm.electricity_meter_img = URL.createObjectURL(file)
   }
+}
+
+const handleRoomMeterQrFileChange = (type, event) => {
+  const files = Array.from(event?.target?.files || [])
+  event.target.value = ''
+  applyRoomMeterQrFiles(type, files)
+}
+
+const handleRoomMeterQrDrop = (type, event) => {
+  roomMeterDragActive[type] = false
+  const files = Array.from(event?.dataTransfer?.files || [])
+  applyRoomMeterQrFiles(type, files)
+}
+
+const handleRoomMeterQrPaste = (type, event) => {
+  const clipboardItems = Array.from(event?.clipboardData?.items || [])
+  const imageItems = clipboardItems.filter((item) => String(item?.type || '').startsWith('image/'))
+  if (!imageItems.length) return
+  event.preventDefault()
+  const files = imageItems.map((item) => item.getAsFile()).filter(Boolean)
+  applyRoomMeterQrFiles(type, files)
 }
 
 const normalizeSelfCheckinBuildingSegment = (room = {}) => {
@@ -1813,6 +1863,8 @@ const resetForm = () => {
   roomForm.electricity_meter_img = ''
   pendingRoomMeterFiles.water = []
   pendingRoomMeterFiles.electricity = null
+  roomMeterDragActive.water = false
+  roomMeterDragActive.electricity = false
 }
 
 const openAddDialog = () => {
@@ -2376,6 +2428,33 @@ const exportToPDF = async () => {
   flex-direction: column;
   gap: 10px;
   width: 100%;
+}
+
+.form-image-dropzone {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px dashed var(--surface-border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-image-dropzone--active {
+  border-color: var(--el-color-primary);
+  background: rgba(37, 99, 235, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
+}
+
+.form-image-dropzone__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.form-image-dropzone__hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .room-meter-form-actions {

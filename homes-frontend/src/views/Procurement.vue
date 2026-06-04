@@ -255,6 +255,19 @@
         </el-form-item>
         <el-form-item label="图片" class="procurement-image-field">
           <div class="procurement-image-uploader">
+            <div
+              class="form-image-dropzone"
+              :class="{ 'form-image-dropzone--active': procurementImageDragActive }"
+              @dragenter.prevent="procurementImageDragActive = true"
+              @dragover.prevent="procurementImageDragActive = true"
+              @dragleave.prevent="procurementImageDragActive = false"
+              @drop.prevent="handleProcurementImageDrop"
+              @paste="handleProcurementImagePaste"
+              tabindex="0"
+            >
+              <div class="form-image-dropzone__title">拖拽图片到这里</div>
+              <div class="form-image-dropzone__hint">也支持直接粘贴截图</div>
+            </div>
             <div class="procurement-image-actions">
               <el-upload
                 action=""
@@ -394,29 +407,46 @@
             type="textarea"
             :rows="5"
             placeholder="例如：今天线下买了 10 个 LED 灯泡，12W，单价 8.5 元，王会计付款。也可以上传收据、发票或购物截图让 AI 识别。"
+            @paste="handleAiPaste"
           />
         </el-form-item>
         <el-form-item label="图片识别">
-          <el-upload
-            action=""
-            :auto-upload="false"
-            :show-file-list="false"
-            accept="image/*"
-            multiple
-            :limit="20"
-            :on-change="handleAiImageChange"
-          >
-            <el-button type="primary" plain>选择图片</el-button>
-          </el-upload>
-          <el-button
-            v-if="aiDialog.images.length"
-            style="margin-left: 8px"
-            type="danger"
-            plain
-            @click="clearAiImages"
-          >
-            清空图片
-          </el-button>
+          <div class="ai-upload-panel">
+            <div
+              class="ai-dropzone"
+              :class="{ 'ai-dropzone--active': aiDialog.dragActive }"
+              @dragenter.prevent="aiDialog.dragActive = true"
+              @dragover.prevent="aiDialog.dragActive = true"
+              @dragleave.prevent="aiDialog.dragActive = false"
+              @drop.prevent="handleAiDrop"
+              @paste="handleAiPaste"
+              tabindex="0"
+            >
+              <div class="ai-dropzone__title">拖拽图片到这里识别</div>
+              <div class="ai-dropzone__hint">也可以点击下面按钮选择图片，或直接粘贴截图，识别后会自动带入物品图片</div>
+            </div>
+            <div class="ai-upload-actions">
+              <el-upload
+                action=""
+                :auto-upload="false"
+                :show-file-list="false"
+                accept="image/*"
+                multiple
+                :limit="20"
+                :on-change="handleAiImageChange"
+              >
+                <el-button type="primary" plain>选择图片</el-button>
+              </el-upload>
+              <el-button
+                v-if="aiDialog.images.length"
+                type="danger"
+                plain
+                @click="clearAiImages"
+              >
+                清空图片
+              </el-button>
+            </div>
+          </div>
           <div class="upload-progress-text">已选 {{ aiDialog.images.length }} / 20</div>
           <div v-if="aiDialog.images.length" class="ai-image-list">
             <div v-for="(item, index) in aiDialog.images" :key="item.url" class="ai-image-item">
@@ -495,9 +525,11 @@ const aiDialog = reactive({
   visible: false,
   loading: false,
   text: '',
-  images: []
+  images: [],
+  dragActive: false
 })
 const procurementImageFiles = ref([])
+const procurementImageDragActive = ref(false)
 const uploadingProcurementImages = ref(false)
 const uploadProgress = ref(0)
 const MAX_PROCUREMENT_IMAGES = 30
@@ -645,6 +677,7 @@ const openDialog = (type, row = null) => {
 
   revokeProcurementPreviewUrls()
   procurementImageFiles.value = []
+  procurementImageDragActive.value = false
   uploadingProcurementImages.value = false
   uploadProgress.value = 0
   if (type === 'edit' && row) {
@@ -667,6 +700,7 @@ const resetForm = () => {
   }
   revokeProcurementPreviewUrls()
   procurementImageFiles.value = []
+  procurementImageDragActive.value = false
   uploadingProcurementImages.value = false
   uploadProgress.value = 0
 }
@@ -681,22 +715,44 @@ const removeProcurementItem = (index) => {
 }
 
 const handleProcurementImageChange = (file) => {
-  if (!file || !file.raw) return
+  const raw = file?.raw || file
+  if (!raw) return
   if (form.procurement_images.length >= MAX_PROCUREMENT_IMAGES) {
     ElMessage.warning(`最多上传${MAX_PROCUREMENT_IMAGES}张图片`)
     return
   }
-  if (!String(file.raw.type || '').startsWith('image/')) {
+  if (!String(raw.type || '').startsWith('image/')) {
     ElMessage.warning('请上传图片文件')
     return
   }
-  if (file.raw.size && file.raw.size > 20 * 1024 * 1024) {
+  if (raw.size && raw.size > 20 * 1024 * 1024) {
     ElMessage.warning('图片请控制在 20MB 以内')
     return
   }
-  const url = URL.createObjectURL(file.raw)
-  procurementImageFiles.value.push({ file: file.raw, url })
+  const url = URL.createObjectURL(raw)
+  procurementImageFiles.value.push({ file: raw, url })
   form.procurement_images.push(url)
+}
+
+const handleProcurementImageDrop = (event) => {
+  procurementImageDragActive.value = false
+  const files = Array.from(event?.dataTransfer?.files || [])
+  for (const file of files) {
+    handleProcurementImageChange(file)
+  }
+}
+
+const handleProcurementImagePaste = (event) => {
+  const clipboardItems = Array.from(event?.clipboardData?.items || [])
+  const imageItems = clipboardItems.filter((item) => String(item?.type || '').startsWith('image/'))
+  if (!imageItems.length) return
+  event.preventDefault()
+  for (const item of imageItems) {
+    const file = item.getAsFile()
+    if (file) {
+      handleProcurementImageChange(file)
+    }
+  }
 }
 
 const removeFormImage = (index) => {
@@ -733,6 +789,7 @@ const resetAiDialog = () => {
   aiDialog.loading = false
   aiDialog.text = ''
   aiDialog.images = []
+  aiDialog.dragActive = false
 }
 
 const openAiDialog = () => {
@@ -740,24 +797,51 @@ const openAiDialog = () => {
   aiDialog.visible = true
 }
 
-const handleAiImageChange = (file) => {
-  if (!file || !file.raw) return
+const appendAiImageFile = (rawFile) => {
+  if (!rawFile) return
   if (aiDialog.images.length >= 20) {
     ElMessage.warning('最多选择 20 张图片')
     return
   }
-  if (!String(file.raw.type || '').startsWith('image/')) {
+  if (!String(rawFile.type || '').startsWith('image/')) {
     ElMessage.warning('请上传图片文件')
     return
   }
-  if (file.raw.size && file.raw.size > 8 * 1024 * 1024) {
+  if (rawFile.size && rawFile.size > 8 * 1024 * 1024) {
     ElMessage.warning('单张图片请控制在 8MB 以内')
     return
   }
   aiDialog.images.push({
-    file: file.raw,
-    url: URL.createObjectURL(file.raw)
+    file: rawFile,
+    url: URL.createObjectURL(rawFile)
   })
+}
+
+const handleAiImageChange = (file) => {
+  if (!file || !file.raw) return
+  appendAiImageFile(file.raw)
+}
+
+const handleAiDrop = (event) => {
+  aiDialog.dragActive = false
+  const files = Array.from(event?.dataTransfer?.files || [])
+  if (!files.length) return
+  for (const file of files) {
+    appendAiImageFile(file)
+  }
+}
+
+const handleAiPaste = (event) => {
+  const clipboardItems = Array.from(event?.clipboardData?.items || [])
+  const imageItems = clipboardItems.filter((item) => String(item?.type || '').startsWith('image/'))
+  if (!imageItems.length) return
+  event.preventDefault()
+  for (const item of imageItems) {
+    const file = item.getAsFile()
+    if (file) {
+      appendAiImageFile(file)
+    }
+  }
 }
 
 const removeAiImage = (index) => {
@@ -774,7 +858,7 @@ const clearAiImages = () => {
   aiDialog.images = []
 }
 
-const applyAiDraftToForm = (draft = {}) => {
+const applyAiDraftToForm = (draft = {}, aiImages = []) => {
   const items = Array.isArray(draft.items) ? draft.items : []
   const normalizedItems = items
     .map(item => ({
@@ -792,6 +876,17 @@ const applyAiDraftToForm = (draft = {}) => {
   form.total_amount = Number(draft.total_amount || 0)
   form.payment_person = String(draft.payment_person || '')
   form.remarks = String(draft.remarks || '')
+
+  const copiedAiImages = aiImages
+    .filter(item => item?.file)
+    .slice(0, MAX_PROCUREMENT_IMAGES)
+    .map(item => ({
+      file: item.file,
+      url: URL.createObjectURL(item.file)
+    }))
+
+  procurementImageFiles.value = copiedAiImages
+  form.procurement_images = copiedAiImages.map(item => item.url)
 
   if (normalizedItems.length > 1) {
     form.purchase_mode = 'multi'
@@ -829,7 +924,7 @@ const submitAiDraft = async () => {
       formData.append('images', item.file)
     })
     const response = await procurementApi.createAiDraft(formData)
-    applyAiDraftToForm(response?.data?.draft || {})
+    applyAiDraftToForm(response?.data?.draft || {}, aiDialog.images)
     aiDialog.visible = false
     ElMessage.success('AI 草稿已填入采购表单，请确认后保存')
   } catch (error) {
@@ -1496,6 +1591,34 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
+.form-image-dropzone {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 14px 16px;
+  border: 1px dashed var(--surface-border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-image-dropzone--active {
+  border-color: var(--el-color-primary);
+  background: rgba(37, 99, 235, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
+}
+
+.form-image-dropzone__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.form-image-dropzone__hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .procurement-image-actions {
   display: flex;
   align-items: center;
@@ -1516,6 +1639,45 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.ai-upload-panel {
+  width: 100%;
+}
+
+.ai-upload-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.ai-dropzone {
+  width: 100%;
+  padding: 16px;
+  border: 1px dashed var(--surface-border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ai-dropzone--active {
+  border-color: var(--el-color-primary);
+  background: rgba(37, 99, 235, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
+}
+
+.ai-dropzone__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.ai-dropzone__hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .ai-image-item {
@@ -1607,6 +1769,19 @@ onBeforeUnmount(() => {
 
   .procurement-image-actions :deep(.el-upload),
   .procurement-image-actions :deep(.el-button) {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .ai-upload-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .ai-upload-actions :deep(.el-upload),
+  .ai-upload-actions :deep(.el-button) {
     width: 100%;
     margin-left: 0;
   }
