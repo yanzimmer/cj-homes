@@ -1,0 +1,80 @@
+从 GitHub 下载代码后的使用说明
+
+一、首次在新电脑使用
+
+1. 进入项目根目录
+cd /Users/你的用户名/项目目录/homes
+
+2. 初始化数据库表结构，并创建默认管理员
+python3 Backend-System/init-scripts/init_hotel_db.py --init --create-default-admin
+
+说明：
+- 这一步会创建数据库文件：Backend-System/sql/hotel.db
+- 这一步会创建缺失的表
+- 这一步会创建默认管理员账号：admin / 123456
+
+3. 启动系统
+python3 start.py
+
+
+二、如果需要演示数据
+
+执行下面命令插入演示数据：
+python3 Backend-System/init-scripts/init_hotel_db.py --seed-demo-data
+
+说明：
+- 如果数据库里已经有业务数据，演示数据会自动跳过，不会重复插入
+
+
+三、默认管理员账号
+
+用户名：admin
+密码：123456
+
+建议首次登录后尽快修改密码。
+
+
+四、重置管理员密码命令
+
+先启动后端，再执行下面命令重置密码：
+
+curl -X POST http://127.0.0.1:5000/api/forgot-password \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","answer":"15286304124","new_password":"你的新密码"}'
+
+说明：
+- 默认安全问题答案在当前项目里会初始化为：15286304124
+- 如果后端不是 5000 端口，请把命令里的 5000 改成实际端口
+- `你的新密码` 请改成你要设置的新密码
+
+
+五、常用命令汇总
+
+1. 初始化数据库并创建管理员
+python3 Backend-System/init-scripts/init_hotel_db.py --init --create-default-admin
+
+2. 插入演示数据
+python3 Backend-System/init-scripts/init_hotel_db.py --seed-demo-data
+
+3. 启动前后端
+python3 start.py
+
+4. 查看数据库概况
+python3 Backend-System/init-scripts/init_hotel_db.py --summarize --compact
+
+
+六、补充说明
+
+1. 只执行 `python3 start.py`
+- 会自动启动前端和后端
+- 会自动生成数据库文件
+- 会自动检查并创建部分表结构
+- 但不会自动创建默认管理员
+- 也不会自动插入演示数据
+
+2. 最稳的首次使用顺序
+python3 Backend-System/init-scripts/init_hotel_db.py --init --create-default-admin
+python3 start.py
+
+3. 如果需要演示数据，再额外执行
+python3 Backend-System/init-scripts/init_hotel_db.py --seed-demo-data

@@ -35,7 +35,7 @@
           >
             OCR识别
           </el-button>
-          <el-button type="primary" plain @click="openAiDialog">AI识别</el-button>
+          <el-button type="primary" plain @click="openAiDialog">AI 输入</el-button>
           <span class="ocr-toolbar-tip">
             支持手机拍照和电脑上传，识别后会自动回填，仍可手动修改。
             <template v-if="ocrStatus.max_recognitions > 0">
@@ -94,7 +94,7 @@
       </div>
 
       <el-dialog
-        title="AI识别入住信息"
+        title="AI 输入入住信息"
         v-model="aiDialog.visible"
         width="min(640px, calc(100vw - 24px))"
         class="ai-checkin-dialog app-ai-dialog"
@@ -108,9 +108,10 @@
               type="textarea"
               :rows="4"
               placeholder="例如：张三，身份证号 110101199001011234，手机 13800000000，紧急联系人李四 13900000000，今天入住。也可以拍摄身份证正面让本地模型识别。"
+              @paste="handleAiPaste"
             />
           </el-form-item>
-          <el-form-item label="拍照或上传">
+          <el-form-item label="图片识别">
             <input
               ref="aiCameraInputRef"
               type="file"
@@ -127,10 +128,25 @@
               class="hidden-file-input"
               @change="handleAiImageInputChange"
             />
-            <div class="ai-actions">
-              <el-button type="primary" plain @click="openAiCameraPicker">拍照</el-button>
-              <el-button type="primary" plain @click="openAiImagePicker">上传图片</el-button>
-              <el-button v-if="aiDialog.images.length" type="danger" plain @click="clearAiImages">清空图片</el-button>
+            <div class="ai-upload-panel">
+              <div
+                class="ai-dropzone"
+                :class="{ 'ai-dropzone--active': aiDialog.dragActive }"
+                @dragenter.prevent="aiDialog.dragActive = true"
+                @dragover.prevent="aiDialog.dragActive = true"
+                @dragleave.prevent="aiDialog.dragActive = false"
+                @drop.prevent="handleAiDrop"
+                @paste="handleAiPaste"
+                tabindex="0"
+              >
+                <div class="ai-dropzone__title">拖拽图片到这里识别</div>
+                <div class="ai-dropzone__hint">也可以拍照、点击下面按钮选择图片，或直接粘贴截图。</div>
+              </div>
+              <div class="ai-upload-actions">
+                <el-button type="primary" plain @click="openAiCameraPicker">拍照</el-button>
+                <el-button type="primary" plain @click="openAiImagePicker">选择图片</el-button>
+                <el-button v-if="aiDialog.images.length" type="danger" plain @click="clearAiImages">清空图片</el-button>
+              </div>
             </div>
             <div class="upload-progress-text">已选 {{ aiDialog.images.length }} / 4</div>
             <div v-if="aiDialog.images.length" class="ai-image-list">
@@ -184,6 +200,7 @@ const aiDialog = reactive({
   loading: false,
   text: '',
   images: [],
+  dragActive: false,
 })
 const ocrStatus = reactive({
   configured: false,
@@ -508,6 +525,7 @@ const resetAiDialog = () => {
   aiDialog.loading = false
   aiDialog.text = ''
   aiDialog.images = []
+  aiDialog.dragActive = false
 }
 
 const openAiDialog = () => {
@@ -550,6 +568,22 @@ const handleAiImageInputChange = (event) => {
   files.forEach(file => addAiImageFile(file))
 }
 
+const handleAiDrop = (event) => {
+  aiDialog.dragActive = false
+  const files = Array.from(event?.dataTransfer?.files || [])
+  files.forEach(file => addAiImageFile(file))
+}
+
+const handleAiPaste = (event) => {
+  const files = Array.from(event?.clipboardData?.items || [])
+    .filter(item => item.kind === 'file')
+    .map(item => item.getAsFile())
+    .filter(Boolean)
+  if (!files.length) return
+  event.preventDefault()
+  files.forEach(file => addAiImageFile(file))
+}
+
 const removeAiImage = (index) => {
   const item = aiDialog.images[index]
   if (!item) return
@@ -581,7 +615,7 @@ const submitAiDraft = async () => {
     ocrMessage.value = 'AI 已生成入住信息并回填，请确认后再提交。'
     ElMessage.success('AI 信息已填入表单')
   } catch (err) {
-    ElMessage.error(err?.response?.data?.error || err?.message || 'AI识别失败')
+    ElMessage.error(err?.response?.data?.error || err?.message || 'AI 输入失败')
   } finally {
     aiDialog.loading = false
   }
@@ -735,42 +769,6 @@ html.dark .public-checkin-page {
   display: none;
 }
 
-.ai-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.upload-progress-text {
-  width: 100%;
-  margin-top: 8px;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.ai-image-list {
-  width: 100%;
-  margin-top: 10px;
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.ai-image-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.ai-image-thumb {
-  width: 88px;
-  height: 88px;
-  object-fit: cover;
-  border-radius: 8px;
-  border: 1px solid var(--surface-border);
-}
-
 .checkin-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -803,20 +801,6 @@ html.dark .public-checkin-page {
     font-size: 20px;
   }
 
-  :deep(.ai-checkin-dialog) {
-    margin: 8px auto;
-  }
-
-  :deep(.ai-checkin-dialog .el-dialog__body) {
-    padding: 12px 14px;
-  }
-
-  :deep(.ai-checkin-dialog .el-dialog__header),
-  :deep(.ai-checkin-dialog .el-dialog__footer) {
-    padding-left: 14px;
-    padding-right: 14px;
-  }
-
   .dialog-footer {
     width: 100%;
   }
@@ -824,20 +808,6 @@ html.dark .public-checkin-page {
   .dialog-footer .el-button {
     flex: 1;
     margin-left: 0;
-  }
-
-  .ai-actions {
-    width: 100%;
-  }
-
-  .ai-actions .el-button {
-    flex: 1;
-    margin-left: 0;
-  }
-
-  .ai-image-thumb {
-    width: 76px;
-    height: 76px;
   }
 
   .checkin-form {

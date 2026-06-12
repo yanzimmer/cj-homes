@@ -4,6 +4,10 @@ import os
 import time
 import signal
 import socket
+import shutil
+
+
+BACKEND_REQUIRED_MODULES = ("flask", "flask_cors", "flasgger", "jwt")
 
 
 def pick_backend_port(start_port=5000, max_port=5010):
@@ -41,6 +45,69 @@ def get_lan_ip():
         probe.close()
     return "127.0.0.1"
 
+
+def _iter_python_candidates(root_dir):
+    candidates = []
+
+    if sys.platform == 'win32':
+        venv_python = os.path.join(root_dir, 'venv', 'Scripts', 'python.exe')
+    else:
+        venv_python = os.path.join(root_dir, 'venv', 'bin', 'python')
+    candidates.append(venv_python)
+
+    configured_python = os.environ.get('PYTHON_EXE', '').strip()
+    if configured_python:
+        candidates.append(configured_python)
+
+    for name in ('python3', 'python'):
+        resolved = shutil.which(name)
+        if resolved:
+            candidates.append(resolved)
+
+    for path_dir in os.environ.get('PATH', '').split(os.pathsep):
+        path_dir = path_dir.strip()
+        if not path_dir:
+            continue
+        for name in ('python3', 'python'):
+            candidates.append(os.path.join(path_dir, name))
+
+    candidates.append(sys.executable)
+
+    seen = set()
+    for candidate in candidates:
+        if not candidate:
+            continue
+        normalized = os.path.abspath(candidate)
+        if normalized in seen or not os.path.exists(normalized):
+            continue
+        seen.add(normalized)
+        yield normalized
+
+
+def _python_can_run_backend(python_exe):
+    probe = (
+        "import importlib.util, sys\n"
+        f"mods = {BACKEND_REQUIRED_MODULES!r}\n"
+        "missing = [name for name in mods if importlib.util.find_spec(name) is None]\n"
+        "sys.exit(0 if not missing else 1)\n"
+    )
+    result = subprocess.run(
+        [python_exe, '-c', probe],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def pick_python_executable(root_dir):
+    for candidate in _iter_python_candidates(root_dir):
+        if _python_can_run_backend(candidate):
+            return candidate
+    raise RuntimeError(
+        "未找到可用的 Python 解释器。请确认已安装 Flask、Flask-Cors、flasgger、PyJWT 等后端依赖。"
+    )
+
 def main():
     # 获取当前脚本所在目录（项目根目录）
     root_dir = os.path.dirname(os.path.abspath(__file__))
@@ -49,15 +116,8 @@ def main():
     backend_dir = os.path.join(root_dir, 'Backend-System')
     frontend_dir = os.path.join(root_dir, 'homes-frontend')
     
-    # 确定 Python解释器路径 (优先使用 venv)
-    if sys.platform == 'win32':
-        python_exe = os.path.join(root_dir, 'venv', 'Scripts', 'python.exe')
-    else:
-        python_exe = os.path.join(root_dir, 'venv', 'bin', 'python')
-        
-    if not os.path.exists(python_exe):
-        print(f"Warning: 未找到虚拟环境 {python_exe}，将使用系统 Python")
-        python_exe = sys.executable
+    python_exe = pick_python_executable(root_dir)
+    print(f"[后端] 使用 Python: {python_exe}")
 
     backend_port = pick_backend_port()
     if backend_port != 5000:

@@ -413,6 +413,13 @@ def _rebuild_rent_ledger_year(conn, target_year):
     tenant_rows = cursor.fetchall()
     tenant_ids = [int(row[0]) for row in tenant_rows]
     if len(tenant_ids) == 0:
+        cursor.execute(
+            """
+            DELETE FROM rent_ledger_entries
+            WHERE substr(period_start, 1, 4) = ?
+            """,
+            (f"{target_year:04d}",),
+        )
         return 0
 
     conn.row_factory = sqlite3.Row
@@ -500,12 +507,11 @@ def _rebuild_rent_ledger_year(conn, target_year):
             rebuilt_rows.append(_build_rebuilt_entry_payload(tenant_row, period, source_row=source_row))
 
     cursor.execute(
-        f"""
+        """
         DELETE FROM rent_ledger_entries
-        WHERE tenant_id IN ({placeholders})
-          AND substr(period_start, 1, 4) = ?
+        WHERE substr(period_start, 1, 4) = ?
         """,
-        (*tenant_ids, f"{target_year:04d}"),
+        (f"{target_year:04d}",),
     )
     cursor.executemany(
         """

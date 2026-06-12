@@ -423,7 +423,7 @@
               tabindex="0"
             >
               <div class="ai-dropzone__title">拖拽图片到这里识别</div>
-              <div class="ai-dropzone__hint">也可以点击下面按钮选择图片，或直接粘贴截图，识别后会自动带入物品图片</div>
+              <div class="ai-dropzone__hint">也可以点击下面按钮选择图片，或直接粘贴截图。识别后会自动带入物品图片。</div>
             </div>
             <div class="ai-upload-actions">
               <el-upload
@@ -1633,66 +1633,6 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
-.ai-image-list {
-  width: 100%;
-  margin-top: 10px;
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.ai-upload-panel {
-  width: 100%;
-}
-
-.ai-upload-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-}
-
-.ai-dropzone {
-  width: 100%;
-  padding: 16px;
-  border: 1px dashed var(--surface-border);
-  border-radius: 12px;
-  background: var(--surface-muted);
-  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.ai-dropzone--active {
-  border-color: var(--el-color-primary);
-  background: rgba(37, 99, 235, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
-}
-
-.ai-dropzone__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.ai-dropzone__hint {
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.ai-image-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.ai-image-thumb {
-  width: 88px;
-  height: 88px;
-  border-radius: 8px;
-  border: 1px solid var(--surface-border);
-}
-
 .full-span {
   width: 100%;
 }
@@ -1769,19 +1709,6 @@ onBeforeUnmount(() => {
 
   .procurement-image-actions :deep(.el-upload),
   .procurement-image-actions :deep(.el-button) {
-    width: 100%;
-    margin-left: 0;
-  }
-
-  .ai-upload-actions {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 10px;
-    width: 100%;
-  }
-
-  .ai-upload-actions :deep(.el-upload),
-  .ai-upload-actions :deep(.el-button) {
     width: 100%;
     margin-left: 0;
   }

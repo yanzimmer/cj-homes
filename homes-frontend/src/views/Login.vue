@@ -15,7 +15,7 @@
         <div class="card-left-overlay"></div>
         <div class="brand-content">
           <div class="logo-circle">
-            <span class="logo-icon">🏠</span>
+            <el-icon class="logo-icon"><House /></el-icon>
           </div>
           <h1 class="welcome-title">从江房屋登记系统</h1>
           <p class="welcome-desc">仅限授权人员登录使用</p>
@@ -86,7 +86,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { ElMessage } from 'element-plus'
-import { User, Lock, Key } from '@element-plus/icons-vue'
+import { User, Lock, Key, House } from '@element-plus/icons-vue'
 import axios from 'axios'
 import ThemeModeSwitch from '../components/ThemeModeSwitch.vue'
 import { applyDisplayMode } from '../utils/displayMode'
@@ -219,7 +219,10 @@ const submitForgot = async () => {
   display: flex;
   justify-content: center;
   align-items: center;
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  background:
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.14), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(20, 184, 166, 0.1), transparent 24%),
+    linear-gradient(135deg, #f2f7fc 0%, #fbfdff 52%, #f1f8fb 100%);
   position: relative;
   overflow: hidden;
   z-index: 0;
@@ -238,37 +241,37 @@ const submitForgot = async () => {
 /* 动态背景形状 */
 .background-shapes .shape {
   position: absolute;
-  filter: blur(50px);
+  filter: blur(70px);
   z-index: 0;
-  animation: float 20s infinite;
+  animation: float 22s infinite;
 }
 .shape-1 {
-  top: -10%;
-  left: -10%;
-  width: 50vw;
-  height: 50vw;
-  background: linear-gradient(to right, #a1c4fd, #c2e9fb);
+  top: -8%;
+  left: -8%;
+  width: 42vw;
+  height: 42vw;
+  background: linear-gradient(to right, rgba(37, 99, 235, 0.22), rgba(20, 184, 166, 0.12));
   border-radius: 50%;
-  opacity: 0.5;
+  opacity: 0.72;
 }
 .shape-2 {
-  bottom: -10%;
-  right: -10%;
-  width: 60vw;
-  height: 60vw;
-  background: linear-gradient(to left, #d4fc79, #96e6a1);
-  border-radius: 40%;
-  opacity: 0.5;
+  bottom: -12%;
+  right: -8%;
+  width: 44vw;
+  height: 44vw;
+  background: linear-gradient(to left, rgba(20, 184, 166, 0.18), rgba(59, 130, 246, 0.1));
+  border-radius: 44%;
+  opacity: 0.68;
   animation-delay: -5s;
 }
 .shape-3 {
-  top: 30%;
-  left: 30%;
-  width: 30vw;
-  height: 30vw;
-  background: linear-gradient(to bottom, #cfd9df, #e2ebf0);
-  border-radius: 30%;
-  opacity: 0.3;
+  top: 28%;
+  left: 36%;
+  width: 24vw;
+  height: 24vw;
+  background: linear-gradient(to bottom, rgba(59, 130, 246, 0.1), rgba(20, 184, 166, 0.06));
+  border-radius: 32%;
+  opacity: 0.62;
   animation-delay: -10s;
 }
 
@@ -283,12 +286,12 @@ const submitForgot = async () => {
   width: 900px;
   height: 550px;
   display: flex;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 28px 60px rgba(15, 23, 42, 0.16);
   z-index: 1;
   overflow: hidden;
 }
@@ -296,7 +299,9 @@ const submitForgot = async () => {
 /* 左侧品牌区 */
 .card-left {
   flex: 1;
-  background: linear-gradient(135deg, #3a7bd5 0%, #3a6073 100%);
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.18), transparent 30%),
+    linear-gradient(135deg, #2563eb 0%, #14b8a6 100%);
   color: white;
   display: flex;
   flex-direction: column;
@@ -327,30 +332,30 @@ const submitForgot = async () => {
 .logo-circle {
   width: 80px;
   height: 80px;
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   margin: 0 auto 20px;
-  backdrop-filter: blur(5px);
+  backdrop-filter: blur(10px);
 }
 
 .logo-icon {
-  font-size: 40px;
+  font-size: 38px;
 }
 
 .welcome-title {
   font-size: 32px;
-  font-weight: bold;
+  font-weight: 700;
   margin-bottom: 10px;
-  letter-spacing: 1px;
 }
 
 .welcome-desc {
   font-size: 14px;
-  opacity: 0.9;
-  font-weight: 300;
+  opacity: 0.92;
+  font-weight: 400;
 }
 
 .decoration-circles .circle {
@@ -368,7 +373,7 @@ const submitForgot = async () => {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.56);
 }
 
 .form-header {
@@ -377,22 +382,22 @@ const submitForgot = async () => {
 }
 .form-header h2 {
   font-size: 24px;
-  color: #333;
+  color: #0f172a;
   margin-bottom: 8px;
 }
 .sub-text {
-  color: #666;
+  color: #64748b;
   font-size: 14px;
 }
 
 .custom-form :deep(.el-input__wrapper) {
-  border-radius: 8px;
-  box-shadow: 0 0 0 1px #dcdfe6 inset;
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px #dbe3ef inset;
   padding: 8px 15px;
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.92);
 }
 .custom-form :deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 1px #409eff inset !important;
+  box-shadow: 0 0 0 1px #2563eb inset !important;
 }
 
 .form-options {
@@ -407,29 +412,28 @@ const submitForgot = async () => {
 }
 
 .forgot-link, .back-link {
-  color: #409eff;
+  color: #2563eb;
   cursor: pointer;
   transition: color 0.2s;
 }
 .forgot-link:hover, .back-link:hover {
-  color: #3a7bd5;
+  color: #1d4ed8;
   text-decoration: underline;
 }
 
 .submit-btn {
   width: 100%;
   height: 48px;
-  border-radius: 8px;
+  border-radius: 12px;
   font-size: 16px;
   font-weight: 600;
-  letter-spacing: 1px;
-  background: linear-gradient(90deg, #409eff, #3a7bd5);
+  background: linear-gradient(135deg, #2563eb 0%, #14b8a6 100%);
   border: none;
   transition: transform 0.2s, box-shadow 0.2s;
 }
 .submit-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.3);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.16);
 }
 
 /* 响应式适配 */
@@ -526,13 +530,13 @@ html.dark .card-left-overlay {
 }
 
 html.dark #login-page .login-card {
-  background: rgba(30, 30, 30, 0.7) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5) !important;
+  background: rgba(15, 23, 42, 0.76) !important;
+  border: 1px solid rgba(148, 163, 184, 0.12) !important;
+  box-shadow: 0 24px 50px rgba(2, 6, 23, 0.5) !important;
 }
 
 html.dark #login-page .card-right {
-  background: rgba(0, 0, 0, 0.2) !important;
+  background: rgba(15, 23, 42, 0.34) !important;
 }
 
 html.dark #login-page .form-header h2 {
@@ -540,7 +544,7 @@ html.dark #login-page .form-header h2 {
 }
 
 html.dark #login-page .sub-text {
-  color: #a3a6ad !important;
+  color: #94a3b8 !important;
 }
 
 html.mobile-mode #login-page {
@@ -590,8 +594,8 @@ html.mobile-mode #login-page .logo-icon {
 }
 
 html.dark #login-page .custom-form .el-input__wrapper {
-  background: rgba(0, 0, 0, 0.3) !important;
-  box-shadow: 0 0 0 1px #4c4d4f inset !important;
+  background: rgba(15, 23, 42, 0.7) !important;
+  box-shadow: 0 0 0 1px #334155 inset !important;
 }
 
 html.dark #login-page .custom-form .el-input__inner {

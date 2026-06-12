@@ -295,30 +295,48 @@
               type="textarea"
               :rows="5"
               :placeholder="aiTextPlaceholder"
+              @paste="handleAiPaste"
             />
           </el-form-item>
           <el-form-item label="图片识别">
-            <el-upload
-              action=""
-              :auto-upload="false"
-              :show-file-list="false"
-              accept="image/*"
-              multiple
-              :limit="4"
-              :on-change="handleAiImageChange"
-            >
-              <el-button type="primary" plain>选择图片</el-button>
-            </el-upload>
-            <el-button
-              v-if="aiDialog.images.length"
-              style="margin-left: 8px"
-              type="danger"
-              plain
-              @click="clearAiImages"
-            >
-              清空图片
-            </el-button>
-            <div class="image-upload-tip">已选 {{ aiDialog.images.length }} / 4，识别图片不会自动作为业务图片保存。</div>
+            <div class="ai-upload-panel">
+              <div
+                class="ai-dropzone"
+                :class="{ 'ai-dropzone--active': aiDialog.dragActive }"
+                @dragenter.prevent="aiDialog.dragActive = true"
+                @dragover.prevent="aiDialog.dragActive = true"
+                @dragleave.prevent="aiDialog.dragActive = false"
+                @drop.prevent="handleAiDrop"
+                @paste="handleAiPaste"
+                tabindex="0"
+              >
+                <div class="ai-dropzone__title">拖拽图片到这里识别</div>
+                <div class="ai-dropzone__hint">也可以点击下面按钮选择图片，或直接粘贴截图。</div>
+              </div>
+              <div class="ai-upload-actions">
+                <el-upload
+                  action=""
+                  :auto-upload="false"
+                  :show-file-list="false"
+                  accept="image/*"
+                  multiple
+                  :limit="4"
+                  :on-change="handleAiImageChange"
+                >
+                  <el-button type="primary" plain>选择图片</el-button>
+                </el-upload>
+                <el-button
+                  v-if="aiDialog.images.length"
+                  type="danger"
+                  plain
+                  @click="clearAiImages"
+                >
+                  清空图片
+                </el-button>
+              </div>
+            </div>
+            <div class="upload-progress-text">已选 {{ aiDialog.images.length }} / 4</div>
+            <div class="image-upload-tip">识别图片仅用于生成表单内容，不会自动保存到下方业务图片。</div>
             <div v-if="aiDialog.images.length" class="ai-image-list">
               <div v-for="(item, index) in aiDialog.images" :key="item.url" class="ai-image-item">
                 <el-image
@@ -362,10 +380,17 @@ const route = useRoute()
 const businessType = String(route.params.businessType || '').trim().toLowerCase()
 const token = String(route.params.token || '')
 const currentConfig = computed(() => BUSINESS_CONFIGS[businessType] || { title: '公开填写', subtitle: '' })
-const aiDialogTitle = computed(() => businessType === 'repair' ? 'AI 输入维修' : 'AI 输入采购')
+const aiDialogTitle = computed(() => {
+  if (businessType === 'repair') return 'AI 输入维修'
+  if (businessType === 'warehouse') return 'AI 输入库存'
+  return 'AI 输入采购'
+})
 const aiTextPlaceholder = computed(() => {
   if (businessType === 'repair') {
     return '例如：A栋 301 洗手间漏水，张三报修，今天待处理。也可以上传现场照片、报修截图或支付截图让 AI 识别。'
+  }
+  if (businessType === 'warehouse') {
+    return '例如：今天入库 12 个 LED 灯泡，放在 A 栋工具间。也可以上传清单、截图或现场照片让 AI 识别。'
   }
   return '例如：今天线下买了 10 个 LED 灯泡，12W，单价 8.5 元，王会计付款。也可以上传收据、发票或购物截图让 AI 识别。'
 })
@@ -390,7 +415,8 @@ const aiDialog = reactive({
   visible: false,
   loading: false,
   text: '',
-  images: []
+  images: [],
+  dragActive: false,
 })
 
 const parsePublicBuildingModel = (value, scopeType) => {
@@ -703,6 +729,7 @@ const resetAiDialog = () => {
   aiDialog.loading = false
   aiDialog.text = ''
   aiDialog.images = []
+  aiDialog.dragActive = false
 }
 
 const openAiDialog = () => {
@@ -710,24 +737,46 @@ const openAiDialog = () => {
   aiDialog.visible = true
 }
 
-const handleAiImageChange = (file) => {
-  if (!file || !file.raw) return
+const addAiImageFile = (file) => {
+  if (!file) return false
   if (aiDialog.images.length >= 4) {
     ElMessage.warning('最多选择 4 张图片')
-    return
+    return false
   }
-  if (!String(file.raw.type || '').startsWith('image/')) {
+  if (!String(file.type || '').startsWith('image/')) {
     ElMessage.warning('请上传图片文件')
-    return
+    return false
   }
-  if (file.raw.size && file.raw.size > 8 * 1024 * 1024) {
+  if (file.size && file.size > 8 * 1024 * 1024) {
     ElMessage.warning('单张图片请控制在 8MB 以内')
-    return
+    return false
   }
   aiDialog.images.push({
-    file: file.raw,
-    url: URL.createObjectURL(file.raw)
+    file,
+    url: URL.createObjectURL(file)
   })
+  return true
+}
+
+const handleAiImageChange = (file) => {
+  if (!file || !file.raw) return
+  addAiImageFile(file.raw)
+}
+
+const handleAiDrop = (event) => {
+  aiDialog.dragActive = false
+  const files = Array.from(event?.dataTransfer?.files || [])
+  files.forEach(file => addAiImageFile(file))
+}
+
+const handleAiPaste = (event) => {
+  const files = Array.from(event?.clipboardData?.items || [])
+    .filter(item => item.kind === 'file')
+    .map(item => item.getAsFile())
+    .filter(Boolean)
+  if (!files.length) return
+  event.preventDefault()
+  files.forEach(file => addAiImageFile(file))
 }
 
 const removeAiImage = (index) => {
@@ -1024,28 +1073,6 @@ html.dark .public-page {
   height: 88px;
   object-fit: cover;
   border-radius: 10px;
-  border: 1px solid var(--surface-border);
-}
-
-.ai-image-list {
-  width: 100%;
-  margin-top: 10px;
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.ai-image-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.ai-image-thumb {
-  width: 88px;
-  height: 88px;
-  object-fit: cover;
-  border-radius: 8px;
   border: 1px solid var(--surface-border);
 }
 

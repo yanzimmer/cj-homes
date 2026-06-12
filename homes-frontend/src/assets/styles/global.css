@@ -1,42 +1,42 @@
 /* Global Variables */
 :root {
   --el-color-primary: #2563eb;
-  --el-color-success: #67c23a;
-  --el-color-warning: #e6a23c;
-  --el-color-danger: #f56c6c;
-  --el-color-info: #909399;
+  --el-color-success: #16a34a;
+  --el-color-warning: #d97706;
+  --el-color-danger: #dc2626;
+  --el-color-info: #64748b;
   
-  --bg-color: #f6f8fc;
-  --text-main: #182133;
-  --text-regular: #4a5568;
-  --text-secondary: #718096;
+  --bg-color: #f3f6fb;
+  --text-main: #0f172a;
+  --text-regular: #334155;
+  --text-secondary: #64748b;
   
   --card-bg: #ffffff;
   --card-radius: 16px;
-  --card-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  --card-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
   --header-height: 60px;
   --sidebar-width: 240px;
   --sidebar-width-collapsed: 64px;
   --mobile-preview-width: 430px;
   --surface-bg: #ffffff;
-  --surface-border: #e8edf5;
-  --surface-muted: #f8fafc;
-  --sidebar-bg: var(--bg-color);
-  --drawer-bg: var(--bg-color);
-  --sidebar-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+  --surface-border: #dbe3ef;
+  --surface-muted: #f7f9fc;
+  --sidebar-bg: #ffffff;
+  --drawer-bg: #ffffff;
+  --sidebar-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
   --sidebar-divider: rgba(15, 23, 42, 0.08);
   --sidebar-text: #334155;
   --sidebar-text-muted: #64748b;
   --sidebar-hover: rgba(37, 99, 235, 0.08);
   --sidebar-hover-text: #1d4ed8;
   --theme-transition-duration: 0.22s;
-  --button-neutral-bg: #f8fafc;
+  --button-neutral-bg: #ffffff;
   --button-neutral-hover-bg: #eff6ff;
-  --button-neutral-border: #d9e2ef;
-  --button-primary-soft-bg: rgba(37, 99, 235, 0.1);
-  --button-success-soft-bg: rgba(103, 194, 58, 0.12);
-  --button-warning-soft-bg: rgba(230, 162, 60, 0.14);
-  --button-danger-soft-bg: rgba(245, 108, 108, 0.12);
+  --button-neutral-border: #d7e0ec;
+  --button-primary-soft-bg: rgba(37, 99, 235, 0.12);
+  --button-success-soft-bg: rgba(22, 163, 74, 0.12);
+  --button-warning-soft-bg: rgba(217, 119, 6, 0.12);
+  --button-danger-soft-bg: rgba(220, 38, 38, 0.12);
 }
 
 /* Prevent transitions on load */
@@ -65,8 +65,8 @@ html.dark {
   --surface-bg: #111827;
   --surface-border: #253042;
   --surface-muted: #1b2435;
-  --sidebar-bg: var(--bg-color);
-  --drawer-bg: var(--bg-color);
+  --sidebar-bg: #0b1220;
+  --drawer-bg: #0b1220;
   --sidebar-shadow: 0 12px 30px rgba(2, 6, 23, 0.32);
   --sidebar-divider: rgba(148, 163, 184, 0.18);
   --sidebar-text: #cbd5e1;
@@ -95,9 +95,7 @@ body {
 
 html.mobile-mode body {
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top, rgba(37, 99, 235, 0.18), transparent 30%),
-    linear-gradient(180deg, #e2e8f0 0%, #f8fafc 28%, #dbeafe 100%);
+  background: linear-gradient(180deg, #eef3f9 0%, #f6f9fd 100%);
 }
 
 .el-drawer {
@@ -220,7 +218,7 @@ html.mobile-mode body {
   background: var(--el-color-primary);
   border-color: var(--el-color-primary);
   color: #ffffff;
-  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.18);
+  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.14);
 }
 
 .page-container .header-operations .el-button:not(.is-link):not(.is-text):not(.is-circle):not(.el-button--danger):not(.is-disabled):hover,
@@ -228,7 +226,7 @@ html.mobile-mode body {
   background: #3b82f6;
   border-color: #3b82f6;
   color: #ffffff;
-  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.24);
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.18);
 }
 
 html.dark .page-container .header-operations .el-button:not(.is-link):not(.is-text):not(.is-circle):not(.el-button--danger):not(.is-disabled) {
@@ -381,11 +379,50 @@ html.dark .page-container .header-operations .el-button:not(.is-link):not(.is-te
   background: var(--card-bg);
 }
 
+.app-ai-dialog .dialog-footer,
+.app-ai-dialog-overlay .el-dialog .dialog-footer,
+.tenant-ai-dialog.app-ai-dialog .dialog-footer,
+.ai-checkin-dialog.app-ai-dialog .dialog-footer {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  width: 100%;
+}
+
+.app-ai-dialog .dialog-footer .el-button + .el-button,
+.app-ai-dialog-overlay .el-dialog .dialog-footer .el-button + .el-button,
+.tenant-ai-dialog.app-ai-dialog .dialog-footer .el-button + .el-button,
+.ai-checkin-dialog.app-ai-dialog .dialog-footer .el-button + .el-button {
+  margin-left: 0;
+}
+
 .app-ai-dialog .el-form-item__label,
 .app-ai-dialog-overlay .el-dialog .el-form-item__label,
 .tenant-ai-dialog.app-ai-dialog .el-form-item__label,
 .ai-checkin-dialog.app-ai-dialog .el-form-item__label {
   color: var(--text-regular);
+}
+
+.app-ai-dialog .el-form-item,
+.app-ai-dialog-overlay .el-dialog .el-form-item,
+.tenant-ai-dialog.app-ai-dialog .el-form-item,
+.ai-checkin-dialog.app-ai-dialog .el-form-item {
+  margin-bottom: 18px;
+}
+
+.app-ai-dialog .el-form-item:last-child,
+.app-ai-dialog-overlay .el-dialog .el-form-item:last-child,
+.tenant-ai-dialog.app-ai-dialog .el-form-item:last-child,
+.ai-checkin-dialog.app-ai-dialog .el-form-item:last-child {
+  margin-bottom: 0;
+}
+
+.app-ai-dialog .el-form-item__content,
+.app-ai-dialog-overlay .el-dialog .el-form-item__content,
+.tenant-ai-dialog.app-ai-dialog .el-form-item__content,
+.ai-checkin-dialog.app-ai-dialog .el-form-item__content {
+  min-width: 0;
 }
 
 .app-ai-dialog .el-textarea__inner,
@@ -396,6 +433,8 @@ html.dark .page-container .header-operations .el-button:not(.is-link):not(.is-te
   border-color: var(--surface-border);
   color: var(--text-main);
   box-shadow: 0 0 0 1px var(--surface-border) inset;
+  line-height: 1.6;
+  resize: vertical;
 }
 
 .app-ai-dialog .el-textarea__inner::placeholder,
@@ -412,6 +451,133 @@ html.dark .page-container .header-operations .el-button:not(.is-link):not(.is-te
 .tenant-ai-dialog.app-ai-dialog .upload-progress-text,
 .ai-checkin-dialog.app-ai-dialog .upload-progress-text {
   color: var(--text-secondary);
+}
+
+.app-ai-dialog .ai-upload-panel,
+.app-ai-dialog-overlay .el-dialog .ai-upload-panel,
+.tenant-ai-dialog.app-ai-dialog .ai-upload-panel,
+.ai-checkin-dialog.app-ai-dialog .ai-upload-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.app-ai-dialog .ai-dropzone,
+.app-ai-dialog-overlay .el-dialog .ai-dropzone,
+.tenant-ai-dialog.app-ai-dialog .ai-dropzone,
+.ai-checkin-dialog.app-ai-dialog .ai-dropzone {
+  width: 100%;
+  min-height: 112px;
+  box-sizing: border-box;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px dashed var(--surface-border);
+  background: var(--surface-muted);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  color: var(--text-secondary);
+  outline: none;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.app-ai-dialog .ai-dropzone:focus-visible,
+.app-ai-dialog-overlay .el-dialog .ai-dropzone:focus-visible,
+.tenant-ai-dialog.app-ai-dialog .ai-dropzone:focus-visible,
+.ai-checkin-dialog.app-ai-dialog .ai-dropzone:focus-visible,
+.app-ai-dialog .ai-dropzone--active,
+.app-ai-dialog-overlay .el-dialog .ai-dropzone--active,
+.tenant-ai-dialog.app-ai-dialog .ai-dropzone--active,
+.ai-checkin-dialog.app-ai-dialog .ai-dropzone--active {
+  border-color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 8%, var(--surface-muted));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--el-color-primary) 18%, transparent);
+}
+
+.app-ai-dialog .ai-dropzone__title,
+.app-ai-dialog-overlay .el-dialog .ai-dropzone__title,
+.tenant-ai-dialog.app-ai-dialog .ai-dropzone__title,
+.ai-checkin-dialog.app-ai-dialog .ai-dropzone__title {
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.app-ai-dialog .ai-dropzone__hint,
+.app-ai-dialog-overlay .el-dialog .ai-dropzone__hint,
+.tenant-ai-dialog.app-ai-dialog .ai-dropzone__hint,
+.ai-checkin-dialog.app-ai-dialog .ai-dropzone__hint {
+  max-width: 380px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.app-ai-dialog .ai-upload-actions,
+.app-ai-dialog-overlay .el-dialog .ai-upload-actions,
+.tenant-ai-dialog.app-ai-dialog .ai-upload-actions,
+.ai-checkin-dialog.app-ai-dialog .ai-upload-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.app-ai-dialog .ai-upload-actions .el-upload,
+.app-ai-dialog-overlay .el-dialog .ai-upload-actions .el-upload,
+.tenant-ai-dialog.app-ai-dialog .ai-upload-actions .el-upload,
+.ai-checkin-dialog.app-ai-dialog .ai-upload-actions .el-upload {
+  display: inline-flex;
+}
+
+.app-ai-dialog .upload-progress-text,
+.app-ai-dialog .image-upload-tip,
+.app-ai-dialog-overlay .el-dialog .upload-progress-text,
+.app-ai-dialog-overlay .el-dialog .image-upload-tip,
+.tenant-ai-dialog.app-ai-dialog .upload-progress-text,
+.tenant-ai-dialog.app-ai-dialog .image-upload-tip,
+.ai-checkin-dialog.app-ai-dialog .upload-progress-text,
+.ai-checkin-dialog.app-ai-dialog .image-upload-tip {
+  width: 100%;
+  line-height: 1.6;
+  font-size: 12px;
+}
+
+.app-ai-dialog .ai-image-list,
+.app-ai-dialog-overlay .el-dialog .ai-image-list,
+.tenant-ai-dialog.app-ai-dialog .ai-image-list,
+.ai-checkin-dialog.app-ai-dialog .ai-image-list {
+  width: 100%;
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 88px));
+  gap: 12px;
+}
+
+.app-ai-dialog .ai-image-item,
+.app-ai-dialog-overlay .el-dialog .ai-image-item,
+.tenant-ai-dialog.app-ai-dialog .ai-image-item,
+.ai-checkin-dialog.app-ai-dialog .ai-image-item {
+  width: 88px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.app-ai-dialog .ai-image-thumb,
+.app-ai-dialog-overlay .el-dialog .ai-image-thumb,
+.tenant-ai-dialog.app-ai-dialog .ai-image-thumb,
+.ai-checkin-dialog.app-ai-dialog .ai-image-thumb {
+  width: 88px;
+  height: 88px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--surface-border);
 }
 
 html.mobile-mode .app-ai-dialog,
@@ -485,6 +651,65 @@ html.mobile-mode .ai-checkin-dialog.app-ai-dialog .el-form-item__content {
   margin-left: 0 !important;
 }
 
+html.mobile-mode .app-ai-dialog .ai-upload-panel,
+html.mobile-mode .app-ai-dialog-overlay .el-dialog .ai-upload-panel,
+html.mobile-mode .tenant-ai-dialog.app-ai-dialog .ai-upload-panel,
+html.mobile-mode .ai-checkin-dialog.app-ai-dialog .ai-upload-panel {
+  gap: 10px;
+}
+
+html.mobile-mode .app-ai-dialog .ai-dropzone,
+html.mobile-mode .app-ai-dialog-overlay .el-dialog .ai-dropzone,
+html.mobile-mode .tenant-ai-dialog.app-ai-dialog .ai-dropzone,
+html.mobile-mode .ai-checkin-dialog.app-ai-dialog .ai-dropzone {
+  min-height: 104px;
+  padding: 14px;
+}
+
+html.mobile-mode .app-ai-dialog .ai-upload-actions,
+html.mobile-mode .app-ai-dialog-overlay .el-dialog .ai-upload-actions,
+html.mobile-mode .tenant-ai-dialog.app-ai-dialog .ai-upload-actions,
+html.mobile-mode .ai-checkin-dialog.app-ai-dialog .ai-upload-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  width: 100%;
+}
+
+html.mobile-mode .app-ai-dialog .ai-upload-actions .el-upload,
+html.mobile-mode .app-ai-dialog-overlay .el-dialog .ai-upload-actions .el-upload,
+html.mobile-mode .tenant-ai-dialog.app-ai-dialog .ai-upload-actions .el-upload,
+html.mobile-mode .ai-checkin-dialog.app-ai-dialog .ai-upload-actions .el-upload,
+html.mobile-mode .app-ai-dialog .ai-upload-actions .el-button,
+html.mobile-mode .app-ai-dialog-overlay .el-dialog .ai-upload-actions .el-button,
+html.mobile-mode .tenant-ai-dialog.app-ai-dialog .ai-upload-actions .el-button,
+html.mobile-mode .ai-checkin-dialog.app-ai-dialog .ai-upload-actions .el-button {
+  width: 100%;
+  margin-left: 0 !important;
+}
+
+html.mobile-mode .app-ai-dialog .ai-image-list,
+html.mobile-mode .app-ai-dialog-overlay .el-dialog .ai-image-list,
+html.mobile-mode .tenant-ai-dialog.app-ai-dialog .ai-image-list,
+html.mobile-mode .ai-checkin-dialog.app-ai-dialog .ai-image-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+html.mobile-mode .app-ai-dialog .ai-image-item,
+html.mobile-mode .app-ai-dialog-overlay .el-dialog .ai-image-item,
+html.mobile-mode .tenant-ai-dialog.app-ai-dialog .ai-image-item,
+html.mobile-mode .ai-checkin-dialog.app-ai-dialog .ai-image-item {
+  width: 100%;
+}
+
+html.mobile-mode .app-ai-dialog .ai-image-thumb,
+html.mobile-mode .app-ai-dialog-overlay .el-dialog .ai-image-thumb,
+html.mobile-mode .tenant-ai-dialog.app-ai-dialog .ai-image-thumb,
+html.mobile-mode .ai-checkin-dialog.app-ai-dialog .ai-image-thumb {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
+}
+
 html.mobile-mode .app-ai-dialog .dialog-footer,
 html.mobile-mode .app-ai-dialog-overlay .el-dialog .dialog-footer,
 html.mobile-mode .tenant-ai-dialog.app-ai-dialog .dialog-footer,
@@ -500,6 +725,7 @@ html.mobile-mode .app-ai-dialog-overlay .el-dialog .dialog-footer .el-button,
 html.mobile-mode .tenant-ai-dialog.app-ai-dialog .dialog-footer .el-button,
 html.mobile-mode .ai-checkin-dialog.app-ai-dialog .dialog-footer .el-button {
   margin-left: 0;
+  width: 100%;
 }
 
 html.mobile-mode .app-themed-dialog,

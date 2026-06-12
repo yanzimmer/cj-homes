@@ -156,8 +156,33 @@ def _warm_ollama_model(model):
     })
 
 
+def _get_available_ollama_models(settings=None):
+    current = settings or load_ai_settings()
+    ollama_base_url = _normalize_url_for_test(current.get('ollama_base_url'), 'http') or OLLAMA_BASE_URL
+    req = urllib.request.Request(f"{ollama_base_url}/api/tags", method='GET')
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read().decode('utf-8'))
+    models = data.get('models') or []
+    result = []
+    for item in models:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get('name') or item.get('model') or '').strip()
+        if name:
+            result.append(name)
+    return result
+
+
 def _serialize_ai_settings(settings=None):
     current = settings or load_ai_settings()
+    available_models = list(ALLOWED_PROCUREMENT_MODELS)
+    if str(current.get('provider') or 'ollama').strip().lower() != 'api':
+        try:
+            installed_models = _get_available_ollama_models(current)
+            if installed_models:
+                available_models = installed_models
+        except Exception:
+            pass
     return {
         'enabled': current.get('enabled', True),
         'provider': current.get('provider', 'ollama'),
@@ -168,7 +193,7 @@ def _serialize_ai_settings(settings=None):
         'responses_url': current.get('responses_url', ''),
         'model': current.get('model', ''),
         'api_key': current.get('api_key', ''),
-        'available_procurement_models': ALLOWED_PROCUREMENT_MODELS,
+        'available_procurement_models': available_models,
         'updated_at': current.get('updated_at', ''),
         'switch_status': _get_ai_switch_status(),
     }
@@ -382,15 +407,14 @@ def _run_ai_model_switch(task_id, old_model, new_model):
             message=f'正在调用并加载模型 {new_model}',
         )
         _warm_ollama_model(new_model)
-
         saved = save_ai_settings({'enabled': True, 'procurement_model': new_model})
         _set_ai_switch_status(
             status='completed',
             phase='completed',
             message=(
-                f'已切换到 {new_model}'
+                f'已切换文本模型到 {new_model}'
                 if is_local_ollama
-                else f'已切换到 {new_model}；远程 Ollama 无法从本系统关闭旧模型'
+                else f'已切换文本模型到 {new_model}；远程 Ollama 无法从本系统关闭旧模型'
             ),
             finished_at=saved.get('updated_at') or datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             error='',
@@ -465,7 +489,8 @@ def _run_ai_enable(task_id, current_model):
         error='',
     )
     try:
-        _warm_ollama_model(current_model)
+        if current_model:
+            _warm_ollama_model(current_model)
         saved = save_ai_settings({'enabled': True, 'procurement_model': current_model})
         _set_ai_switch_status(
             status='completed',
@@ -589,9 +614,8 @@ def update_ai_settings_api(current_user):
     provider_text = str(preview.get('provider') or 'ollama').strip().lower()
     current_provider = 'api' if provider_text in {'api', 'openai', 'compatible'} else 'ollama'
     current_model = str(preview.get('procurement_model') or previous_model).strip()
-
-    if current_provider == 'ollama' and current_model not in ALLOWED_PROCUREMENT_MODELS:
-        return jsonify({'error': '不支持的采购 AI 模型'}), 400
+    if current_provider == 'ollama' and not current_model:
+        return jsonify({'error': '请选择本地 AI 模型'}), 400
 
     if action == 'save':
         action = 'save_config'
@@ -726,6 +750,7 @@ def test_ai_settings_api(current_user):
             result = _test_api_settings(preview)
         else:
             result = _test_ollama_settings(preview)
+            result['text_model'] = str(preview.get('procurement_model') or '').strip()
     except urllib.error.HTTPError as e:
         detail = e.read().decode('utf-8', errors='ignore')
         result = {

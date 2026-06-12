@@ -20,79 +20,10 @@
             :collapse="isCollapse"
             class="sidebar-menu"
             :collapse-transition="false">
-            <el-menu-item index="/dashboard" class="menu-item">
-              <el-icon><HomeFilled /></el-icon>
+            <el-menu-item v-for="item in navTabs" :key="item.path" :index="item.path" class="menu-item">
+              <el-icon><component :is="item.icon" /></el-icon>
               <template #title>
-                <span>首页</span>
-              </template>
-            </el-menu-item>
-            <el-menu-item index="/dashboard/rooms" class="menu-item">
-              <el-icon><House /></el-icon>
-              <template #title>
-                <span>房间管理</span>
-              </template>
-            </el-menu-item>
-            
-            <el-menu-item index="/dashboard/tenants" class="menu-item">
-              <el-icon><User /></el-icon>
-              <template #title>
-                <span>租户管理</span>
-              </template>
-            </el-menu-item>
-            <el-menu-item index="/dashboard/contract-templates" class="menu-item">
-              <el-icon><Document /></el-icon>
-              <template #title>
-                <span>合同模板</span>
-              </template>
-            </el-menu-item>
-            
-
-            <el-menu-item index="/dashboard/moves" class="menu-item">
-              <el-icon><Van /></el-icon>
-              <template #title>
-                <span>搬迁管理</span>
-              </template>
-            </el-menu-item>
-            <el-menu-item index="/dashboard/repair-records" class="menu-item">
-              <el-icon><Tools /></el-icon>
-              <template #title>
-                <span>维修记录</span>
-              </template>
-            </el-menu-item>
-            <el-menu-item index="/dashboard/procurement" class="menu-item">
-              <el-icon><ShoppingCart /></el-icon>
-              <template #title>
-                <span>采购管理</span>
-              </template>
-            </el-menu-item>
-            <el-menu-item index="/dashboard/warehouse" class="menu-item">
-              <el-icon><ShoppingCart /></el-icon>
-              <template #title>
-                <span>库存管理</span>
-              </template>
-            </el-menu-item>
-            <el-menu-item index="/dashboard/utility-bills" class="menu-item">
-              <el-icon><Coin /></el-icon>
-              <template #title>
-                <span>水电费</span>
-              </template>
-            </el-menu-item>
-            <el-menu-item index="/dashboard/rent-ledger" class="menu-item">
-              <el-icon><Coin /></el-icon>
-              <template #title>
-                <span>收租台账</span>
-              </template>
-            </el-menu-item>
-            <el-menu-item index="/dashboard/notify" class="menu-item">
-              <el-icon><Bell /></el-icon>
-              <template #title>
-                <span>通知配置</span>
-              </template>
-            </el-menu-item>
-            <el-menu-item index="/dashboard/system" class="menu-item">
-              <el-icon><Setting /></el-icon>
-              <template #title>
-                <span>系统维护</span>
+                <span>{{ item.title }}</span>
               </template>
             </el-menu-item>
           </el-menu>
@@ -144,7 +75,7 @@
               </div>
               <el-dropdown trigger="click">
                 <div class="user-info">
-                  <el-avatar :size="32" class="user-avatar" :style="{ backgroundColor: '#409eff' }">{{ getUserInitials() }}</el-avatar>
+                  <el-avatar :size="32" class="user-avatar">{{ getUserInitials() }}</el-avatar>
                   <span class="username">{{ user?.fullName || '管理员' }}</span>
                   <el-icon><ArrowDown /></el-icon>
                 </div>
@@ -165,7 +96,7 @@
           </div>
         </div>
         
-        <div class="content-area">
+        <div class="content-area" :class="{ 'content-area--home': route.path === '/dashboard' }">
           <router-view v-slot="{ Component, route: currentRoute }">
             <component v-if="Component" :is="Component" :key="currentRoute.fullPath" />
           </router-view>
@@ -516,8 +447,8 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   position: relative;
-  border-radius: 14px;
-  border: 1px solid var(--surface-border);
+  border-radius: 18px;
+  border: 1px solid var(--sidebar-divider);
 }
 
 .sidebar-collapse-btn {
@@ -594,7 +525,7 @@ html.dark .collapse-bottom:hover {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 600;
   color: var(--sidebar-text);
   letter-spacing: 1px;
@@ -606,7 +537,7 @@ html.dark .collapse-bottom:hover {
 
 .logo-mark {
   font-size: 18px;
-  color: var(--el-color-primary);
+  color: #60a5fa;
   flex-shrink: 0;
 }
 
@@ -630,16 +561,16 @@ html.dark .collapse-bottom:hover {
 
 .menu-item {
   margin: 8px 0;
-  font-size: 15px;
+  font-size: 14px;
   height: 44px;
-  border-radius: 14px;
+  border-radius: 12px;
   color: var(--sidebar-text);
 }
 
 :deep(.sidebar-menu .el-menu-item.is-active) {
-  background: linear-gradient(90deg, rgba(37, 99, 235, 0.9), rgba(56, 189, 248, 0.75));
+  background: linear-gradient(135deg, #2563eb, #0ea5e9);
   color: #ffffff;
-  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.28);
+  box-shadow: 0 10px 18px rgba(37, 99, 235, 0.22);
 }
 
 :deep(.sidebar-menu .el-menu-item:hover) {
@@ -703,9 +634,9 @@ html.dark .collapse-bottom:hover {
 }
 
 .workspace-header {
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+  background: rgba(255, 255, 255, 0.84);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
   flex-shrink: 0;
   padding: 10px 14px 9px;
   transition:
@@ -714,11 +645,11 @@ html.dark .collapse-bottom:hover {
     box-shadow var(--theme-transition-duration) ease-in-out;
   border: 1px solid var(--surface-border);
   margin: 0 2px;
-  border-radius: 12px;
+  border-radius: 16px;
 }
 
 html.dark .workspace-header {
-  background: rgba(15, 23, 42, 0.85);
+  background: rgba(11, 18, 32, 0.86);
 }
 
 .workspace-header__main {
@@ -793,13 +724,13 @@ html.dark .workspace-header {
   padding: 4px 10px;
   border-radius: 999px;
   font-size: 13px;
-  color: var(--el-color-primary);
-  background: var(--surface-muted);
+  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.08);
   border: 1px solid var(--surface-border);
 }
 
 .time-display .el-icon {
-  color: var(--el-color-primary);
+  color: #1d4ed8;
 }
 
 .user-info {
@@ -824,7 +755,7 @@ html.dark .user-info:hover {
 }
 
 .user-avatar {
-  background: linear-gradient(135deg, #2563eb, #14b8a6);
+  background: linear-gradient(135deg, #2563eb, #0ea5e9);
   margin-right: 8px;
 }
 
@@ -837,8 +768,16 @@ html.dark .user-info:hover {
   flex: 1;
   min-height: 0;
   box-sizing: border-box;
-  padding: 18px 20px 20px;
+  padding: 14px 0 0;
   overflow-y: auto;
+  background: transparent;
+  margin: 0;
+  border-radius: 0;
+  border: none;
+}
+
+.content-area--home {
+  padding: 18px 20px 20px;
   background: var(--card-bg);
   margin: 0 2px 2px;
   border-radius: 12px;
@@ -943,6 +882,14 @@ html.dark .user-info:hover {
 }
 
 .dashboard-container--mobile .content-area {
+  margin: 0;
+  padding: 12px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.dashboard-container--mobile .content-area--home {
   margin: 0;
   padding: 12px;
   border: none;

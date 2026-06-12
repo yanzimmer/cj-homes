@@ -216,7 +216,7 @@
           </div>
           <div class="card-content">
             <div class="description">
-              在这里预设水费和电费的常用账户。保存后，水电费录入弹窗会自动提供可搜索下拉选择，也支持继续手动输入新账户。
+              在这里预设水费和电费的常用账户。保存后，AI 识图会优先按账户名称自动匹配。
             </div>
 
             <div class="utility-account-grid">
@@ -232,15 +232,17 @@
                     <el-button type="primary" :loading="savingUtilityAccounts" @click="addUtilityAccount('electricity')">添加账户</el-button>
                   </div>
                 </div>
-                <div class="feature-tags">
-                  <el-tag
-                    v-for="item in utilityAccountOptions.electricity"
-                    :key="`electricity-${item}`"
-                    closable
-                    @close="removeUtilityAccount('electricity', item)"
+                <div class="utility-account-list">
+                  <div
+                    v-for="account in utilityAccountOptions.electricity"
+                    :key="`electricity-${account}`"
+                    class="utility-account-card"
                   >
-                    {{ item }}
-                  </el-tag>
+                    <div class="utility-account-card__header">
+                      <strong>{{ account }}</strong>
+                      <el-button link type="danger" :disabled="savingUtilityAccounts" @click="removeUtilityAccount('electricity', account)">删除账户</el-button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -256,15 +258,17 @@
                     <el-button type="primary" :loading="savingUtilityAccounts" @click="addUtilityAccount('water')">添加账户</el-button>
                   </div>
                 </div>
-                <div class="feature-tags">
-                  <el-tag
-                    v-for="item in utilityAccountOptions.water"
-                    :key="`water-${item}`"
-                    closable
-                    @close="removeUtilityAccount('water', item)"
+                <div class="utility-account-list">
+                  <div
+                    v-for="account in utilityAccountOptions.water"
+                    :key="`water-${account}`"
+                    class="utility-account-card"
                   >
-                    {{ item }}
-                  </el-tag>
+                    <div class="utility-account-card__header">
+                      <strong>{{ account }}</strong>
+                      <el-button link type="danger" :disabled="savingUtilityAccounts" @click="removeUtilityAccount('water', account)">删除账户</el-button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -281,7 +285,7 @@
           </div>
           <div class="card-content">
             <div class="description">
-              为采购管理、维修记录、租户管理和自助入住的 “AI 输入” 选择使用本地 Ollama，或切换到 OpenAI 兼容 API。
+              为采购管理、维修记录、租户管理、自助入住和水电费的 “AI 输入” 选择使用本地 Ollama，或切换到 OpenAI 兼容 API。图片会直接交给当前本地模型识别；身份证专用识别继续使用阿里云 OCR。
             </div>
             <div class="ai-summary-row">
               <el-tag type="info" effect="plain">当前模式：{{ aiProviderLabel }}</el-tag>
@@ -331,12 +335,11 @@
                     clearable
                   />
                 </el-form-item>
-                <el-form-item label="采购 AI 模型">
+                <el-form-item label="本地模型">
                   <el-select
                     v-model="aiSettings.procurement_model"
                     style="width: 100%"
                     :disabled="isAiSwitching || !aiSettings.enabled"
-                    @change="handleOllamaModelChange"
                   >
                     <el-option
                       v-for="model in aiSettings.available_procurement_models"
@@ -347,7 +350,7 @@
                   </el-select>
                 </el-form-item>
                 <div class="feature-hint">
-                  当前支持 qwen3.5:4b、qwen3.5:2b 和 qwen3.5:0.8b。Ollama 和后端同机时使用 http://127.0.0.1:11434；远程部署时填写 http://另一台机器IP:11434。
+                  图片识别请优先选择支持视觉的本地模型，例如 `qwen2.5vl:3b`。Ollama 和后端同机时使用 http://127.0.0.1:11434；远程部署时填写 http://另一台机器IP:11434。
                 </div>
                 <div v-if="!isLocalOllamaEndpoint" class="feature-hint warning-text">
                   当前是远程 Ollama 地址，本系统无法关闭远程机器上的模型，只能切换当前调用的模型和地址。
@@ -588,14 +591,14 @@ const ocrSettings = ref({
 const aiSettings = ref({
   enabled: true,
   provider: 'ollama',
-  procurement_model: 'qwen3.5:4b',
+  procurement_model: 'qwen2.5vl:3b',
   ollama_base_url: 'http://127.0.0.1:11434',
   base_url: '',
   chat_completions_url: '',
   responses_url: '',
   model: '',
   api_key: '',
-  available_procurement_models: ['qwen3.5:4b', 'qwen3.5:2b', 'qwen3.5:0.8b'],
+  available_procurement_models: ['qwen2.5vl:3b', 'qwen3.5:4b', 'qwen3.5:2b', 'qwen3.5:0.8b'],
   updated_at: '',
 })
 const lastSavedAiSettings = ref(null)
@@ -620,7 +623,7 @@ const isApiProvider = computed(() => aiSettings.value.provider === 'api')
 const getComparableAiSettings = (value = {}) => JSON.stringify({
   enabled: value?.enabled !== false,
   provider: value?.provider || 'ollama',
-  procurement_model: value?.procurement_model || 'qwen3.5:4b',
+  procurement_model: value?.procurement_model || 'qwen2.5vl:3b',
   ollama_base_url: value?.ollama_base_url || 'http://127.0.0.1:11434',
   base_url: value?.base_url || '',
   chat_completions_url: value?.chat_completions_url || '',
@@ -736,14 +739,14 @@ const applyAiSettingsResponse = (data = {}) => {
   const nextValue = {
     enabled: data?.enabled !== false,
     provider: data?.provider || 'ollama',
-    procurement_model: data?.procurement_model || 'qwen3.5:4b',
+    procurement_model: data?.procurement_model || 'qwen2.5vl:3b',
     ollama_base_url: data?.ollama_base_url || 'http://127.0.0.1:11434',
     base_url: data?.base_url || '',
     chat_completions_url: data?.chat_completions_url || '',
     responses_url: data?.responses_url || '',
     model: data?.model || '',
     api_key: data?.api_key || '',
-    available_procurement_models: data?.available_procurement_models || ['qwen3.5:4b', 'qwen3.5:2b', 'qwen3.5:0.8b'],
+    available_procurement_models: data?.available_procurement_models || ['qwen2.5vl:3b', 'qwen3.5:4b', 'qwen3.5:2b', 'qwen3.5:0.8b'],
     updated_at: data?.updated_at || '',
   }
   aiSettings.value = nextValue
@@ -878,8 +881,20 @@ const fetchRoomFeatureOptions = async () => {
 }
 
 const applyUtilityAccountOptions = (data = {}) => {
-  utilityAccountOptions.electricity = Array.isArray(data?.electricity) ? data.electricity : []
-  utilityAccountOptions.water = Array.isArray(data?.water) ? data.water : []
+  utilityAccountOptions.electricity = normalizeUtilityAccountEntries(data?.electricity || [])
+  utilityAccountOptions.water = normalizeUtilityAccountEntries(data?.water || [])
+}
+
+const normalizeUtilityAccountEntries = (values = []) => {
+  if (!Array.isArray(values)) return []
+  const result = []
+  values.forEach((item) => {
+    const account = String(item && typeof item === 'object' && !Array.isArray(item) ? (item.account || item.subject || '') : item || '').trim()
+    if (account && !result.includes(account)) {
+      result.push(account)
+    }
+  })
+  return result
 }
 
 const fetchUtilityAccountOptions = async () => {
@@ -990,15 +1005,6 @@ const toggleAiEnabled = async (value) => {
 
 const saveAiSettings = async () => {
   await runAiAction('save_config', 'AI 配置已保存')
-}
-
-const handleOllamaModelChange = async (value) => {
-  if (!value) return
-  if (!aiSettings.value.enabled) {
-    await runAiAction('save_config', '本地模型已保存')
-    return
-  }
-  await runAiAction('switch_model', '本地模型切换已开始')
 }
 
 const fetchApiModels = async () => {
@@ -1905,6 +1911,42 @@ onBeforeUnmount(() => {
   background: var(--surface-muted);
 }
 
+.utility-account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.utility-account-card {
+  padding: 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  background: var(--card-bg, #fff);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+}
+
+.utility-account-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.utility-account-alias-row {
+  margin-top: 10px;
+}
+
+.utility-account-empty-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.feature-tags--compact {
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
 .feature-group-title {
   font-size: 14px;
   font-weight: 700;
@@ -1955,6 +1997,11 @@ onBeforeUnmount(() => {
 @media (max-width: 768px) {
   .utility-account-grid {
     grid-template-columns: 1fr;
+  }
+
+  .utility-account-card__header {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .danger-row {

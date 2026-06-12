@@ -174,12 +174,11 @@ def _build_procurement_ai_prompt(user_text, image_count):
 {_clean_text(user_text)}
 """.strip()
 
-
 def _call_ollama_generate(prompt, images):
     return call_configured_ai(
         prompt,
         images,
-        ollama_model_fallback=os.getenv("PROCUREMENT_AI_MODEL", "qwen3.5:4b"),
+        ollama_model_fallback=os.getenv("PROCUREMENT_AI_MODEL", "qwen2.5vl:3b"),
         timeout_seconds=PROCUREMENT_AI_TIMEOUT_SECONDS,
     )
 

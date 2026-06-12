@@ -4,11 +4,16 @@ from datetime import datetime
 
 BASE_DIR = os.path.dirname(__file__)
 CONFIG_FILE = os.path.join(BASE_DIR, "config", "ai_settings.json")
-ALLOWED_PROCUREMENT_MODELS = ["qwen3.5:4b", "qwen3.5:2b", "qwen3.5:0.8b"]
+ALLOWED_PROCUREMENT_MODELS = [
+    "qwen2.5vl:3b",
+    "qwen3.5:4b",
+    "qwen3.5:2b",
+    "qwen3.5:0.8b",
+]
 DEFAULT_SETTINGS = {
     "enabled": True,
     "provider": os.getenv("AI_PROVIDER", "ollama"),
-    "procurement_model": os.getenv("PROCUREMENT_AI_MODEL", "qwen3.5:4b"),
+    "procurement_model": os.getenv("PROCUREMENT_AI_MODEL", "qwen2.5vl:3b"),
     "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
     "base_url": os.getenv("AI_API_BASE_URL", ""),
     "chat_completions_url": os.getenv("AI_API_CHAT_COMPLETIONS_URL", ""),
@@ -28,7 +33,7 @@ def _normalize_provider(value):
 
 def _normalize_model(value):
     text = str(value or "").strip()
-    return text if text in ALLOWED_PROCUREMENT_MODELS else "qwen3.5:4b"
+    return text or "qwen2.5vl:3b"
 
 
 def _normalize_ollama_base_url(value):

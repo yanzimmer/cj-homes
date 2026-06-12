@@ -108,11 +108,11 @@
       </div>
 
       <div v-if="mobileMode" class="rent-reminder-mobile-list" v-loading="loading.rentReminder">
-        <div v-if="stats.rentReminder.list.length === 0" class="rent-reminder-mobile-empty">
+        <div v-if="sortedRentReminderList.length === 0" class="rent-reminder-mobile-empty">
           <el-empty description="暂无需要提醒的收租记录" :image-size="42" />
         </div>
         <article
-          v-for="item in stats.rentReminder.list"
+          v-for="item in sortedRentReminderList"
           :key="item.id"
           class="rent-reminder-mobile-card"
           :class="{
@@ -142,30 +142,31 @@
       <el-table
         v-else
         v-loading="loading.rentReminder"
-        :data="stats.rentReminder.list"
+        :data="sortedRentReminderList"
         style="width: 100%"
         :row-class-name="rentReminderRowClassName"
         empty-text="暂无需要提醒的收租记录"
+        @sort-change="handleRentReminderSortChange"
       >
-        <el-table-column prop="tenantName" label="租户" min-width="120" />
-        <el-table-column prop="roomDisplay" label="房间" width="120">
+        <el-table-column prop="tenantName" label="租户" min-width="120" sortable="custom" />
+        <el-table-column prop="roomDisplay" label="房间" width="120" sortable="custom">
           <template #default="scope">
             <el-tag size="small" effect="plain">{{ scope.row.roomDisplay || '-' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="账期" min-width="220">
+        <el-table-column column-key="period" label="账期" min-width="220" sortable="custom">
           <template #default="scope">
             {{ scope.row.periodStart || '-' }} 至 {{ scope.row.periodEnd || '-' }}
           </template>
         </el-table-column>
-        <el-table-column prop="dueDate" label="应缴日期" width="130" sortable />
-        <el-table-column label="待收金额" width="130">
+        <el-table-column prop="dueDate" label="应缴日期" width="130" sortable="custom" />
+        <el-table-column prop="outstandingAmount" label="待收金额" width="130" sortable="custom">
           <template #default="scope">
             <span class="rent-reminder-amount">¥{{ Number(scope.row.outstandingAmount || 0).toFixed(2) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="缴费状态" width="120" />
-        <el-table-column label="提醒状态" width="130">
+        <el-table-column prop="status" label="缴费状态" width="120" sortable="custom" />
+        <el-table-column column-key="reminderStatus" label="提醒状态" width="130" sortable="custom">
           <template #default="scope">
             <el-tag :type="getRentReminderTagType(scope.row)">
               {{ getRentReminderText(scope.row) }}
@@ -538,6 +539,10 @@ const leaseAdvanceDays = ref(7)
 const rentAdvanceDays = ref(7)
 const mobileMode = ref(false)
 const latestSeenSubmissionId = ref(null)
+const rentReminderSort = reactive({
+  prop: '',
+  order: '',
+})
 let dashboardRefreshTimer = null
 const todayLabel = computed(() => {
   const now = new Date()
@@ -559,6 +564,62 @@ const expiringMobileList = computed(() => {
     days_remaining: 3,
     isPreview: true,
   }]
+})
+
+const rentReminderStatusOrder = {
+  未交: 0,
+  部分已交: 1,
+  已交: 2,
+}
+
+const getRentReminderPeriodText = (item) => {
+  const start = String(item?.periodStart || '').trim()
+  const end = String(item?.periodEnd || '').trim()
+  if (start && end) return `${start} 至 ${end}`
+  return start || end || String(item?.periodLabel || '').trim() || '-'
+}
+
+const getRentReminderReminderSortValue = (item) => {
+  const days = Number(item?.daysUntilDue || 0)
+  if (days < 0) return 0
+  if (days === 0) return 1
+  return 2
+}
+
+const getRentReminderSortValue = (item, prop) => {
+  switch (prop) {
+    case 'tenantName':
+      return String(item?.tenantName || '').trim().toLowerCase()
+    case 'roomDisplay':
+      return String(item?.roomDisplay || '').trim().toLowerCase()
+    case 'period': {
+      const start = String(item?.periodStart || '').trim()
+      const end = String(item?.periodEnd || '').trim()
+      return `${start}|${end}|${getRentReminderPeriodText(item)}`
+    }
+    case 'dueDate':
+      return String(item?.dueDate || '').trim()
+    case 'outstandingAmount':
+      return Number(item?.outstandingAmount || 0)
+    case 'status':
+      return rentReminderStatusOrder[String(item?.status || '').trim()] ?? 99
+    case 'reminderStatus':
+      return `${getRentReminderReminderSortValue(item)}|${String(item?.daysUntilDue ?? 0).padStart(6, '0')}`
+    default:
+      return ''
+  }
+}
+
+const sortedRentReminderList = computed(() => {
+  const list = Array.isArray(stats.rentReminder.list) ? [...stats.rentReminder.list] : []
+  if (!rentReminderSort.prop || !rentReminderSort.order) return list
+  const direction = rentReminderSort.order === 'ascending' ? 1 : -1
+  return list.sort((a, b) => {
+    const left = getRentReminderSortValue(a, rentReminderSort.prop)
+    const right = getRentReminderSortValue(b, rentReminderSort.prop)
+    if (left === right) return 0
+    return left > right ? direction : -direction
+  })
 })
 
 // 统计数据
@@ -694,6 +755,11 @@ const getRentReminderText = (item) => {
   if (days < 0) return `逾期 ${Math.abs(days)} 天`
   if (days === 0) return '今天应缴'
   return `${days} 天后应缴`
+}
+
+const handleRentReminderSortChange = ({ prop, order, column }) => {
+  rentReminderSort.prop = prop || column?.columnKey || ''
+  rentReminderSort.order = order || ''
 }
 
 const syncLoadingState = (value) => {

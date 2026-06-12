@@ -23,6 +23,7 @@
           class="year-input"
           @change="handleYearChange"
         />
+        <el-button type="primary" plain @click="openAiDialog">AI 输入</el-button>
         <el-button v-if="!mobileMode" type="success" plain :loading="exporting" @click="handleExportExcel">导出 Excel</el-button>
       </div>
     </div>
@@ -176,6 +177,9 @@
             />
           </el-select>
         </el-form-item>
+        <el-form-item v-if="billForm.ai_recognition_hint" label="识别提示">
+          <div class="utility-ai-recognition-hint">{{ billForm.ai_recognition_hint }}</div>
+        </el-form-item>
         <el-form-item label="年份" prop="year">
           <el-input-number v-model="billForm.year" :min="2000" :max="2100" style="width: 100%" />
         </el-form-item>
@@ -259,6 +263,84 @@
         </div>
       </template>
     </el-drawer>
+
+    <el-dialog
+      title="AI 输入水电费"
+      v-model="aiDialog.visible"
+      :width="mobileMode ? '96%' : '620px'"
+      class="app-ai-dialog"
+      modal-class="app-ai-dialog-overlay"
+      @close="resetAiDialog"
+    >
+      <el-form label-width="92px">
+        <el-form-item label="文字描述">
+          <el-input
+            v-model="aiDialog.text"
+            type="textarea"
+            :rows="5"
+            placeholder="例如：6 月 A-201 电费 128 元，黎从缴费。也可以直接上传微信/支付宝缴费截图、账单截图让 AI 识别。"
+            @paste="handleAiPaste"
+          />
+        </el-form-item>
+        <el-form-item label="图片识别">
+          <div class="ai-upload-panel">
+            <div
+              class="ai-dropzone"
+              :class="{ 'ai-dropzone--active': aiDialog.dragActive }"
+              @dragenter.prevent="aiDialog.dragActive = true"
+              @dragover.prevent="aiDialog.dragActive = true"
+              @dragleave.prevent="aiDialog.dragActive = false"
+              @drop.prevent="handleAiDrop"
+              @paste="handleAiPaste"
+              tabindex="0"
+            >
+              <div class="ai-dropzone__title">拖拽图片到这里识别</div>
+              <div class="ai-dropzone__hint">也可以点击下面按钮选择图片，或直接粘贴截图。识别后会自动带到账单图片。</div>
+            </div>
+            <div class="ai-upload-actions">
+              <el-upload
+                action=""
+                :auto-upload="false"
+                :show-file-list="false"
+                accept="image/*"
+                multiple
+                :limit="4"
+                :on-change="handleAiImageChange"
+              >
+                <el-button type="primary" plain>选择图片</el-button>
+              </el-upload>
+              <el-button
+                v-if="aiDialog.images.length"
+                type="danger"
+                plain
+                @click="clearAiImages"
+              >
+                清空图片
+              </el-button>
+            </div>
+          </div>
+          <div class="upload-progress-text">已选 {{ aiDialog.images.length }} / 4</div>
+          <div v-if="aiDialog.images.length" class="ai-image-list">
+            <div v-for="(item, index) in aiDialog.images" :key="item.url" class="ai-image-item">
+              <el-image
+                class="ai-image-thumb"
+                :src="item.url"
+                :preview-src-list="aiDialog.images.map(img => img.url)"
+                fit="cover"
+                preview-teleported
+              />
+              <el-button size="small" type="danger" plain @click="removeAiImage(index)">删除</el-button>
+            </div>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="aiDialog.visible = false">取消</el-button>
+          <el-button type="primary" :loading="aiDialog.loading" @click="submitAiDraft">生成并填入</el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -310,6 +392,13 @@ const selectedYear = ref(currentYear)
 const summaryPayload = ref(createInitialPayload(currentYear))
 const billFormRef = ref(null)
 const billImageFiles = ref([])
+const aiDialog = reactive({
+  visible: false,
+  loading: false,
+  text: '',
+  images: [],
+  dragActive: false,
+})
 const accountOptions = reactive({
   electricity: [],
   water: [],
@@ -331,6 +420,7 @@ const billForm = reactive({
   amount: null,
   payer: '',
   bill_images: [],
+  ai_recognition_hint: '',
 })
 
 const billRules = {
@@ -597,6 +687,14 @@ function revokeBillPreviewUrls() {
   })
 }
 
+function revokeAiImageUrls() {
+  aiDialog.images.forEach((item) => {
+    if (String(item?.url || '').startsWith('blob:')) {
+      URL.revokeObjectURL(item.url)
+    }
+  })
+}
+
 function buildBillUploadSubDir(targetId) {
   const utilityType = String(billForm.utility_type || 'utility').trim() || 'utility'
   const year = String(billForm.year || selectedYear.value || currentYear).trim() || String(currentYear)
@@ -687,8 +785,83 @@ function resetBillForm() {
   billForm.amount = null
   billForm.payer = ''
   billForm.bill_images = []
+  billForm.ai_recognition_hint = ''
   billDialog.isEdit = false
   billDialog.lockedUtilityType = ''
+}
+
+function resetAiDialog() {
+  revokeAiImageUrls()
+  aiDialog.loading = false
+  aiDialog.text = ''
+  aiDialog.images = []
+  aiDialog.dragActive = false
+}
+
+function openAiDialog() {
+  resetAiDialog()
+  aiDialog.visible = true
+}
+
+function appendAiImageFile(rawFile) {
+  if (!rawFile) return
+  if (aiDialog.images.length >= 4) {
+    ElMessage.warning('最多选择 4 张图片')
+    return
+  }
+  if (!String(rawFile.type || '').startsWith('image/')) {
+    ElMessage.warning('请上传图片文件')
+    return
+  }
+  if (rawFile.size && rawFile.size > 8 * 1024 * 1024) {
+    ElMessage.warning('单张图片请控制在 8MB 以内')
+    return
+  }
+  aiDialog.images.push({
+    file: rawFile,
+    url: URL.createObjectURL(rawFile)
+  })
+}
+
+function handleAiImageChange(file) {
+  if (!file || !file.raw) return
+  appendAiImageFile(file.raw)
+}
+
+function handleAiDrop(event) {
+  aiDialog.dragActive = false
+  const files = Array.from(event?.dataTransfer?.files || [])
+  if (!files.length) return
+  for (const file of files) {
+    appendAiImageFile(file)
+  }
+}
+
+function handleAiPaste(event) {
+  const clipboardItems = Array.from(event?.clipboardData?.items || [])
+  const imageItems = clipboardItems.filter((item) => String(item?.type || '').startsWith('image/'))
+  if (!imageItems.length) return
+  event.preventDefault()
+  for (const item of imageItems) {
+    const file = item.getAsFile()
+    if (file) {
+      appendAiImageFile(file)
+    }
+  }
+}
+
+function removeAiImage(index) {
+  const item = aiDialog.images[index]
+  if (!item) return
+  if (String(item.url || '').startsWith('blob:')) {
+    URL.revokeObjectURL(item.url)
+  }
+  aiDialog.images.splice(index, 1)
+}
+
+function clearAiImages() {
+  revokeAiImageUrls()
+  aiDialog.images = []
 }
 
 function openBillDialog(utilityType, account = '', month = 1, record = null) {
@@ -712,6 +885,80 @@ function openBillDialog(utilityType, account = '', month = 1, record = null) {
     billForm.bill_images = parseBillImages(record)
   }
   billDialog.visible = true
+}
+
+function applyAiDraftToBillForm(draft = {}, aiImages = []) {
+  resetBillForm()
+  billDialog.isEdit = false
+  billDialog.lockedUtilityType = ''
+  billForm.id = null
+  billForm.utility_type = String(draft.utility_type || 'electricity') === 'water' ? 'water' : 'electricity'
+  billForm.account = String(draft.account || '').trim()
+  billForm.year = Number(draft.year || selectedYear.value || currentYear)
+  billForm.month = Number(draft.month || 1)
+  billForm.amount = Number(draft.amount || 0)
+  billForm.payer = String(draft.payer || '').trim()
+  const recognizedUserCode = String(draft.recognized_user_code || '').trim()
+  const recognizedAddress = String(draft.recognized_address || '').trim()
+  const matchedAccount = String(draft.matched_account || '').trim()
+  const matchReason = String(draft.match_reason || '').trim()
+  const knownAccounts = Array.isArray(draft.known_accounts) ? draft.known_accounts.filter(Boolean) : []
+
+  if (matchedAccount) {
+    billForm.ai_recognition_hint = matchReason || `已自动匹配到账户：${matchedAccount}`
+  } else {
+    const hintParts = []
+    if (recognizedUserCode) {
+      hintParts.push(`用户编号：${recognizedUserCode}`)
+    }
+    if (recognizedAddress) {
+      hintParts.push(`缴费地址：${recognizedAddress}`)
+    }
+    if (knownAccounts.length) {
+      hintParts.push(`当前可选账户：${knownAccounts.join('、')}`)
+    }
+    billForm.ai_recognition_hint = hintParts.join('；')
+  }
+
+  const copiedAiImages = aiImages
+    .filter(item => item?.file)
+    .slice(0, MAX_UTILITY_IMAGES)
+    .map(item => ({
+      file: item.file,
+      url: URL.createObjectURL(item.file)
+    }))
+
+  billImageFiles.value = copiedAiImages
+  billForm.bill_images = copiedAiImages.map(item => item.url)
+  billDialog.visible = true
+}
+
+async function submitAiDraft() {
+  if (!aiDialog.text.trim() && aiDialog.images.length === 0) {
+    ElMessage.warning('请先输入文字或选择图片')
+    return
+  }
+  aiDialog.loading = true
+  try {
+    const formData = new FormData()
+    formData.append('text', aiDialog.text.trim())
+    aiDialog.images.forEach((item) => {
+      formData.append('images', item.file)
+    })
+    const response = await utilityBillsApi.createAiDraft(formData)
+    applyAiDraftToBillForm(response?.data?.draft || {}, aiDialog.images)
+    aiDialog.visible = false
+    if (response?.data?.draft?.matched_account) {
+      ElMessage.success('AI 草稿已填入，并已自动匹配到账户')
+    } else {
+      ElMessage.warning('AI 已识别图片信息，但暂未匹配到系统账户，请确认后保存')
+    }
+  } catch (error) {
+    const message = error?.response?.data?.error || error?.message || 'AI 输入失败'
+    ElMessage.error(message)
+  } finally {
+    aiDialog.loading = false
+  }
 }
 
 async function handleSubmitBill() {
@@ -1107,6 +1354,19 @@ onBeforeUnmount(() => {
   height: 92px;
   border-radius: 8px;
   border: 1px solid var(--surface-border);
+}
+
+.utility-ai-recognition-hint {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(59, 130, 246, 0.18);
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--text-main);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: normal;
+  word-break: break-word;
 }
 
 :deep(.utility-table) {

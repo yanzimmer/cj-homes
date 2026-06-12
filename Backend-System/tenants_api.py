@@ -3,7 +3,7 @@ import json
 import os
 import re
 import sqlite3
-from datetime import date
+from datetime import date, datetime
 
 from flask import Blueprint, request, jsonify
 
@@ -13,6 +13,7 @@ from auth_api import token_required
 from common import connect, parse_fields_arg, parse_pagination_args, paginate_list, project_fields
 from local_ai_settings import load_ai_settings
 from ocr_settings import build_ocr_status, record_ocr_usage
+from rent_ledger_api import _rebuild_rent_ledger_year
 from rooms_api import _compose_room_no, _find_room_by_no, _normalize_building_code
 
 
@@ -92,6 +93,7 @@ def _refresh_room_statuses(conn):
 
 def _checkout_tenant(conn, where_clause, params):
     cursor = conn.cursor()
+    affected_years = _load_tenant_ledger_years(conn, where_clause, params)
     today = date.today().isoformat()
     cursor.execute(
         f"""
@@ -108,6 +110,7 @@ def _checkout_tenant(conn, where_clause, params):
 
     _refresh_tenant_statuses(conn)
     _refresh_room_statuses(conn)
+    _sync_rent_ledger_years(conn, affected_years)
     return today
 
 
@@ -125,6 +128,13 @@ def _clean_text(value):
     return str(value or "").strip()
 
 
+def _parse_amount(value, default_value=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default_value)
+
+
 def _clean_ai_field(value, placeholders=()):
     text = _clean_text(value)
     if not text:
@@ -137,6 +147,47 @@ def _clean_ai_field(value, placeholders=()):
 
 def _today_text():
     return date.today().strftime("%Y-%m-%d")
+
+
+def _parse_iso_date(value):
+    text = _clean_text(value)
+    if text == "":
+        return None
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _collect_lease_years(check_in_date, check_out_date):
+    lease_start = _parse_iso_date(check_in_date)
+    if not lease_start:
+        return set()
+    lease_end = _parse_iso_date(check_out_date) or lease_start
+    if lease_end < lease_start:
+        lease_end = lease_start
+    return set(range(lease_start.year, lease_end.year + 1))
+
+
+def _load_tenant_ledger_years(conn, where_clause, params):
+    cursor = conn.cursor()
+    cursor.execute(
+        f"""
+        SELECT check_in_date, check_out_date
+        FROM tenants
+        WHERE {where_clause}
+        """,
+        params,
+    )
+    years = set()
+    for check_in_date, check_out_date in cursor.fetchall():
+        years.update(_collect_lease_years(check_in_date, check_out_date))
+    return years
+
+
+def _sync_rent_ledger_years(conn, years):
+    for year in sorted(int(year) for year in set(years) if year):
+        _rebuild_rent_ledger_year(conn, year)
 
 
 def _extract_json_object(text):
@@ -235,11 +286,89 @@ def _build_tenant_ai_prompt(user_text, image_count):
 """.strip()
 
 
+def _build_tenant_ai_prompt_with_ocr(user_text, ocr_fields):
+    today = _today_text()
+    ocr_json = json.dumps(ocr_fields or {}, ensure_ascii=False)
+    return f"""
+你是房屋管理系统的租户录入助手。请基于用户文字和已经识别出的 OCR 字段，整理成一条租户记录，只返回一个 JSON 对象，不要解释，不要 Markdown。
+
+今天日期：{today}
+
+OCR 已识别字段（这些字段优先级最高，尤其身份证号不要改写）：
+{ocr_json}
+
+输出 JSON 格式：
+{{
+  "name": "姓名",
+  "gender": "男",
+  "nation": "汉族",
+  "birth_date": "YYYY-MM-DD",
+  "id_card": "公民身份证号",
+  "address": "身份证地址或住址",
+  "phone": "联系电话",
+  "emergency_contact_name": "紧急联系人",
+  "emergency_contact_phone": "紧急电话",
+  "building": "A栋",
+  "room_no": "301",
+  "status": "在住",
+  "check_in_date": "YYYY-MM-DD",
+  "check_out_date": "",
+  "remarks": ""
+}}
+
+规则：
+- OCR 已识别出的姓名、性别、民族、出生日期、公民身份证号、住址，优先直接采用，不要随意覆盖。
+- 身份证号必须只保留 18 位数字或末位 X；如果 OCR 已给出身份证号，直接使用。
+- gender 只能是“男”或“女”；无法判断用 OCR 结果，再不行用“男”。
+- nation 无法判断时用 OCR 结果，再不行用“汉族”。
+- 日期统一 YYYY-MM-DD；入住日期无法判断时用今天日期；退房日期不确定留空。
+- status 只能是“在住”或“已退租”；无法判断用“在住”。
+- 房间可从“A栋301”“A-301”“301房”等自然语言推断；room_no 尽量填写系统里常用的房间号文本。
+- 电话只保留电话号码文本，不要加说明。
+- 不要自动提交，只生成表单草稿需要的 JSON。
+
+用户文字：
+{_clean_text(user_text)}
+""".strip()
+
+
+def _merge_tenant_fields_with_ocr(draft, ocr_fields):
+    merged = dict(draft or {})
+    fields = dict(ocr_fields or {})
+    for key in ("name", "gender", "nation", "birth_date", "id_card", "address"):
+        value = _clean_text(fields.get(key))
+        if value:
+            merged[key] = value
+    return merged
+
+
+def _try_recognize_tenant_id_card_from_images(images, current_user):
+    if not images:
+        return None
+    ocr_status = build_ocr_status()
+    if not ocr_status.get("configured") or not ocr_status.get("enabled") or not aliyun_ocr_is_configured():
+        return None
+
+    for image_base64 in images:
+        try:
+            image_bytes = base64.b64decode(str(image_base64 or "").strip(), validate=False)
+            if not image_bytes:
+                continue
+            result = recognize_cn_id_card(image_bytes)
+            birth_date = result["fields"].get("birth_date") or _derive_birth_date_from_id_card(result["fields"].get("id_card"))
+            result["fields"]["birth_date"] = birth_date
+            record_ocr_usage(source="tenant_ai_draft", token=current_user.get("username", ""))
+            return result
+        except Exception:
+            continue
+    return None
+
+
 def _call_ollama_generate(prompt, images):
     return call_configured_ai(
         prompt,
         images,
-        ollama_model_fallback=os.getenv("TENANT_AI_MODEL", "qwen3.5:4b"),
+        ollama_model_fallback=os.getenv("TENANT_AI_MODEL", "qwen2.5vl:3b"),
         timeout_seconds=TENANT_AI_TIMEOUT_SECONDS,
     )
 
@@ -481,7 +610,17 @@ def api_add_tenant(current_user):
     remarks = data.get('remarks', '')
     gender = _clean_text(data.get('gender'))
     id_card = _clean_text(data.get('id_card')).upper() or None
+    birth_date = _clean_text(data.get('birth_date')) or _derive_birth_date_from_id_card(id_card)
     status = _normalize_tenant_status(data.get('status'))
+
+    cursor.execute("SELECT room_no, price, price_unit FROM rooms WHERE id = ? LIMIT 1", (room_id,))
+    room_row = cursor.fetchone()
+    room_display = data.get('room_no') or (room_row[0] if room_row else '')
+    room_price = _parse_amount(room_row[1] if room_row else 0, 0)
+    room_price_unit = _clean_text(room_row[2] if room_row else '') or '月'
+    if room_price <= 0:
+        conn.close()
+        return jsonify({'error': f"房间 {room_display} 的租金为 0，请先到房间管理设置租金后再新增租户"}), 400
 
     try:
         cursor.execute(
@@ -496,7 +635,7 @@ def api_add_tenant(current_user):
                 data['name'],
                 gender,
                 data.get('nation', '汉族'),
-                data.get('birth_date', None),
+                birth_date or None,
                 id_card,
                 data.get('address', ''),
                 data['phone'],
@@ -512,6 +651,10 @@ def api_add_tenant(current_user):
         tenant_id = cursor.lastrowid
         _refresh_tenant_statuses(conn)
         _refresh_room_statuses(conn)
+        _sync_rent_ledger_years(
+            conn,
+            _collect_lease_years(data.get('check_in_date'), data.get('check_out_date')),
+        )
         conn.commit()
         conn.close()
 
@@ -528,6 +671,7 @@ def api_delete_tenant_by_id(current_user, tenant_id):
     cursor = conn.cursor()
 
     try:
+        affected_years = _load_tenant_ledger_years(conn, "id = ?", (tenant_id,))
         cursor.execute("SELECT id, status, room_id FROM tenants WHERE id = ? LIMIT 1", (tenant_id,))
         row = cursor.fetchone()
         if not row:
@@ -546,8 +690,6 @@ def api_delete_tenant_by_id(current_user, tenant_id):
             conn.close()
             return jsonify({'error': f'租户 #{tenant_id} 不存在'}), 404
 
-        conn.commit()
-
         if room_id is not None:
             cursor.execute(
                 """
@@ -565,6 +707,7 @@ def api_delete_tenant_by_id(current_user, tenant_id):
                 """,
                 (room_id,)
             )
+        _sync_rent_ledger_years(conn, affected_years)
         conn.commit()
         conn.close()
         msg = f'租户 #{tenant_id} 已删除'
@@ -657,17 +800,29 @@ def api_create_tenant_ai_draft(current_user):
     if len(images) > 4:
         return jsonify({'error': '最多支持 4 张图片'}), 400
 
-    prompt = _build_tenant_ai_prompt(user_text, len(images))
+    ocr_result = _try_recognize_tenant_id_card_from_images(images, current_user)
+    ocr_fields = (ocr_result or {}).get("fields") or {}
+    prompt = _build_tenant_ai_prompt_with_ocr(user_text, ocr_fields) if ocr_fields else _build_tenant_ai_prompt(user_text, len(images))
     try:
         result = _call_ollama_generate(prompt, images)
         response_text = result.get('response') or ''
         parsed = _extract_json_object(response_text)
         draft = _normalize_tenant_ai_payload(parsed)
+        draft = _merge_tenant_fields_with_ocr(draft, ocr_fields)
         return jsonify({
             'draft': draft,
             'model': result.get('model') or get_active_ai_model(),
+            'ocr_used': bool(ocr_fields),
         })
     except Exception as e:
+        if ocr_fields:
+            draft = _normalize_tenant_ai_payload(ocr_fields)
+            draft = _merge_tenant_fields_with_ocr(draft, ocr_fields)
+            return jsonify({
+                'draft': draft,
+                'model': 'aliyun_ocr',
+                'ocr_used': True,
+            })
         return jsonify({'error': str(e)}), 502
 
 
@@ -700,6 +855,7 @@ def api_update_tenant(current_user, id_card):
     cursor = conn.cursor()
 
     try:
+        affected_years = _load_tenant_ledger_years(conn, "id_card = ?", (id_card,))
         for key, value in update_data.items():
             cursor.execute(f"UPDATE tenants SET {key} = ? WHERE id_card = ?", (value, id_card))
 
@@ -709,6 +865,8 @@ def api_update_tenant(current_user, id_card):
 
         _refresh_tenant_statuses(conn)
         _refresh_room_statuses(conn)
+        affected_years.update(_load_tenant_ledger_years(conn, "id_card = ?", (id_card,)))
+        _sync_rent_ledger_years(conn, affected_years)
         conn.commit()
         conn.close()
 
@@ -747,6 +905,7 @@ def api_update_tenant_by_id(current_user, tenant_id):
     cursor = conn.cursor()
 
     try:
+        affected_years = _load_tenant_ledger_years(conn, "id = ?", (tenant_id,))
         for key, value in update_data.items():
             cursor.execute(f"UPDATE tenants SET {key} = ? WHERE id = ?", (value, tenant_id))
 
@@ -756,6 +915,8 @@ def api_update_tenant_by_id(current_user, tenant_id):
 
         _refresh_tenant_statuses(conn)
         _refresh_room_statuses(conn)
+        affected_years.update(_load_tenant_ledger_years(conn, "id = ?", (tenant_id,)))
+        _sync_rent_ledger_years(conn, affected_years)
         conn.commit()
         conn.close()
 
@@ -793,6 +954,7 @@ def api_delete_tenant(current_user, id_card):
     cursor = conn.cursor()
 
     try:
+        affected_years = _load_tenant_ledger_years(conn, "id_card = ?", (id_card,))
         # 校验租户存在与状态，并获取 room_id 以便精确更新房间状态
         cursor.execute("SELECT id, status, room_id FROM tenants WHERE id_card = ? LIMIT 1", (id_card,))
         row = cursor.fetchone()
@@ -813,8 +975,6 @@ def api_delete_tenant(current_user, id_card):
             conn.close()
             return jsonify({'error': f'租户 {id_card} 不存在'}), 404
 
-        conn.commit()
-
         # 更新房间状态（如有需要）
         # 仅针对受影响的房间更新状态，降低并发锁竞争
         if room_id is not None:
@@ -834,6 +994,7 @@ def api_delete_tenant(current_user, id_card):
                 """,
                 (room_id,)
             )
+        _sync_rent_ledger_years(conn, affected_years)
         conn.commit()
         conn.close()
         msg = f'租户 {id_card} 已删除'

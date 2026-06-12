@@ -275,6 +275,10 @@ export const procurementApi = {
 export const utilityBillsApi = {
   getSummary: (year) => apiClient.get('/utility-bills/summary', { params: { year } }),
   getAccountOptions: () => apiClient.get('/utility-bills/account-options'),
+  createAiDraft: (payload) => apiClient.post('/utility-bills/ai-draft', payload, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 180000
+  }),
   saveBill: (data) => apiClient.post('/utility-bills', data),
   updateBill: (id, data) => apiClient.put(`/utility-bills/${id}`, data),
   updateBillImages: (id, data) => apiClient.put(`/utility-bills/${id}/images`, data),

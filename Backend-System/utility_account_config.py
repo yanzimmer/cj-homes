@@ -20,11 +20,35 @@ def _normalize_options(values):
     return normalized
 
 
+def _normalize_account_entry(value):
+    if isinstance(value, dict):
+        account = str(value.get("account") or value.get("subject") or "").strip()
+    else:
+        account = str(value or "").strip()
+    if not account:
+        return None
+    return account
+
+
 def _normalize_payload(data):
     payload = data if isinstance(data, dict) else {}
     return {
-        "electricity": _normalize_options(payload.get("electricity") or []),
-        "water": _normalize_options(payload.get("water") or []),
+        "electricity": [
+            entry
+            for entry in (
+                _normalize_account_entry(item)
+                for item in (payload.get("electricity") or [])
+            )
+            if entry
+        ],
+        "water": [
+            entry
+            for entry in (
+                _normalize_account_entry(item)
+                for item in (payload.get("water") or [])
+            )
+            if entry
+        ],
     }
 
 
@@ -36,7 +60,48 @@ def ensure_utility_account_options_file():
         json.dump(DEFAULT_UTILITY_ACCOUNT_OPTIONS, f, ensure_ascii=False, indent=2)
 
 
-def get_utility_account_options():
+def _build_public_payload(structured):
+    return {
+        "electricity": structured.get("electricity") or [],
+        "water": structured.get("water") or [],
+    }
+
+
+def _discover_accounts_from_db():
+    conn = connect()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            SELECT utility_type, subject
+            FROM utility_bills
+            WHERE COALESCE(TRIM(subject), '') <> ''
+            ORDER BY utility_type, subject COLLATE NOCASE
+            """
+        )
+        discovered = {
+            "electricity": [],
+            "water": [],
+        }
+        for utility_type, subject in cursor.fetchall():
+            key = str(utility_type or "").strip()
+            text = str(subject or "").strip()
+            if key not in discovered or not text:
+                continue
+            if text in discovered[key]:
+                continue
+            discovered[key].append(text)
+        return discovered
+    except Exception:
+        return {
+            "electricity": [],
+            "water": [],
+        }
+    finally:
+        conn.close()
+
+
+def get_utility_account_matchers():
     ensure_utility_account_options_file()
     try:
         with open(UTILITY_ACCOUNT_OPTIONS_FILE, "r", encoding="utf-8") as f:
@@ -46,32 +111,11 @@ def get_utility_account_options():
             return normalized
     except Exception:
         pass
+    return _discover_accounts_from_db()
 
-    conn = connect()
-    cursor = conn.cursor()
-    try:
-      cursor.execute(
-          """
-          SELECT utility_type, subject
-          FROM utility_bills
-          WHERE COALESCE(TRIM(subject), '') <> ''
-          ORDER BY utility_type, subject COLLATE NOCASE
-          """
-      )
-      discovered = {
-          "electricity": [],
-          "water": [],
-      }
-      for utility_type, subject in cursor.fetchall():
-          key = str(utility_type or "").strip()
-          text = str(subject or "").strip()
-          if key in discovered and text and text not in discovered[key]:
-              discovered[key].append(text)
-      return discovered
-    except Exception:
-      return dict(DEFAULT_UTILITY_ACCOUNT_OPTIONS)
-    finally:
-      conn.close()
+
+def get_utility_account_options():
+    return _build_public_payload(get_utility_account_matchers())
 
 
 def save_utility_account_options(options):
@@ -79,4 +123,4 @@ def save_utility_account_options(options):
     normalized = _normalize_payload(options)
     with open(UTILITY_ACCOUNT_OPTIONS_FILE, "w", encoding="utf-8") as f:
         json.dump(normalized, f, ensure_ascii=False, indent=2)
-    return normalized
+    return _build_public_payload(normalized)

@@ -460,7 +460,7 @@
           <el-date-picker v-model="tenantForm.birth_date" type="date" value-format="YYYY-MM-DD" placeholder="选择日期"></el-date-picker>
         </el-form-item>
         <el-form-item label="公民身份证号" prop="id_card">
-          <el-input v-model="tenantForm.id_card"></el-input>
+          <el-input v-model="tenantForm.id_card" maxlength="18"></el-input>
         </el-form-item>
         <el-form-item label="住址" prop="address">
           <el-input v-model="tenantForm.address"></el-input>
@@ -495,10 +495,20 @@
             <el-option
               v-for="room in roomOptionsForForm"
               :key="room.id"
-              :label="room.room_no"
+              :label="`${room.room_no} · ${formatRoomRent(room)}`"
               :value="room.room_no"
             />
           </el-select>
+          <div
+            v-if="selectedRoomForForm"
+            class="tenant-room-hint"
+            :class="{ 'tenant-room-hint--warning': selectedRoomHasZeroRent }"
+          >
+            当前房租：{{ formatRoomRent(selectedRoomForForm) }}
+            <template v-if="selectedRoomHasZeroRent">
+              ，请先到房间管理设置租金
+            </template>
+          </div>
         </el-form-item>
         <el-form-item label="入住日期" prop="check_in_date">
           <el-date-picker v-model="tenantForm.check_in_date" type="date" value-format="YYYY-MM-DD" placeholder="选择日期"></el-date-picker>
@@ -554,29 +564,46 @@
             type="textarea"
             :rows="5"
             placeholder="例如：张三，身份证号 110101199001011234，手机 13800000000，住 A栋301，今天入住。也可以上传身份证照片让本地模型识别。"
+            @paste="handleAiPaste"
           />
         </el-form-item>
         <el-form-item label="图片识别">
-          <el-upload
-            action=""
-            :auto-upload="false"
-            :show-file-list="false"
-            accept="image/*"
-            multiple
-            :limit="20"
-            :on-change="handleAiImageChange"
-          >
-            <el-button type="primary" plain>选择图片</el-button>
-          </el-upload>
-          <el-button
-            v-if="aiDialog.images.length"
-            style="margin-left: 8px"
-            type="danger"
-            plain
-            @click="clearAiImages"
-          >
-            清空图片
-          </el-button>
+          <div class="ai-upload-panel">
+            <div
+              class="ai-dropzone"
+              :class="{ 'ai-dropzone--active': aiDialog.dragActive }"
+              @dragenter.prevent="aiDialog.dragActive = true"
+              @dragover.prevent="aiDialog.dragActive = true"
+              @dragleave.prevent="aiDialog.dragActive = false"
+              @drop.prevent="handleAiDrop"
+              @paste="handleAiPaste"
+              tabindex="0"
+            >
+              <div class="ai-dropzone__title">拖拽图片到这里识别</div>
+              <div class="ai-dropzone__hint">也可以点击下面按钮选择图片，或直接粘贴截图。</div>
+            </div>
+            <div class="ai-upload-actions">
+              <el-upload
+                action=""
+                :auto-upload="false"
+                :show-file-list="false"
+                accept="image/*"
+                multiple
+                :limit="20"
+                :on-change="handleAiImageChange"
+              >
+                <el-button type="primary" plain>选择图片</el-button>
+              </el-upload>
+              <el-button
+                v-if="aiDialog.images.length"
+                type="danger"
+                plain
+                @click="clearAiImages"
+              >
+                清空图片
+              </el-button>
+            </div>
+          </div>
           <div class="upload-progress-text">已选 {{ aiDialog.images.length }} / 20</div>
           <div v-if="aiDialog.images.length" class="ai-image-list">
             <div v-for="(item, index) in aiDialog.images" :key="item.url" class="ai-image-item">
@@ -704,7 +731,8 @@ const aiDialog = reactive({
   visible: false,
   loading: false,
   text: '',
-  images: []
+  images: [],
+  dragActive: false,
 })
 
 // 搜索、排序和筛选
@@ -957,6 +985,24 @@ const normalizeBuildingCode = (value) => String(value || '').trim().replace(/栋
 
 const normalizeRoomDigits = (value) => String(value || '').replace(/\D/g, '')
 
+const deriveBirthDateFromIdCard = (value) => {
+  const raw = String(value || '').trim().toUpperCase()
+  if (!/^\d{17}[\dX]$/.test(raw)) return ''
+  return `${raw.slice(6, 10)}-${raw.slice(10, 12)}-${raw.slice(12, 14)}`
+}
+
+const normalizeRoomPriceUnit = (value) => {
+  const text = String(value || '').trim()
+  return text || '月'
+}
+
+const formatRoomRent = (room) => {
+  const price = Number(room?.price || 0)
+  const displayPrice = Number.isFinite(price) ? price : 0
+  const unit = normalizeRoomPriceUnit(room?.price_unit)
+  return `${displayPrice} 元/${unit}`
+}
+
 const buildingOptions = computed(() => {
   const buildings = new Set()
   availableRooms.value.forEach((room) => {
@@ -972,6 +1018,15 @@ const roomOptionsForForm = computed(() => {
   return availableRooms.value
     .filter(room => normalizeBuildingCode(room.building) === building)
     .sort((a, b) => String(a.room_no || '').localeCompare(String(b.room_no || ''), undefined, { numeric: true }))
+})
+
+const selectedRoomForForm = computed(() => (
+  availableRooms.value.find((room) => String(room.room_no || '').trim() === String(tenantForm.room_no || '').trim()) || null
+))
+
+const selectedRoomHasZeroRent = computed(() => {
+  if (!selectedRoomForForm.value) return false
+  return Number(selectedRoomForForm.value.price || 0) <= 0
 })
 
 const resolveAiRoomSelection = (draft = {}) => {
@@ -1216,7 +1271,7 @@ const fetchTenants = async () => {
 
 const fetchAvailableRooms = async () => {
   try {
-    const response = await roomsApi.listRooms({ fields: 'id,room_no,building,status,room_type,price,tenant_count' })
+    const response = await roomsApi.listRooms({ fields: 'id,room_no,building,status,room_type,price,price_unit,tenant_count' })
     // 确保response.data.rooms是一个数组
     const roomsData = response.data.rooms || []
     console.log('房间数据:', roomsData)
@@ -1280,6 +1335,18 @@ watch(() => tenantForm.building, () => {
   }
 })
 
+watch(() => tenantForm.id_card, (value) => {
+  const derivedBirthDate = deriveBirthDateFromIdCard(value)
+  if (derivedBirthDate) {
+    tenantForm.birth_date = derivedBirthDate
+  }
+})
+
+watch(() => tenantForm.room_no, (value) => {
+  if (isEdit.value || !value || !selectedRoomHasZeroRent.value) return
+  ElMessage.warning('当前房间租金为 0，请先到房间管理设置租金，再新增租户')
+})
+
 const fetchTenantOcrStatus = async () => {
   try {
     const response = await systemApi.getOcrSettings()
@@ -1334,6 +1401,7 @@ const resetAiDialog = () => {
   aiDialog.loading = false
   aiDialog.text = ''
   aiDialog.images = []
+  aiDialog.dragActive = false
 }
 
 const openAiDialog = () => {
@@ -1341,24 +1409,51 @@ const openAiDialog = () => {
   aiDialog.visible = true
 }
 
-const handleAiImageChange = (file) => {
-  if (!file || !file.raw) return
+const appendAiImageFile = (rawFile) => {
+  if (!rawFile) return
   if (aiDialog.images.length >= 20) {
     ElMessage.warning('最多选择 20 张图片')
     return
   }
-  if (!String(file.raw.type || '').startsWith('image/')) {
+  if (!String(rawFile.type || '').startsWith('image/')) {
     ElMessage.warning('请上传图片文件')
     return
   }
-  if (file.raw.size && file.raw.size > 8 * 1024 * 1024) {
+  if (rawFile.size && rawFile.size > 8 * 1024 * 1024) {
     ElMessage.warning('单张图片请控制在 8MB 以内')
     return
   }
   aiDialog.images.push({
-    file: file.raw,
-    url: URL.createObjectURL(file.raw)
+    file: rawFile,
+    url: URL.createObjectURL(rawFile)
   })
+}
+
+const handleAiImageChange = (file) => {
+  if (!file || !file.raw) return
+  appendAiImageFile(file.raw)
+}
+
+const handleAiDrop = (event) => {
+  aiDialog.dragActive = false
+  const files = Array.from(event?.dataTransfer?.files || [])
+  if (!files.length) return
+  for (const file of files) {
+    appendAiImageFile(file)
+  }
+}
+
+const handleAiPaste = (event) => {
+  const clipboardItems = Array.from(event?.clipboardData?.items || [])
+  const imageItems = clipboardItems.filter((item) => String(item?.type || '').startsWith('image/'))
+  if (!imageItems.length) return
+  event.preventDefault()
+  for (const item of imageItems) {
+    const file = item.getAsFile()
+    if (file) {
+      appendAiImageFile(file)
+    }
+  }
 }
 
 const removeAiImage = (index) => {
@@ -1403,10 +1498,17 @@ const handleSubmit = async () => {
   
   await tenantFormRef.value.validate(async (valid) => {
     if (valid) {
+      if (!isEdit.value && selectedRoomHasZeroRent.value) {
+        ElMessage.warning('当前房间租金为 0，请先到房间管理设置租金，再新增租户')
+        return
+      }
       submitting.value = true
       try {
         // 格式化日期
         const formData = { ...tenantForm }
+        if (!formData.birth_date && formData.id_card) {
+          formData.birth_date = deriveBirthDateFromIdCard(formData.id_card)
+        }
         if (formData.birth_date) {
           formData.birth_date = formatDate(formData.birth_date)
         }
@@ -1755,6 +1857,18 @@ html.mobile-mode .tenant-checkout-dialog .el-dialog__footer {
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.5;
+}
+
+.tenant-room-hint {
+  width: 80%;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.tenant-room-hint--warning {
+  color: var(--danger-color, #dc2626);
 }
 </style>
 <style scoped>
