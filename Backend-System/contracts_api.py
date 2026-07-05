@@ -4,6 +4,7 @@ import datetime
 import jwt
 
 from common import connect, SECRET_KEY
+from session_manager import expire_session, get_session, get_session_invalid_payload
 
 
 def ensure_contracts_schema():
@@ -65,12 +66,27 @@ def require_token():
     # 简单 JWT 校验（Bearer Token）
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
-        return jsonify({"message": "Missing or invalid token"}), 401
+        return jsonify({"message": "Missing or invalid token", "code": "AUTH_TOKEN_MISSING"}), 401
     token = auth_header.split(" ", 1)[1]
     try:
-        jwt.decode(token, SECRET_KEY, algorithms=["HS256"])  # Validate signature
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])  # Validate signature
+        session_id = str(payload.get("sid") or "").strip()
+        if session_id:
+            session = get_session(session_id)
+            if not session or session.get("status") != "active":
+                invalid = get_session_invalid_payload(session)
+                return jsonify({"message": invalid["error"], "code": invalid["code"]}), 401
+    except jwt.ExpiredSignatureError:
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"], options={"verify_exp": False})
+            session_id = str(payload.get("sid") or "").strip()
+            if session_id:
+                expire_session(session_id)
+        except Exception:
+            pass
+        return jsonify({"message": "Unauthorized", "code": "AUTH_TOKEN_EXPIRED"}), 401
     except Exception:
-        return jsonify({"message": "Unauthorized"}), 401
+        return jsonify({"message": "Unauthorized", "code": "AUTH_TOKEN_INVALID"}), 401
 
 
 @contracts_bp.route("", methods=["POST"])  # POST /api/contracts

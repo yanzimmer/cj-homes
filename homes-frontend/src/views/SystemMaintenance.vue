@@ -445,6 +445,127 @@
       <div class="system-grid-item">
         <div class="card-box h-100 system-card">
           <div class="card-header">
+            <el-icon class="icon"><Connection /></el-icon>
+            <h3>登录会话管理</h3>
+          </div>
+          <div class="card-content">
+            <div class="description">
+              可以在这里决定是否允许多端同时登录，并查看当前在线设备。切到单点登录后，下一次新登录会自动让旧设备失效；如需立即下线某台设备，也可以直接手动执行。
+            </div>
+
+            <div class="ai-summary-row">
+              <el-tag type="info" effect="plain">当前策略：{{ sessionModeLabel }}</el-tag>
+              <el-tag type="success" effect="plain">在线会话：{{ sessionSettings.active_count }}</el-tag>
+              <el-tag type="danger" effect="plain">受限设备：{{ sessionSettings.restricted_count }}</el-tag>
+              <el-tag type="warning" effect="plain">Token 有效期：{{ sessionSettings.token_ttl_minutes }} 分钟</el-tag>
+            </div>
+
+            <el-form label-position="top" class="ocr-settings-form">
+              <el-form-item label="登录策略">
+                <el-radio-group v-model="sessionSettings.login_mode">
+                  <el-radio-button label="multi">允许多端登录</el-radio-button>
+                  <el-radio-button label="single">单点登录</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+              <div class="feature-hint">
+                单点登录模式下，新设备登录后旧设备会在下一次请求时自动失效；当前已经在线的设备不会因为保存这一项立即被踢下线。
+              </div>
+              <el-form-item label="Token 默认有效时间">
+                <el-input-number
+                  v-model="sessionSettings.token_ttl_minutes"
+                  :min="5"
+                  :max="10080"
+                  :step="5"
+                  style="width: 100%"
+                />
+              </el-form-item>
+              <div class="feature-hint">
+                单位是分钟，最短 5 分钟，最长 7 天。新的登录和后续活跃续期都会按这里的时长重新计算。
+              </div>
+
+              <div class="action-area ai-action-area">
+                <el-button type="primary" :loading="savingSessionSettings" @click="saveSessionSettings">
+                  保存会话配置
+                </el-button>
+                <el-button :loading="loadingSessions" @click="refreshSessions">
+                  刷新会话列表
+                </el-button>
+              </div>
+            </el-form>
+
+            <div v-if="sessionItems.length" class="session-list">
+              <article
+                v-for="item in sessionItems"
+                :key="item.session_id"
+                class="session-card"
+                :class="{
+                  'session-card--current': item.is_current,
+                  'session-card--offline': item.status !== 'active'
+                }"
+              >
+                <div class="session-card__head">
+                  <div class="session-card__title">
+                    <strong>{{ item.device_label || '未知设备' }}</strong>
+                    <el-tag v-if="item.is_current" type="primary" effect="dark" size="small">当前设备</el-tag>
+                    <el-tag :type="sessionStatusTagType(item.status)" effect="plain" size="small">
+                      {{ sessionStatusLabel(item.status) }}
+                    </el-tag>
+                    <el-tag v-if="item.login_restricted" type="danger" effect="dark" size="small">已限制登录</el-tag>
+                  </div>
+                  <div class="session-card__actions">
+                    <el-button
+                      v-if="item.status === 'active' && !item.is_current"
+                      link
+                      type="danger"
+                      :loading="sessionActionSessionId === item.session_id && sessionActionType === 'revoke'"
+                      @click="revokeUserSession(item)"
+                    >
+                      手动下线
+                    </el-button>
+                    <el-button
+                      v-if="!item.login_restricted && !item.is_current"
+                      link
+                      type="warning"
+                      :loading="sessionActionSessionId === item.session_id && sessionActionType === 'restrict'"
+                      @click="restrictSessionDevice(item)"
+                    >
+                      下线并限制登录
+                    </el-button>
+                    <el-button
+                      v-if="item.login_restricted"
+                      link
+                      type="primary"
+                      :loading="sessionActionSessionId === item.session_id && sessionActionType === 'release'"
+                      @click="releaseSessionDevice(item)"
+                    >
+                      解除限制登录
+                    </el-button>
+                  </div>
+                </div>
+
+                <div class="session-card__meta">
+                  <span>账号：{{ item.full_name || item.username }}</span>
+                  <span>IP：{{ item.ip_address || '-' }}</span>
+                  <span>登录时间：{{ item.created_at || '-' }}</span>
+                  <span>最近活动：{{ item.last_seen_at || '-' }}</span>
+                </div>
+
+                <div v-if="item.revoked_reason" class="feature-hint">
+                  原因：{{ item.revoked_reason }}
+                </div>
+                <div v-if="item.login_restricted && item.restriction_reason" class="feature-hint warning-text">
+                  限制说明：{{ item.restriction_reason }}
+                </div>
+              </article>
+            </div>
+            <div v-else class="feature-hint">当前还没有可显示的会话记录。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="system-grid-item">
+        <div class="card-box h-100 system-card">
+          <div class="card-header">
             <el-icon class="icon"><Key /></el-icon>
             <h3>阿里云 OCR 配置</h3>
           </div>
@@ -534,9 +655,9 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { Download, Upload, UploadFilled, Document, Refresh, Delete, MagicStick, Setting, Key, Cpu } from '@element-plus/icons-vue'
+import { Download, Upload, UploadFilled, Document, Refresh, Delete, MagicStick, Setting, Key, Cpu, Connection } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { systemApi } from '../api'
+import { authApi, systemApi } from '../api'
 import { uploadFileByChunks } from '../utils/chunkUploader'
 
 const exporting = ref(false)
@@ -576,6 +697,10 @@ const savingOcrSettings = ref(false)
 const savingAiSettings = ref(false)
 const testingAiSettings = ref(false)
 const loadingApiModels = ref(false)
+const loadingSessions = ref(false)
+const savingSessionSettings = ref(false)
+const sessionActionSessionId = ref('')
+const sessionActionType = ref('')
 let aiSwitchPollTimer = null
 let snapshotTaskPollTimer = null
 const ocrSettings = ref({
@@ -618,8 +743,16 @@ const aiSwitchStatus = ref({
   finished_at: '',
   error: '',
 })
+const sessionSettings = ref({
+  login_mode: 'multi',
+  active_count: 0,
+  restricted_count: 0,
+  token_ttl_minutes: 30,
+})
+const sessionItems = ref([])
 const isAiSwitching = computed(() => aiSwitchStatus.value.status === 'running')
 const isApiProvider = computed(() => aiSettings.value.provider === 'api')
+const sessionModeLabel = computed(() => sessionSettings.value.login_mode === 'single' ? '单点登录' : '允许多端登录')
 const getComparableAiSettings = (value = {}) => JSON.stringify({
   enabled: value?.enabled !== false,
   provider: value?.provider || 'ollama',
@@ -965,6 +1098,138 @@ const fetchAiSettings = async () => {
   } catch (error) {
     ElMessage.error(error?.response?.data?.error || '加载 AI 模型配置失败')
   }
+}
+
+const applySessionsResponse = (data = {}) => {
+  sessionSettings.value = {
+    login_mode: data?.settings?.login_mode || data?.login_mode || sessionSettings.value.login_mode || 'multi',
+    active_count: Number(data?.active_count || 0),
+    restricted_count: Number(data?.restricted_count || 0),
+    token_ttl_minutes: Number(data?.settings?.token_ttl_minutes || data?.token_ttl_minutes || sessionSettings.value.token_ttl_minutes || 30),
+  }
+  sessionItems.value = Array.isArray(data?.sessions) ? data.sessions : []
+}
+
+const refreshSessions = async ({ silent = false } = {}) => {
+  loadingSessions.value = true
+  try {
+    const response = await authApi.listSessions({ include_history: true })
+    applySessionsResponse(response?.data || {})
+  } catch (error) {
+    if (!silent) {
+      ElMessage.error(error?.response?.data?.error || '加载会话列表失败')
+    }
+  } finally {
+    loadingSessions.value = false
+  }
+}
+
+const saveSessionSettings = async () => {
+  savingSessionSettings.value = true
+  try {
+    await authApi.updateSessionSettings({
+      login_mode: sessionSettings.value.login_mode,
+      token_ttl_minutes: Number(sessionSettings.value.token_ttl_minutes || 30),
+    })
+    ElMessage.success('会话配置已保存')
+    await refreshSessions({ silent: true })
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '保存登录策略失败')
+  } finally {
+    savingSessionSettings.value = false
+  }
+}
+
+const runSessionAction = async (item, actionType, requestFactory, defaultSuccessMessage) => {
+  if (!item?.session_id) return
+  try {
+    sessionActionSessionId.value = item.session_id
+    sessionActionType.value = actionType
+    const response = await requestFactory()
+    applySessionsResponse(response?.data || {})
+    ElMessage.success(response?.data?.message || defaultSuccessMessage)
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '会话操作失败')
+  } finally {
+    sessionActionSessionId.value = ''
+    sessionActionType.value = ''
+  }
+}
+
+const revokeUserSession = (item) => {
+  if (!item?.session_id) return
+  ElMessageBox.confirm(
+    `确认下线设备“${item.device_label || '未知设备'}”？`,
+    '手动下线',
+    {
+      confirmButtonText: '确认下线',
+      cancelButtonText: '取消',
+      type: 'warning',
+      confirmButtonClass: 'el-button--danger'
+    }
+  ).then(async () => {
+    await runSessionAction(
+      item,
+      'revoke',
+      () => authApi.revokeSession(item.session_id),
+      '会话已下线'
+    )
+  }).catch(() => {})
+}
+
+const restrictSessionDevice = (item) => {
+  if (!item?.session_id) return
+  ElMessageBox.confirm(
+    `确认下线设备“${item.device_label || '未知设备'}”，并禁止它再次登录？`,
+    '限制登录',
+    {
+      confirmButtonText: '确认限制',
+      cancelButtonText: '取消',
+      type: 'warning',
+      confirmButtonClass: 'el-button--danger'
+    }
+  ).then(async () => {
+    await runSessionAction(
+      item,
+      'restrict',
+      () => authApi.restrictSessionLogin(item.session_id),
+      '已下线该设备，并限制再次登录'
+    )
+  }).catch(() => {})
+}
+
+const releaseSessionDevice = (item) => {
+  if (!item?.session_id) return
+  ElMessageBox.confirm(
+    `确认解除设备“${item.device_label || '未知设备'}”的登录限制？`,
+    '解除限制登录',
+    {
+      confirmButtonText: '确认解除',
+      cancelButtonText: '取消',
+      type: 'info'
+    }
+  ).then(async () => {
+    await runSessionAction(
+      item,
+      'release',
+      () => authApi.releaseSessionLoginRestriction(item.session_id),
+      '已解除该设备的登录限制'
+    )
+  }).catch(() => {})
+}
+
+const sessionStatusTagType = (status) => {
+  if (status === 'active') return 'success'
+  if (status === 'revoked') return 'danger'
+  if (status === 'expired') return 'warning'
+  return 'info'
+}
+
+const sessionStatusLabel = (status) => {
+  if (status === 'active') return '在线'
+  if (status === 'revoked') return '已下线'
+  if (status === 'expired') return '已过期'
+  return status || '未知'
 }
 
 const runAiAction = async (action, successMessage) => {
@@ -1380,6 +1645,7 @@ onMounted(() => {
   fetchUtilityAccountOptions()
   fetchOcrSettings()
   fetchAiSettings()
+  refreshSessions({ silent: true })
 })
 
 onBeforeUnmount(() => {
@@ -1933,6 +2199,61 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.session-card {
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+}
+
+.session-card--current {
+  border-color: rgba(37, 99, 235, 0.28);
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.session-card--offline {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.session-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.session-card__title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-main);
+}
+
+.session-card__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.session-card__meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+  margin-top: 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 .utility-account-alias-row {
   margin-top: 10px;
 }
@@ -2008,6 +2329,14 @@ onBeforeUnmount(() => {
     flex-direction: column;
     align-items: flex-start;
     gap: 12px;
+  }
+
+  .session-card__head {
+    flex-direction: column;
+  }
+
+  .session-card__meta {
+    grid-template-columns: 1fr;
   }
 }
 </style>

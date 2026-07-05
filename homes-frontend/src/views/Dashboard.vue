@@ -68,6 +68,35 @@
             <div class="header-right">
               <DisplayModeSwitch v-if="!mobileMode" />
               <ThemeModeSwitch />
+              <el-popover
+                placement="bottom-end"
+                :width="320"
+                trigger="click"
+                popper-class="session-event-popover"
+                @show="markSessionEventsRead"
+              >
+                <template #reference>
+                  <el-badge :value="unreadSessionEventCount" :hidden="!unreadSessionEventCount" :max="99">
+                    <el-button class="session-event-button" circle text @click="markSessionEventsRead">
+                      <el-icon><Bell /></el-icon>
+                    </el-button>
+                  </el-badge>
+                </template>
+                <div class="session-event-panel">
+                  <div class="session-event-panel__head">
+                    <strong>会话提醒</strong>
+                    <el-button link type="primary" @click="fetchSessionEvents({ incremental: false, notify: false })">刷新</el-button>
+                  </div>
+                  <div v-if="sessionEvents.length" class="session-event-list">
+                    <article v-for="item in sessionEvents" :key="item.id" class="session-event-item">
+                      <div class="session-event-item__title">{{ item.title }}</div>
+                      <div class="session-event-item__message">{{ item.message || '有新的登录会话变化' }}</div>
+                      <div class="session-event-item__time">{{ item.created_at || '-' }}</div>
+                    </article>
+                  </div>
+                  <div v-else class="session-event-empty">暂时没有新的会话提醒</div>
+                </div>
+              </el-popover>
 
               <div class="time-display">
                 <el-icon><Timer /></el-icon>
@@ -184,7 +213,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { authApi } from '../api/index.js'
 import {
   House, 
@@ -221,6 +250,11 @@ const mobileMenuVisible = ref(false)
 const user = computed(() => authStore.user)
 const activeMenu = computed(() => route.path)
 const changePasswordDialogVisible = ref(false)
+const sessionEvents = ref([])
+const unreadSessionEventCount = ref(0)
+const latestSessionEventId = ref(0)
+const sessionEventReady = ref(false)
+let sessionEventTimer = null
 
 const navTabs = [
   { path: '/dashboard', title: '首页', icon: HomeFilled },
@@ -374,14 +408,88 @@ const handleMenuSelect = (index) => {
   router.push(index).catch(() => {})
 }
 
-const handleLogout = () => {
-  authStore.logout()
-  router.push('/login')
+const handleLogout = async () => {
+  try {
+    await authApi.logout()
+  } catch (_) {
+    // 忽略退出接口失败，仍然清理本地登录态
+  } finally {
+    authStore.logout()
+    router.push('/login')
+  }
 }
 
 const getUserInitials = () => {
   const name = user.value?.fullName || '管理员'
   return name.charAt(0).toUpperCase()
+}
+
+const sessionEventNotificationType = (eventType) => {
+  if (eventType === 'login') return 'success'
+  if (eventType === 'logout') return 'info'
+  if (eventType === 'revoked' || eventType === 'replaced') return 'warning'
+  if (eventType === 'expired') return 'error'
+  return 'info'
+}
+
+const markSessionEventsRead = () => {
+  unreadSessionEventCount.value = 0
+}
+
+const fetchSessionEvents = async ({ incremental = true, notify = true } = {}) => {
+  try {
+    const params = incremental && latestSessionEventId.value
+      ? { after_id: latestSessionEventId.value, limit: 20 }
+      : { limit: 12 }
+    const response = await authApi.getSessionEvents(params)
+    const events = Array.isArray(response?.data?.events) ? response.data.events : []
+    if (!incremental) {
+      sessionEvents.value = events.slice(-12).reverse()
+      latestSessionEventId.value = response?.data?.latest_event_id || events.at(-1)?.id || latestSessionEventId.value || 0
+      sessionEventReady.value = true
+      return
+    }
+    if (!events.length) {
+      sessionEventReady.value = true
+      return
+    }
+
+    latestSessionEventId.value = response?.data?.latest_event_id || events.at(-1)?.id || latestSessionEventId.value
+    const merged = [...sessionEvents.value].reverse()
+    events.forEach((item) => {
+      if (!merged.some(existing => existing.id === item.id)) {
+        merged.push(item)
+      }
+    })
+    sessionEvents.value = merged.slice(-12).reverse()
+
+    if (sessionEventReady.value) {
+      unreadSessionEventCount.value += events.length
+      if (notify) {
+        events.forEach((item) => {
+          ElNotification({
+            title: item.title || '会话提醒',
+            message: item.message || '登录会话发生变化',
+            type: sessionEventNotificationType(item.event_type),
+            duration: 3200,
+          })
+        })
+      }
+    } else {
+      sessionEventReady.value = true
+    }
+  } catch (_) {
+    // 忽略提醒拉取异常，避免干扰主流程
+  }
+}
+
+const startSessionEventPolling = () => {
+  if (sessionEventTimer) {
+    clearInterval(sessionEventTimer)
+  }
+  sessionEventTimer = setInterval(() => {
+    fetchSessionEvents({ incremental: true, notify: true })
+  }, 12000)
 }
 
 // 轻量用户活动心跳：有活动则调用后台校验接口，触发后端续期并从响应头接收新令牌
@@ -404,6 +512,8 @@ onMounted(() => {
   window.addEventListener('click', activityHandler)
   window.addEventListener('scroll', activityHandler, { passive: true })
   window.addEventListener('touchstart', activityHandler, { passive: true })
+  fetchSessionEvents({ incremental: false, notify: false })
+  startSessionEventPolling()
 })
 
 onBeforeUnmount(() => {
@@ -412,6 +522,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('click', activityHandler)
   window.removeEventListener('scroll', activityHandler)
   window.removeEventListener('touchstart', activityHandler)
+  if (sessionEventTimer) {
+    clearInterval(sessionEventTimer)
+  }
 })
 </script>
 
@@ -703,6 +816,74 @@ html.dark .workspace-header {
   flex-shrink: 0;
 }
 
+.session-event-button {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  color: var(--text-main);
+  background: var(--surface-muted);
+  border: 1px solid var(--surface-border);
+}
+
+.session-event-button:hover {
+  color: var(--el-color-primary);
+  border-color: rgba(64, 158, 255, 0.4);
+}
+
+.session-event-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.session-event-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.session-event-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.session-event-item {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+}
+
+.session-event-item__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.session-event-item__message {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.session-event-item__time {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.session-event-empty {
+  padding: 18px 0 10px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 .mobile-menu-button {
   width: 42px;
   height: 42px;
@@ -866,6 +1047,11 @@ html.dark .user-info:hover {
   justify-content: flex-end;
   align-items: center;
   gap: 8px;
+}
+
+.dashboard-container--mobile .session-event-button {
+  width: 36px;
+  height: 36px;
 }
 
 .dashboard-container--mobile .user-info {

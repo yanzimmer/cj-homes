@@ -13,6 +13,21 @@ const apiClient = axios.create({
   }
 })
 
+const SESSION_ERROR_CODES = new Set([
+  'AUTH_TOKEN_MISSING',
+  'AUTH_TOKEN_INVALID',
+  'AUTH_TOKEN_EXPIRED',
+  'AUTH_SESSION_INVALID',
+  'AUTH_SESSION_REVOKED',
+  'AUTH_SESSION_REPLACED'
+])
+
+const clearAuthStorage = () => {
+  localStorage.removeItem('token')
+  localStorage.removeItem('user')
+  localStorage.removeItem('session_id')
+}
+
 // 请求拦截器添加token
 apiClient.interceptors.request.use(
   config => {
@@ -30,11 +45,11 @@ apiClient.interceptors.response.use(
   response => response,
   error => {
     const status = error?.response?.status
-    if (status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
+    const code = error?.response?.data?.code
+    if (status === 401 && SESSION_ERROR_CODES.has(code)) {
+      clearAuthStorage()
       try {
-        ElMessage.error('登录状态已过期，请重新登录')
+        ElMessage.error(error?.response?.data?.error || '登录状态已过期，请重新登录')
       } catch (_) {}
       const current = router.currentRoute?.value
       if (!current || current.name !== 'Login') {

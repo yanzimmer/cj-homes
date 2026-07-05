@@ -5,6 +5,7 @@ export const useAuthStore = defineStore('auth', {
   state: () => ({
     token: localStorage.getItem('token') || null,
     user: JSON.parse(localStorage.getItem('user')) || null,
+    sessionId: localStorage.getItem('session_id') || null,
     loading: false,
     error: null
   }),
@@ -32,6 +33,12 @@ export const useAuthStore = defineStore('auth', {
         
         localStorage.setItem('token', this.token)
         localStorage.setItem('user', JSON.stringify(this.user))
+        this.sessionId = response.data.session_id || null
+        if (this.sessionId) {
+          localStorage.setItem('session_id', this.sessionId)
+        } else {
+          localStorage.removeItem('session_id')
+        }
         
         return true
       } catch (error) {
@@ -45,8 +52,10 @@ export const useAuthStore = defineStore('auth', {
     logout() {
       this.token = null
       this.user = null
+      this.sessionId = null
       localStorage.removeItem('token')
       localStorage.removeItem('user')
+      localStorage.removeItem('session_id')
     }
   }
 })

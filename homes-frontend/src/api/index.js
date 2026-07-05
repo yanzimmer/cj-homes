@@ -13,6 +13,21 @@ const apiClient = axios.create({
   }
 })
 
+const SESSION_ERROR_CODES = new Set([
+  'AUTH_TOKEN_MISSING',
+  'AUTH_TOKEN_INVALID',
+  'AUTH_TOKEN_EXPIRED',
+  'AUTH_SESSION_INVALID',
+  'AUTH_SESSION_REVOKED',
+  'AUTH_SESSION_REPLACED'
+])
+
+const clearAuthStorage = () => {
+  localStorage.removeItem('token')
+  localStorage.removeItem('user')
+  localStorage.removeItem('session_id')
+}
+
 // 璇锋眰鎷︽埅鍣ㄦ坊鍔爐oken
 apiClient.interceptors.request.use(
   config => {
@@ -37,14 +52,12 @@ apiClient.interceptors.response.use(
   },
   error => {
     const status = error?.response?.status
-    if (status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      // 鍙嬪ソ鎻愮ず
+    const code = error?.response?.data?.code
+    if (status === 401 && SESSION_ERROR_CODES.has(code)) {
+      clearAuthStorage()
       try {
-        ElMessage.error('登录状态已过期，请重新登录')
+        ElMessage.error(error?.response?.data?.error || '登录状态已过期，请重新登录')
       } catch (_) {}
-      // 閬垮厤鍦ㄧ櫥褰曢〉閲嶅璺宠浆
       const current = router.currentRoute?.value
       if (!current || current.name !== 'Login') {
         router.push({ name: 'Login' })
@@ -196,7 +209,15 @@ export const contractsApi = {
 
 export const authApi = {
   login: (credentials) => apiClient.post('/login', credentials),
-  verifyToken: () => apiClient.get('/verify-token', { skipLoading: true })
+  logout: () => apiClient.post('/logout'),
+  verifyToken: () => apiClient.get('/verify-token', { skipLoading: true }),
+  getSessionSettings: () => apiClient.get('/session-settings'),
+  updateSessionSettings: (payload) => apiClient.put('/session-settings', payload),
+  listSessions: (params = {}) => apiClient.get('/sessions', { params }),
+  revokeSession: (sessionId) => apiClient.post(`/sessions/${sessionId}/revoke`),
+  restrictSessionLogin: (sessionId) => apiClient.post(`/sessions/${sessionId}/restrict-login`),
+  releaseSessionLoginRestriction: (sessionId) => apiClient.post(`/sessions/${sessionId}/release-login-restriction`),
+  getSessionEvents: (params = {}) => apiClient.get('/session-events', { params }),
 }
 
 export const dashboardApi = {

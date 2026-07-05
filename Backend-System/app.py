@@ -28,6 +28,7 @@ from warehouse_api import warehouse_bp, ensure_warehouse_schema
 from upload_api import upload_bp
 import forgot_password as fp
 from log_config import configure_logging
+from session_manager import ensure_session_schema
 
 
 app = Flask(__name__)
@@ -504,6 +505,7 @@ except Exception as e:
 app.register_blueprint(auth_bp)
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(notify_bp)
+ensure_session_schema()
 ensure_rooms_schema()
 ensure_self_checkin_schema()
 app.register_blueprint(rooms_bp)

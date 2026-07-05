@@ -140,6 +140,8 @@ const handleLogin = async () => {
       if (success) {
         ElMessage.success('登录成功')
         router.push('/dashboard')
+      } else if (authStore.error) {
+        ElMessage.error(authStore.error)
       }
     }
   })
