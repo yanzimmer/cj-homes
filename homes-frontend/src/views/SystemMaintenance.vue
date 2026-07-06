@@ -8,6 +8,29 @@
       <el-tag class="hero-tag" effect="dark">高安全操作区</el-tag>
     </div>
 
+    <div class="system-version-card card-box system-card">
+      <div class="card-header">
+        <el-icon class="icon"><Monitor /></el-icon>
+        <h3>系统版本信息</h3>
+      </div>
+      <div class="card-content">
+        <div class="version-grid">
+          <div class="version-item">
+            <div class="version-item__label">前端版本</div>
+            <div class="version-item__value">{{ frontendVersionLabel }}</div>
+            <div class="version-item__meta">Commit {{ frontendVersionCommit }}</div>
+            <div class="version-item__meta">构建时间 {{ frontendVersionBuildTime }}</div>
+          </div>
+          <div class="version-item">
+            <div class="version-item__label">后端版本</div>
+            <div class="version-item__value">{{ backendVersionLabel }}</div>
+            <div class="version-item__meta">Commit {{ backendVersionCommit }}</div>
+            <div class="version-item__meta">启动时间 {{ backendVersionStartedAt }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="system-top-grid">
       <!-- 导出数据 -->
       <div class="system-grid-item">
@@ -655,10 +678,11 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { Download, Upload, UploadFilled, Document, Refresh, Delete, MagicStick, Setting, Key, Cpu, Connection } from '@element-plus/icons-vue'
+import { Download, Upload, UploadFilled, Document, Refresh, Delete, MagicStick, Setting, Key, Cpu, Connection, Monitor } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { authApi, systemApi } from '../api'
+import { authApi, metaApi, systemApi } from '../api'
 import { uploadFileByChunks } from '../utils/chunkUploader'
+import { formatVersionText, frontendVersionInfo } from '../utils/versionInfo'
 
 const exporting = ref(false)
 const importing = ref(false)
@@ -743,6 +767,11 @@ const aiSwitchStatus = ref({
   finished_at: '',
   error: '',
 })
+const backendVersionInfo = ref({
+  version: '',
+  commit: '',
+  started_at: '',
+})
 const sessionSettings = ref({
   login_mode: 'multi',
   active_count: 0,
@@ -753,6 +782,12 @@ const sessionItems = ref([])
 const isAiSwitching = computed(() => aiSwitchStatus.value.status === 'running')
 const isApiProvider = computed(() => aiSettings.value.provider === 'api')
 const sessionModeLabel = computed(() => sessionSettings.value.login_mode === 'single' ? '单点登录' : '允许多端登录')
+const frontendVersionLabel = computed(() => formatVersionText(frontendVersionInfo.version))
+const frontendVersionCommit = computed(() => frontendVersionInfo.commit || 'unknown')
+const frontendVersionBuildTime = computed(() => frontendVersionInfo.buildTime ? new Date(frontendVersionInfo.buildTime).toLocaleString('zh-CN') : '-')
+const backendVersionLabel = computed(() => formatVersionText(backendVersionInfo.value.version))
+const backendVersionCommit = computed(() => backendVersionInfo.value.commit || 'unknown')
+const backendVersionStartedAt = computed(() => backendVersionInfo.value.started_at || '-')
 const getComparableAiSettings = (value = {}) => JSON.stringify({
   enabled: value?.enabled !== false,
   provider: value?.provider || 'ollama',
@@ -1097,6 +1132,24 @@ const fetchAiSettings = async () => {
     }
   } catch (error) {
     ElMessage.error(error?.response?.data?.error || '加载 AI 模型配置失败')
+  }
+}
+
+const fetchVersionInfo = async () => {
+  try {
+    const response = await metaApi.getVersionInfo()
+    backendVersionInfo.value = {
+      version: response?.data?.backend?.version || '',
+      commit: response?.data?.backend?.commit || '',
+      started_at: response?.data?.backend?.started_at || '',
+    }
+  } catch (error) {
+    backendVersionInfo.value = {
+      version: '',
+      commit: '',
+      started_at: '',
+    }
+    ElMessage.error(error?.response?.data?.error || '加载版本信息失败')
   }
 }
 
@@ -1634,6 +1687,7 @@ const handleSeed = () => {
 }
 
 onMounted(() => {
+  fetchVersionInfo()
   fetchSnapshots({ silent: true })
   systemApi.getSnapshotTaskStatus().then((response) => {
     applySnapshotTaskStatus(response?.data || {})
@@ -1675,6 +1729,42 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.system-version-card {
+  padding: 18px 20px;
+}
+
+.version-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.version-item {
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+}
+
+.version-item__label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.version-item__value {
+  margin-top: 6px;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.version-item__meta {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 
 .system-hero {
@@ -2312,6 +2402,10 @@ onBeforeUnmount(() => {
     flex-direction: column;
     align-items: flex-start;
     gap: 10px;
+  }
+
+  .version-grid {
+    grid-template-columns: 1fr;
   }
 }
 

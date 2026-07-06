@@ -118,6 +118,13 @@
                       <el-icon><SwitchButton /></el-icon>
                       <span>退出登录</span>
                     </el-dropdown-item>
+                    <el-dropdown-item divided disabled class="version-dropdown-item">
+                      <div class="version-dropdown">
+                        <div class="version-dropdown__title">版本信息</div>
+                        <div class="version-dropdown__row">前端 {{ frontendVersionLabel }}</div>
+                        <div class="version-dropdown__row">后端 {{ backendVersionLabel }}</div>
+                      </div>
+                    </el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
@@ -214,7 +221,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
-import { authApi } from '../api/index.js'
+import { authApi, metaApi } from '../api/index.js'
 import {
   House, 
   User, 
@@ -239,6 +246,7 @@ import DisplayModeSwitch from '../components/DisplayModeSwitch.vue'
 import ThemeModeSwitch from '../components/ThemeModeSwitch.vue'
 import { DISPLAY_MODE_EVENT, getPreferredDisplayMode } from '../utils/displayMode'
 import { applyTheme, getPreferredTheme } from '../utils/theme'
+import { formatVersionText, frontendVersionInfo } from '../utils/versionInfo'
 
 const router = useRouter()
 const route = useRoute()
@@ -254,6 +262,10 @@ const sessionEvents = ref([])
 const unreadSessionEventCount = ref(0)
 const latestSessionEventId = ref(0)
 const sessionEventReady = ref(false)
+const backendVersionInfo = ref({
+  version: '',
+  commit: '',
+})
 let sessionEventTimer = null
 
 const navTabs = [
@@ -274,6 +286,8 @@ const navTabs = [
 const navTabMap = Object.fromEntries(navTabs.map((item) => [item.path, item]))
 
 const currentPage = computed(() => navTabMap[route.path] || navTabMap['/dashboard'])
+const frontendVersionLabel = computed(() => formatVersionText(frontendVersionInfo.version))
+const backendVersionLabel = computed(() => formatVersionText(backendVersionInfo.value.version))
 
 const syncDisplayMode = () => {
   mobileMode.value = getPreferredDisplayMode() === 'mobile'
@@ -432,6 +446,21 @@ const sessionEventNotificationType = (eventType) => {
   return 'info'
 }
 
+const fetchVersionInfo = async () => {
+  try {
+    const response = await metaApi.getVersionInfo()
+    backendVersionInfo.value = {
+      version: response?.data?.backend?.version || '',
+      commit: response?.data?.backend?.commit || '',
+    }
+  } catch (_) {
+    backendVersionInfo.value = {
+      version: '',
+      commit: '',
+    }
+  }
+}
+
 const markSessionEventsRead = () => {
   unreadSessionEventCount.value = 0
 }
@@ -512,6 +541,7 @@ onMounted(() => {
   window.addEventListener('click', activityHandler)
   window.addEventListener('scroll', activityHandler, { passive: true })
   window.addEventListener('touchstart', activityHandler, { passive: true })
+  fetchVersionInfo()
   fetchSessionEvents({ incremental: false, notify: false })
   startSessionEventPolling()
 })
@@ -882,6 +912,33 @@ html.dark .workspace-header {
   text-align: center;
   color: var(--text-secondary);
   font-size: 13px;
+}
+
+:deep(.version-dropdown-item.is-disabled) {
+  opacity: 1;
+}
+
+:deep(.version-dropdown-item.is-disabled .el-dropdown-menu__item) {
+  cursor: default;
+}
+
+.version-dropdown {
+  display: flex;
+  min-width: 160px;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-main);
+}
+
+.version-dropdown__title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.version-dropdown__row {
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .mobile-menu-button {

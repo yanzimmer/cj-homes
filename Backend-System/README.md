@@ -57,7 +57,13 @@ python Backend-System/init-scripts/init_notification_config.py
 ### 开发模式（单进程）
 
 ```bash
-python Backend-System/app.py  # 监听 0.0.0.0:5000
+python start_backend.py
+```
+
+说明：项目根目录下的 `start_backend.py` 会自动读取 `homes-frontend/package.json` 的版本号，并在启动时自动注入 `BACKEND_APP_VERSION`。如果你想临时指定版本，也可以手动传入：
+
+```bash
+BACKEND_APP_VERSION=1.0.1 python start_backend.py
 ```
 
 ### 生产模式

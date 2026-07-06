@@ -5,6 +5,8 @@ import subprocess
 import sys
 import time
 
+from version_helper import resolve_backend_app_version
+
 
 def detect_python(root_dir):
     if sys.platform == "win32":
@@ -53,13 +55,16 @@ def main():
     python_exe = detect_python(root_dir)
     local_ip = detect_local_ip()
     backend_port = pick_backend_port()
+    backend_app_version, version_source = resolve_backend_app_version(root_dir)
     backend_env = os.environ.copy()
     backend_env["PORT"] = str(backend_port)
+    backend_env["BACKEND_APP_VERSION"] = backend_app_version
 
     print("=" * 56)
     print("正在单独启动后端服务...")
     print(f"Python: {python_exe}")
     print(f"目录: {backend_dir}")
+    print(f"后端版本: {backend_app_version} ({version_source})")
     print(f"后端监听: 0.0.0.0:{backend_port}")
     print(f"本机访问: http://127.0.0.1:{backend_port}")
     print(f"局域网访问: http://{local_ip}:{backend_port}")

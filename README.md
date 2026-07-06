@@ -64,8 +64,10 @@ source venv/bin/activate
 pip install -r Backend-System/requirements.txt
 python Backend-System/init-scripts/init_hotel_db.py --init --create-default-admin --seed-demo-data
 python Backend-System/init-scripts/init_notification_config.py
-python Backend-System/app.py
+python start_backend.py
 ```
+
+说明：`start_backend.py` 会自动读取 `homes-frontend/package.json` 中的版本号，并在启动后端时自动带上 `BACKEND_APP_VERSION`。如果你有特殊需要，也可以手动传入 `BACKEND_APP_VERSION=1.0.1 python start_backend.py` 覆盖。
 
 ## 补充说明
 

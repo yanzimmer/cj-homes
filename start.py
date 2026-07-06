@@ -6,6 +6,8 @@ import signal
 import socket
 import shutil
 
+from version_helper import resolve_backend_app_version
+
 
 BACKEND_REQUIRED_MODULES = ("flask", "flask_cors", "flasgger", "jwt")
 
@@ -118,6 +120,7 @@ def main():
     
     python_exe = pick_python_executable(root_dir)
     print(f"[后端] 使用 Python: {python_exe}")
+    backend_app_version, version_source = resolve_backend_app_version(root_dir)
 
     backend_port = pick_backend_port()
     if backend_port != 5000:
@@ -130,6 +133,7 @@ def main():
     backend_env = os.environ.copy()
     backend_env["PORT"] = str(backend_port)
     backend_env["HOST"] = "127.0.0.1"
+    backend_env["BACKEND_APP_VERSION"] = backend_app_version
 
     frontend_env = os.environ.copy()
     frontend_env["VITE_API_BASE_URL"] = "/api"
@@ -143,6 +147,7 @@ def main():
         print("="*50)
         print("正在启动房屋租赁管理系统...")
         print("="*50)
+        print(f"[版本] 后端版本号将使用: {backend_app_version} ({version_source})")
 
         # 1. 启动后端
         print(f"[后端] 正在启动 (目录: {backend_dir})...")

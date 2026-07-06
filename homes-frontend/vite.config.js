@@ -1,9 +1,25 @@
 ﻿import { fileURLToPath, URL } from 'node:url'
+import { execSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 // https://vite.dev/config/
+const packageJson = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
+const appVersion = packageJson.version || '1.0.0'
+const appBuildTime = new Date().toISOString()
+
+const resolveGitCommit = () => {
+  try {
+    return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
+  } catch (_) {
+    return 'unknown'
+  }
+}
+
+const appCommit = resolveGitCommit()
+
 export default defineConfig(({ mode }) => ({
   plugins: [vue()],
   server: {
@@ -28,6 +44,9 @@ export default defineConfig(({ mode }) => ({
   },
   define: {
     __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false',
+    __APP_VERSION__: JSON.stringify(appVersion),
+    __APP_COMMIT__: JSON.stringify(appCommit),
+    __APP_BUILD_TIME__: JSON.stringify(appBuildTime),
   },
   // 在 dev 打印日志，在生产构建移除所有 console/debugger
   esbuild: {

@@ -220,6 +220,10 @@ export const authApi = {
   getSessionEvents: (params = {}) => apiClient.get('/session-events', { params }),
 }
 
+export const metaApi = {
+  getVersionInfo: () => apiClient.get('/version', { skipLoading: true }),
+}
+
 export const dashboardApi = {
   getStats: () => apiClient.get('/dashboard/stats')
 }
