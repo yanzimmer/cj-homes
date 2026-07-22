@@ -131,6 +131,14 @@
                 <span>租户</span>
                 <strong>{{ room.tenant_count || 0 }} 人</strong>
               </div>
+              <div class="mobile-room-fact">
+                <span>待收租金</span>
+                <strong>¥{{ formatOutstandingAmount(room) }}</strong>
+              </div>
+              <div class="mobile-room-fact">
+                <span>历史交租</span>
+                <strong>{{ getPaidHistoryCount(room) }} 次</strong>
+              </div>
             </div>
 
             <div v-if="room.features?.length" class="mobile-room-card__features">
@@ -149,6 +157,7 @@
               </el-button>
               <el-button size="small" type="primary" plain @click="openEditDialog(room)">编辑</el-button>
               <el-button size="small" type="primary" @click="openSelfCheckinDialog(room)">入住登记</el-button>
+              <el-button size="small" type="success" plain @click="openRentCollectionDialog(room)">缴租码</el-button>
               <el-button
                 v-if="room.status === '已入住'"
                 size="small"
@@ -253,6 +262,16 @@
           </template>
         </el-table-column>
         <el-table-column prop="tenant_count" label="租户数" width="76" sortable="custom" show-overflow-tooltip></el-table-column>
+        <el-table-column label="待收租金" width="110" sortable="custom" show-overflow-tooltip>
+          <template #default="scope">
+            ¥{{ formatOutstandingAmount(scope.row) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="历史交租次数" width="108" sortable="custom" show-overflow-tooltip>
+          <template #default="scope">
+            {{ getPaidHistoryCount(scope.row) }}
+          </template>
+        </el-table-column>
         <el-table-column label="房间设施" min-width="120" show-overflow-tooltip>
           <template #default="scope">
             <div class="room-feature-tags">
@@ -274,6 +293,7 @@
               </el-button>
               <el-button size="small" type="primary" @click="openEditDialog(scope.row)">编辑</el-button>
               <el-button size="small" type="primary" plain @click="openSelfCheckinDialog(scope.row)">入住登记</el-button>
+              <el-button size="small" type="success" plain @click="openRentCollectionDialog(scope.row)">缴租码</el-button>
               <el-dropdown trigger="click">
                 <el-button size="small">
                   更多
@@ -353,13 +373,22 @@
                   <span class="label">价格:</span>
                   <span class="value">{{ formatRoomPrice(room) }}</span>
                 </div>
+                <div class="info-row">
+                  <span class="label">待收:</span>
+                  <span class="value">¥{{ formatOutstandingAmount(room) }}</span>
+                </div>
                 <div class="info-row" v-if="room.tenant_count > 0">
                   <span class="label">租户:</span>
                   <span class="value">{{ room.tenant_count }}人</span>
                 </div>
+                <div class="info-row">
+                  <span class="label">历史交租:</span>
+                  <span class="value">{{ getPaidHistoryCount(room) }}次</span>
+                </div>
               </div>
               <div class="room-card-actions" @click.stop>
                 <el-button circle size="small" :icon="Edit" @click="openEditDialog(room)" title="编辑" />
+                <el-button circle size="small" type="success" @click="openRentCollectionDialog(room)" title="缴租码">租</el-button>
                 <el-button 
                   circle 
                   size="small" 
@@ -750,18 +779,10 @@
           </div>
           <div class="self-checkin-toolbar-actions">
             <el-button :loading="refreshingSelfCheckin" @click="refreshSelfCheckinData">刷新</el-button>
-            <el-button
-              type="primary"
-              :loading="creatingSelfCheckinLink"
-              :disabled="selfCheckinLinks.length > 0"
-              @click="createSelfCheckinLink"
-            >
-              生成新链接
-            </el-button>
           </div>
         </div>
         <div v-if="selfCheckinLinks.length > 0" class="self-checkin-tip">
-          当前房间已存在入住登记链接，如需新链接，请先删除原链接。删除链接不会删除已提交的记录。
+          当前房间固定保留 1 个入住登记链接；如需换码，可以直接重建，系统会立刻补一条新的固定链接，已提交记录不会删除。
         </div>
 
         <div v-if="selfCheckinLinks.length > 0" class="self-checkin-links">
@@ -795,11 +816,11 @@
               </el-button>
               <el-button
                 size="small"
-                type="danger"
+                type="warning"
                 plain
-                @click="deleteSelfCheckinLink(item)"
+                @click="rebuildSelfCheckinLink(item)"
               >
-                删除
+                重建链接
               </el-button>
             </div>
           </div>
@@ -1033,6 +1054,11 @@
         </span>
       </template>
     </el-dialog>
+
+    <RentCollectionLinkDialog
+      v-model="rentCollectionDialogVisible"
+      :room="rentCollectionRoom"
+    />
   </div>
 
   <!-- 隐藏打印区域：包含完整的筛选后房间列表，用于 PDF 截图渲染，保证中文显示正确 -->
@@ -1084,6 +1110,7 @@ import { Document, Packer, Paragraph, Table as DocxTable, TableRow, TableCell, T
 import { saveAs } from 'file-saver'
 import html2canvas from 'html2canvas'
 import QRCode from 'qrcode'
+import RentCollectionLinkDialog from '../components/RentCollectionLinkDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -1181,8 +1208,10 @@ const selfCheckinRoom = ref({})
 const selfCheckinLinks = ref([])
 const selfCheckinSubmissions = ref([])
 const selfCheckinRoomTenants = ref([])
-const creatingSelfCheckinLink = ref(false)
+const rentCollectionDialogVisible = ref(false)
+const rentCollectionRoom = ref({})
 const refreshingSelfCheckin = ref(false)
+const roomRentSummaryMap = ref({})
 const submissionDetailVisible = ref(false)
 const submissionDetail = ref({})
 const approveDialogVisible = ref(false)
@@ -1237,6 +1266,11 @@ const formatRoomPrice = (room) => {
   const unit = normalizeRoomPriceUnit(room?.price_unit)
   return `${price} 元/${unit}`
 }
+
+const getRoomRentSummary = (room) => roomRentSummaryMap.value[String(room?.id || '')] || {}
+const formatOutstandingAmount = (room) => formatAmount(getRoomRentSummary(room).outstanding_amount || 0)
+const getPaidHistoryCount = (room) => Number(getRoomRentSummary(room).paid_history_count || 0)
+const formatAmount = (value) => Number(value || 0).toFixed(2)
 
 // 根据房间号自动填充楼层（例如 401 -> 4楼；1001 -> 10楼）
 watch(() => roomForm.room_no, (val) => {
@@ -1413,6 +1447,7 @@ const fetchRooms = async () => {
       price_unit: normalizeRoomPriceUnit(room.price_unit),
       __sequence: index + 1
     }))
+    await fetchRoomRentSummaries()
     if (route.query?.selfCheckinRoomId) {
       await nextTick()
       await openSelfCheckinRoomFromRoute()
@@ -1422,6 +1457,20 @@ const fetchRooms = async () => {
     console.error(error)
   } finally {
     loading.value = false
+  }
+}
+
+const fetchRoomRentSummaries = async () => {
+  try {
+    const ids = rooms.value.map((room) => room.id).filter(Boolean)
+    if (!ids.length) {
+      roomRentSummaryMap.value = {}
+      return
+    }
+    const response = await roomsApi.getRentCollectionRoomSummaries(ids)
+    roomRentSummaryMap.value = response?.data?.summaries || {}
+  } catch (error) {
+    console.error('获取房间租金汇总失败', error)
   }
 }
 
@@ -1625,6 +1674,11 @@ const openSelfCheckinDialog = async (room) => {
   }
 }
 
+const openRentCollectionDialog = (room) => {
+  rentCollectionRoom.value = room
+  rentCollectionDialogVisible.value = true
+}
+
 watch(rooms, async (value) => {
   if (!Array.isArray(value) || value.length === 0) return
   if (!route.query?.selfCheckinRoomId) return
@@ -1636,20 +1690,6 @@ watch(() => route.query?.selfCheckinRoomId, async (roomId) => {
   if (!Array.isArray(rooms.value) || rooms.value.length === 0) return
   await openSelfCheckinRoomFromRoute()
 })
-
-const createSelfCheckinLink = async () => {
-  if (!selfCheckinRoom.value?.id) return
-  creatingSelfCheckinLink.value = true
-  try {
-    await roomsApi.createSelfCheckinLink(selfCheckinRoom.value.id)
-    await fetchSelfCheckinData(selfCheckinRoom.value)
-    ElMessage.success('入住链接已生成')
-  } catch (error) {
-    ElMessage.error(error?.response?.data?.error || '生成入住链接失败')
-  } finally {
-    creatingSelfCheckinLink.value = false
-  }
-}
 
 const copySelfCheckinUrl = async (token) => {
   try {
@@ -1695,23 +1735,23 @@ const enableSelfCheckinLink = async (item) => {
   }
 }
 
-const deleteSelfCheckinLink = async (item) => {
+const rebuildSelfCheckinLink = async (item) => {
   try {
     await ElMessageBox.confirm(
-      '删除后该链接会失效，但已提交的入住记录会保留，是否继续？',
-      '删除入住链接',
+      '重建后会生成一条新的固定入住登记链接，原链接将失效，但已提交的入住记录会保留，是否继续？',
+      '重建入住链接',
       {
-        confirmButtonText: '确认删除',
+        confirmButtonText: '确认重建',
         cancelButtonText: '取消',
         type: 'warning',
       }
     )
     await roomsApi.deleteSelfCheckinLink(item.id)
     await fetchSelfCheckinData(selfCheckinRoom.value)
-    ElMessage.success('入住链接已删除')
+    ElMessage.success('入住链接已重建')
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error?.response?.data?.error || error?.message || '删除入住链接失败')
+      ElMessage.error(error?.response?.data?.error || error?.message || '重建入住链接失败')
     }
   }
 }

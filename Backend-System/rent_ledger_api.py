@@ -37,6 +37,7 @@ def ensure_rent_ledger_schema():
             period_end TEXT NOT NULL,
             due_amount REAL NOT NULL DEFAULT 0,
             actual_amount REAL NOT NULL DEFAULT 0,
+            allocated_amount REAL NOT NULL DEFAULT 0,
             status TEXT NOT NULL DEFAULT '未交',
             payment_date TEXT DEFAULT '',
             payment_person TEXT DEFAULT '',
@@ -55,6 +56,17 @@ def ensure_rent_ledger_schema():
         cursor.execute("ALTER TABLE rent_ledger_entries ADD COLUMN payment_images TEXT DEFAULT '[]'")
     if "payment_person" not in columns:
         cursor.execute("ALTER TABLE rent_ledger_entries ADD COLUMN payment_person TEXT DEFAULT ''")
+    if "allocated_amount" not in columns:
+        cursor.execute("ALTER TABLE rent_ledger_entries ADD COLUMN allocated_amount REAL NOT NULL DEFAULT 0")
+    cursor.execute(
+        """
+        UPDATE rent_ledger_entries
+        SET allocated_amount = COALESCE(actual_amount, 0)
+        WHERE COALESCE(allocated_amount, 0) = 0
+          AND COALESCE(actual_amount, 0) > 0
+          AND COALESCE(TRIM(status), '未交') <> '未交'
+        """
+    )
     cursor.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_rent_ledger_period_start
@@ -120,6 +132,26 @@ def _dump_images(images):
     return json.dumps(_parse_images(images), ensure_ascii=False)
 
 
+def _allocated_amount_from_row(row):
+    if not row:
+        return 0.0
+    try:
+        keys = row.keys()
+    except Exception:
+        keys = []
+    if "allocated_amount" in keys:
+        return _parse_amount(row["allocated_amount"], row["actual_amount"] if "actual_amount" in keys else 0)
+    return _parse_amount(row["actual_amount"] if "actual_amount" in keys else 0, 0)
+
+
+def _merge_images(existing_images, new_images):
+    results = []
+    for item in _parse_images(existing_images) + _parse_images(new_images):
+        if item and item not in results:
+            results.append(item)
+    return results[:20]
+
+
 def _parse_date(value):
     text = _clean_text(value)
     if text == "":
@@ -134,6 +166,18 @@ def _parse_date(value):
 
 def _date_text(value):
     return value.isoformat() if isinstance(value, date) else ""
+
+
+def _append_text_line(existing_value, new_line):
+    existing = _clean_text(existing_value)
+    line = _clean_text(new_line)
+    if not line:
+        return existing
+    if not existing:
+        return line
+    if line in existing:
+        return existing
+    return f"{existing}\n{line}"
 
 
 def _add_months(base_date, months):
@@ -190,6 +234,8 @@ def _has_meaningful_entry_data(row):
         return True
     if _parse_amount(row["actual_amount"], 0) > 0:
         return True
+    if _allocated_amount_from_row(row) > 0:
+        return True
     if _clean_text(row["payment_date"]) != "":
         return True
     if _clean_text(row["payment_person"]) != "":
@@ -206,6 +252,8 @@ def _has_meaningful_entry_data(row):
 def _normalize_rebuilt_entry_state(source_row, due_amount):
     status = _normalize_status(source_row["status"]) if source_row else "未交"
     actual_amount = _parse_amount(source_row["actual_amount"] if source_row else 0, 0)
+    allocated_amount = _allocated_amount_from_row(source_row)
+    original_allocated_amount = allocated_amount
     payment_date = _clean_text(source_row["payment_date"]) if source_row else ""
     payment_person = _clean_text(source_row["payment_person"]) if source_row else ""
     payment_method = _clean_text(source_row["payment_method"]) if source_row else ""
@@ -213,31 +261,43 @@ def _normalize_rebuilt_entry_state(source_row, due_amount):
     payment_images = _parse_images(source_row["payment_images"] if source_row else [])
 
     if status == "已交":
-        if actual_amount <= 0:
-            actual_amount = due_amount
-        elif actual_amount < due_amount:
+        if allocated_amount <= 0:
+            allocated_amount = due_amount
+        if actual_amount <= 0 and original_allocated_amount <= 0:
             actual_amount = due_amount
     elif status == "部分已交":
-        if actual_amount <= 0:
-            status = "未交"
+        if allocated_amount <= 0:
+            if actual_amount > 0:
+                allocated_amount = min(actual_amount, due_amount)
+            else:
+                status = "未交"
     else:
-        if actual_amount > 0:
-            status = "部分已交" if actual_amount < due_amount else "已交"
+        if allocated_amount > 0:
+            status = "部分已交" if allocated_amount < due_amount else "已交"
+        elif actual_amount > 0:
+            allocated_amount = min(actual_amount, due_amount)
+            status = "部分已交" if allocated_amount < due_amount else "已交"
         else:
             actual_amount = 0
+            allocated_amount = 0
             payment_date = ""
             payment_person = ""
             payment_method = ""
             payment_images = []
 
-    if actual_amount > due_amount and due_amount > 0:
-        actual_amount = due_amount
-        if status != "已交":
-            status = "已交"
+    if allocated_amount > due_amount and due_amount > 0:
+        allocated_amount = due_amount
+    if status == "部分已交" and allocated_amount <= 0:
+        status = "未交"
+    if status == "已交" and allocated_amount < due_amount:
+        allocated_amount = due_amount
+    if actual_amount < 0:
+        actual_amount = 0
 
     return {
         "status": status,
         "actual_amount": actual_amount,
+        "allocated_amount": allocated_amount,
         "payment_date": payment_date,
         "payment_person": payment_person,
         "payment_method": payment_method,
@@ -265,6 +325,7 @@ def _build_rebuilt_entry_payload(tenant_row, period, source_row=None):
         _date_text(period["period_end"]),
         due_amount,
         state["actual_amount"],
+        state["allocated_amount"],
         state["status"],
         state["payment_date"],
         state["payment_person"],
@@ -283,7 +344,8 @@ def _orphan_sort_key(row):
 
 def _row_to_entry(row):
     payment_images = _parse_images(row["payment_images"] if "payment_images" in row.keys() else "")
-    outstanding = round(max(float(row["due_amount"] or 0) - float(row["actual_amount"] or 0), 0), 2)
+    allocated_amount = _allocated_amount_from_row(row)
+    outstanding = round(max(float(row["due_amount"] or 0) - allocated_amount, 0), 2)
     return {
         "id": int(row["id"]),
         "tenant_id": int(row["tenant_id"]),
@@ -302,6 +364,7 @@ def _row_to_entry(row):
         "period_end": row["period_end"] or "",
         "due_amount": round(float(row["due_amount"] or 0), 2),
         "actual_amount": round(float(row["actual_amount"] or 0), 2),
+        "allocated_amount": allocated_amount,
         "outstanding_amount": outstanding,
         "status": _normalize_status(row["status"]),
         "payment_date": row["payment_date"] or "",
@@ -313,6 +376,189 @@ def _row_to_entry(row):
         "created_at": row["created_at"] or "",
         "updated_at": row["updated_at"] or "",
     }
+
+
+def _resolve_status_by_amount(due_amount, allocated_amount):
+    due = _parse_amount(due_amount, 0)
+    allocated = _parse_amount(allocated_amount, 0)
+    if allocated <= 0:
+        return "未交"
+    if due > 0 and allocated < due:
+        return "部分已交"
+    return "已交"
+
+
+def _update_entry_payment_fields(
+    cursor,
+    row,
+    actual_amount,
+    allocated_amount,
+    payment_date,
+    payment_person,
+    payment_method,
+    remarks,
+    payment_images,
+    replace_payment_images=False,
+):
+    due_amount = _parse_amount(row["due_amount"], 0)
+    current_payment_date = _clean_text(row["payment_date"])
+    current_payment_person = _clean_text(row["payment_person"])
+    current_payment_method = _clean_text(row["payment_method"])
+    current_remarks = _clean_text(row["remarks"])
+    current_payment_images = _parse_images(row["payment_images"] if "payment_images" in row.keys() else "")
+
+    next_status = _resolve_status_by_amount(due_amount, allocated_amount)
+    if next_status == "未交":
+        next_actual_amount = 0
+        next_allocated_amount = 0
+        next_payment_date = ""
+        next_payment_person = ""
+        next_payment_method = ""
+        next_remarks = remarks if remarks != "" else current_remarks
+        next_payment_images = []
+    else:
+        next_actual_amount = _parse_amount(actual_amount, row["actual_amount"])
+        next_allocated_amount = min(_parse_amount(allocated_amount, _allocated_amount_from_row(row)), due_amount) if due_amount > 0 else _parse_amount(allocated_amount, _allocated_amount_from_row(row))
+        next_payment_date = payment_date or current_payment_date or date.today().isoformat()
+        next_payment_person = payment_person if payment_person != "" else current_payment_person
+        next_payment_method = payment_method if payment_method != "" else current_payment_method
+        next_remarks = _append_text_line(current_remarks, remarks) if remarks != "" else current_remarks
+        if replace_payment_images:
+            next_payment_images = _parse_images(payment_images)
+        else:
+            next_payment_images = _merge_images(current_payment_images, payment_images)
+
+    cursor.execute(
+        """
+        UPDATE rent_ledger_entries
+        SET actual_amount = ?, allocated_amount = ?, status = ?, payment_date = ?, payment_person = ?, payment_method = ?,
+            remarks = ?, payment_images = ?, updated_at = DATETIME('now')
+        WHERE id = ?
+        """,
+        (
+            next_actual_amount,
+            next_allocated_amount,
+            next_status,
+            next_payment_date,
+            next_payment_person,
+            next_payment_method,
+            next_remarks,
+            _dump_images(next_payment_images),
+            int(row["id"]),
+        ),
+    )
+
+
+def _allocate_payment_forward(conn, start_row, total_amount, payment_date, payment_person, payment_method, remarks, payment_images):
+    cursor = conn.cursor()
+    tenant_id = int(start_row["tenant_id"])
+    start_period = _clean_text(start_row["period_start"])
+    start_period_index = int(start_row["period_index"] or 0)
+    start_id = int(start_row["id"])
+
+    cursor.execute(
+        """
+        SELECT *
+        FROM rent_ledger_entries
+        WHERE tenant_id = ?
+          AND (
+                period_start > ?
+                OR (period_start = ? AND (period_index > ? OR (period_index = ? AND id >= ?)))
+              )
+        ORDER BY period_start ASC, period_index ASC, id ASC
+        """,
+        (tenant_id, start_period, start_period, start_period_index, start_period_index, start_id),
+    )
+    rows = cursor.fetchall()
+
+    remaining = _parse_amount(total_amount, 0)
+    affected_entry_ids = []
+    affected_period_labels = []
+
+    for row in rows:
+        if remaining <= 0:
+            break
+        due_amount = _parse_amount(row["due_amount"], 0)
+        current_actual = _parse_amount(row["actual_amount"], 0)
+        current_allocated = _allocated_amount_from_row(row)
+        outstanding_amount = round(max(due_amount - current_allocated, 0), 2)
+        if outstanding_amount <= 0:
+            continue
+        applied_amount = round(min(outstanding_amount, remaining), 2)
+        if applied_amount <= 0:
+            continue
+        next_actual_amount = _parse_amount(total_amount if int(row["id"]) == start_id else 0, 0)
+        next_allocated_amount = round(current_allocated + applied_amount, 2)
+        _update_entry_payment_fields(
+            cursor,
+            row,
+            next_actual_amount,
+            next_allocated_amount,
+            payment_date,
+            payment_person,
+            payment_method,
+            remarks,
+            payment_images,
+        )
+        affected_entry_ids.append(int(row["id"]))
+        period_label = _clean_text(row["period_label"]) or _clean_text(row["period_start"])
+        if period_label and period_label not in affected_period_labels:
+            affected_period_labels.append(period_label)
+        remaining = round(remaining - applied_amount, 2)
+
+    return {
+        "affected_entry_ids": affected_entry_ids,
+        "affected_period_labels": affected_period_labels,
+        "unallocated_amount": remaining,
+    }
+
+
+def _collect_lease_years(lease_start_text, lease_end_text):
+    lease_start = _parse_date(lease_start_text)
+    lease_end = _parse_date(lease_end_text)
+    if not lease_start:
+        return []
+    if not lease_end or lease_end < lease_start:
+        lease_end = lease_start
+    end_year = min(max(lease_end.year, lease_start.year), lease_start.year + 20)
+    return list(range(lease_start.year, end_year + 1))
+
+
+def _ensure_tenant_ledger_years(conn, tenant_id, lease_start_text="", lease_end_text=""):
+    years = _collect_lease_years(lease_start_text, lease_end_text)
+    if not years:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT check_in_date, check_out_date
+            FROM tenants
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (tenant_id,),
+        )
+        tenant_row = cursor.fetchone()
+        if tenant_row:
+            years = _collect_lease_years(tenant_row["check_in_date"], tenant_row["check_out_date"])
+    for year in years:
+        _rebuild_rent_ledger_year(conn, int(year))
+
+
+def _load_entry_by_tenant_period(conn, tenant_id, period_start):
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT *
+        FROM rent_ledger_entries
+        WHERE tenant_id = ? AND period_start = ?
+        ORDER BY id ASC
+        LIMIT 1
+        """,
+        (tenant_id, period_start),
+    )
+    return cursor.fetchone()
 
 
 def _build_overview(groups):
@@ -519,10 +765,10 @@ def _rebuild_rent_ledger_year(conn, target_year):
             tenant_id, room_id, building, room_no, tenant_name,
             lease_start, lease_end, rent_amount, rent_unit,
             period_index, period_label, period_start, period_end,
-            due_amount, actual_amount, status, payment_date,
+            due_amount, actual_amount, allocated_amount, status, payment_date,
             payment_person, payment_method, remarks, payment_images
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         rebuilt_rows,
     )
@@ -660,39 +906,88 @@ def update_rent_ledger_entry(current_user, entry_id):
     remarks = _clean_text(data.get("remarks"))
     payment_images = _parse_images(data.get("payment_images"))
 
+    if status != "未交" and actual_amount > due_amount:
+        try:
+            _ensure_tenant_ledger_years(
+                conn,
+                int(row["tenant_id"]),
+                row["lease_start"],
+                row["lease_end"],
+            )
+            conn.commit()
+            row = _load_entry_by_tenant_period(conn, int(row["tenant_id"]), _clean_text(row["period_start"]))
+            if not row:
+                conn.rollback()
+                return jsonify({"error": "自动补齐账期后未找到当前账期，请刷新后重试"}), 409
+            allocation_result = _allocate_payment_forward(
+                conn,
+                row,
+                actual_amount,
+                payment_date,
+                payment_person,
+                payment_method,
+                remarks,
+                payment_images,
+            )
+            affected_ids = allocation_result["affected_entry_ids"]
+            if len(affected_ids) == 0:
+                return jsonify({"error": "当前租期及后续账期没有可冲抵的待收金额"}), 400
+
+            cursor.execute("SELECT * FROM rent_ledger_entries WHERE id = ?", (entry_id,))
+            updated_row = cursor.fetchone()
+            conn.commit()
+
+            period_preview = "、".join(allocation_result["affected_period_labels"][:3])
+            if len(allocation_result["affected_period_labels"]) > 3:
+                period_preview = f"{period_preview} 等{len(allocation_result['affected_period_labels'])}期"
+            if not period_preview:
+                period_preview = "所选账期"
+
+            message = f"已按实收金额自动分摊到 {period_preview}"
+            if allocation_result["unallocated_amount"] > 0:
+                message += f"，超出已生成账期的 {allocation_result['unallocated_amount']:.2f} 元保留在当前这笔实收中"
+
+            return jsonify(
+                {
+                    "message": message,
+                    "entry": _row_to_entry(updated_row),
+                    "affected_entry_ids": affected_ids,
+                    "unallocated_amount": allocation_result["unallocated_amount"],
+                }
+            ), 200
+        except sqlite3.Error as exc:
+            conn.rollback()
+            return jsonify({"error": str(exc)}), 500
+
     if status == "已交":
+        allocated_amount = due_amount
         if actual_amount <= 0:
             actual_amount = due_amount
         if payment_date == "":
             payment_date = date.today().isoformat()
     elif status == "未交":
         actual_amount = 0
+        allocated_amount = 0
         payment_date = ""
         payment_person = ""
         payment_method = ""
         payment_images = []
     else:
-        if actual_amount > due_amount:
-            actual_amount = due_amount
+        allocated_amount = min(actual_amount, due_amount) if due_amount > 0 else actual_amount
+        status = _resolve_status_by_amount(due_amount, allocated_amount)
 
     try:
-        cursor.execute(
-            """
-            UPDATE rent_ledger_entries
-            SET actual_amount = ?, status = ?, payment_date = ?, payment_person = ?, payment_method = ?,
-                remarks = ?, payment_images = ?, updated_at = DATETIME('now')
-            WHERE id = ?
-            """,
-            (
-                actual_amount,
-                status,
-                payment_date,
-                payment_person,
-                payment_method,
-                remarks,
-                _dump_images(payment_images),
-                entry_id,
-            ),
+        _update_entry_payment_fields(
+            cursor,
+            row,
+            actual_amount,
+            allocated_amount if status != "未交" else 0,
+            payment_date,
+            payment_person,
+            payment_method,
+            remarks,
+            payment_images,
+            replace_payment_images=True,
         )
         cursor.execute("SELECT * FROM rent_ledger_entries WHERE id = ?", (entry_id,))
         updated_row = cursor.fetchone()

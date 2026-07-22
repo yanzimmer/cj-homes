@@ -28,6 +28,13 @@
             <div class="version-item__meta">启动时间 {{ backendVersionStartedAt }}</div>
           </div>
         </div>
+        <div class="release-notes-box">
+          <div class="release-notes-box__title">本次升级说明</div>
+          <div class="release-notes-box__meta">版本 {{ currentReleaseVersion }} · 发布时间 {{ currentReleaseDate }}</div>
+          <ul class="release-notes-box__list">
+            <li v-for="item in currentReleaseItems" :key="item">{{ item }}</li>
+          </ul>
+        </div>
       </div>
     </div>
 
@@ -296,6 +303,184 @@
               </div>
             </div>
             <div class="feature-hint">新增或删除后会自动保存，不需要再额外点保存按钮。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="system-grid-item">
+        <div class="card-box h-100 system-card">
+          <div class="card-header">
+            <el-icon class="icon"><Key /></el-icon>
+            <h3>支付收款配置</h3>
+          </div>
+          <div class="card-content">
+            <div class="description">
+              这里用于接入房间缴租页的微信支付和支付宝商户参数。租客扫码进入房间缴租页后，系统会按这里的配置创建正式支付订单，并在支付回调成功后自动更新该房间的收租台账。
+            </div>
+
+            <div class="ai-summary-row">
+              <el-tag :type="paymentSettings.enabled ? 'success' : 'info'" effect="plain">
+                总开关：{{ paymentSettings.enabled ? '已启用' : '未启用' }}
+              </el-tag>
+              <el-tag :type="paymentSettings.wechat.configured ? 'success' : 'warning'" effect="plain">
+                微信：{{ paymentSettings.wechat.configured ? '已配置' : '待完善' }}
+              </el-tag>
+              <el-tag :type="paymentSettings.alipay.configured ? 'success' : 'warning'" effect="plain">
+                支付宝：{{ paymentSettings.alipay.configured ? '已配置' : '待完善' }}
+              </el-tag>
+              <el-tag :type="paymentSettings.notify_base_url ? 'success' : 'warning'" effect="plain">
+                回调地址：{{ paymentSettings.notify_base_url ? '已填写' : '未填写' }}
+              </el-tag>
+            </div>
+
+            <div v-if="paymentSettings.updated_at" class="feature-hint ai-updated-at">
+              最近保存：{{ paymentSettings.updated_at }}
+            </div>
+
+            <el-form label-position="top" class="ocr-settings-form">
+              <el-form-item label="支付功能总开关">
+                <el-switch
+                  v-model="paymentSettings.enabled"
+                  active-text="启用"
+                  inactive-text="停用"
+                />
+              </el-form-item>
+
+              <el-form-item label="后端可访问的回调基础地址">
+                <el-input
+                  v-model="paymentSettings.notify_base_url"
+                  placeholder="例如：https://your-domain.com"
+                  clearable
+                />
+              </el-form-item>
+              <div class="feature-hint">
+                这里必须填写商户平台最终能回调到的后端公网地址，保存后系统会自动拼出微信和支付宝的回调路径。
+              </div>
+
+              <div class="payment-config-grid">
+                <section class="payment-channel-card">
+                  <div class="payment-channel-card__head">
+                    <div>
+                      <div class="feature-group-title">微信支付</div>
+                      <div class="feature-hint">
+                        当前仅支持 `Native` 收款码模式，适合在房间缴租页生成一笔正式微信支付码。
+                      </div>
+                    </div>
+                    <el-tag :type="paymentSettings.wechat.enabled ? 'success' : 'info'" effect="dark">
+                      {{ paymentSettings.wechat.enabled ? '已启用' : '未启用' }}
+                    </el-tag>
+                  </div>
+
+                  <el-form-item label="微信渠道开关">
+                    <el-switch
+                      v-model="paymentSettings.wechat_enabled"
+                      active-text="启用"
+                      inactive-text="停用"
+                    />
+                  </el-form-item>
+                  <el-form-item label="支付模式">
+                    <el-input v-model="paymentSettings.wechat_mode" disabled />
+                  </el-form-item>
+                  <el-form-item label="AppID">
+                    <el-input v-model="paymentSettings.wechat_appid" placeholder="请输入微信支付 AppID" clearable />
+                  </el-form-item>
+                  <el-form-item label="商户号 MchID">
+                    <el-input v-model="paymentSettings.wechat_mchid" placeholder="请输入微信商户号" clearable />
+                  </el-form-item>
+                  <el-form-item label="API v3 Key">
+                    <el-input
+                      v-model="paymentSettings.wechat_api_v3_key"
+                      type="password"
+                      show-password
+                      placeholder="请输入 32 位 API v3 Key"
+                      clearable
+                    />
+                  </el-form-item>
+                  <el-form-item label="商户私钥 PEM">
+                    <el-input
+                      v-model="paymentSettings.wechat_private_key_pem"
+                      type="textarea"
+                      :rows="6"
+                      placeholder="-----BEGIN PRIVATE KEY-----"
+                    />
+                  </el-form-item>
+                  <el-form-item label="商户证书序列号">
+                    <el-input v-model="paymentSettings.wechat_serial_no" placeholder="请输入商户证书序列号" clearable />
+                  </el-form-item>
+                  <el-form-item label="微信支付平台公钥 PEM">
+                    <el-input
+                      v-model="paymentSettings.wechat_platform_public_key_pem"
+                      type="textarea"
+                      :rows="6"
+                      placeholder="-----BEGIN PUBLIC KEY-----"
+                    />
+                  </el-form-item>
+                  <div class="feature-hint" :class="{ 'warning-text': !paymentSettings.wechat.configured }">
+                    {{ paymentSettings.wechat.reason || '微信支付参数已完整，可用于创建缴租订单。' }}
+                  </div>
+                </section>
+
+                <section class="payment-channel-card">
+                  <div class="payment-channel-card__head">
+                    <div>
+                      <div class="feature-group-title">支付宝</div>
+                      <div class="feature-hint">
+                        当前使用 `precreate` 预下单模式，系统会生成一笔正式支付宝支付码并等待异步回调入账。
+                      </div>
+                    </div>
+                    <el-tag :type="paymentSettings.alipay.enabled ? 'success' : 'info'" effect="dark">
+                      {{ paymentSettings.alipay.enabled ? '已启用' : '未启用' }}
+                    </el-tag>
+                  </div>
+
+                  <el-form-item label="支付宝渠道开关">
+                    <el-switch
+                      v-model="paymentSettings.alipay_enabled"
+                      active-text="启用"
+                      inactive-text="停用"
+                    />
+                  </el-form-item>
+                  <el-form-item label="支付模式">
+                    <el-input v-model="paymentSettings.alipay_mode" disabled />
+                  </el-form-item>
+                  <el-form-item label="App ID">
+                    <el-input v-model="paymentSettings.alipay_app_id" placeholder="请输入支付宝应用 App ID" clearable />
+                  </el-form-item>
+                  <el-form-item label="网关地址">
+                    <el-input
+                      v-model="paymentSettings.alipay_gateway"
+                      placeholder="https://openapi.alipay.com/gateway.do"
+                      clearable
+                    />
+                  </el-form-item>
+                  <el-form-item label="商户应用私钥 PEM">
+                    <el-input
+                      v-model="paymentSettings.alipay_merchant_private_key_pem"
+                      type="textarea"
+                      :rows="6"
+                      placeholder="-----BEGIN PRIVATE KEY-----"
+                    />
+                  </el-form-item>
+                  <el-form-item label="支付宝公钥 PEM">
+                    <el-input
+                      v-model="paymentSettings.alipay_public_key_pem"
+                      type="textarea"
+                      :rows="6"
+                      placeholder="-----BEGIN PUBLIC KEY-----"
+                    />
+                  </el-form-item>
+                  <div class="feature-hint" :class="{ 'warning-text': !paymentSettings.alipay.configured }">
+                    {{ paymentSettings.alipay.reason || '支付宝参数已完整，可用于创建缴租订单。' }}
+                  </div>
+                </section>
+              </div>
+
+              <div class="action-area ai-action-area">
+                <el-button type="primary" :loading="savingPaymentSettings" @click="savePaymentSettings">
+                  保存支付配置
+                </el-button>
+              </div>
+            </el-form>
           </div>
         </div>
       </div>
@@ -682,7 +867,7 @@ import { Download, Upload, UploadFilled, Document, Refresh, Delete, MagicStick, 
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { authApi, metaApi, systemApi } from '../api'
 import { uploadFileByChunks } from '../utils/chunkUploader'
-import { formatVersionText, frontendVersionInfo } from '../utils/versionInfo'
+import { currentReleaseNotes, formatVersionText, frontendVersionInfo } from '../utils/versionInfo'
 
 const exporting = ref(false)
 const importing = ref(false)
@@ -718,6 +903,7 @@ const newUtilityAccount = reactive({
 })
 const savingUtilityAccounts = ref(false)
 const savingOcrSettings = ref(false)
+const savingPaymentSettings = ref(false)
 const savingAiSettings = ref(false)
 const testingAiSettings = ref(false)
 const loadingApiModels = ref(false)
@@ -736,6 +922,37 @@ const ocrSettings = ref({
   remaining_count: null,
   enabled: false,
   reason: '',
+})
+const paymentSettings = ref({
+  enabled: false,
+  notify_base_url: '',
+  wechat_enabled: false,
+  wechat_mode: 'native',
+  wechat_appid: '',
+  wechat_mchid: '',
+  wechat_api_v3_key: '',
+  wechat_private_key_pem: '',
+  wechat_serial_no: '',
+  wechat_platform_public_key_pem: '',
+  alipay_enabled: false,
+  alipay_mode: 'precreate',
+  alipay_app_id: '',
+  alipay_gateway: 'https://openapi.alipay.com/gateway.do',
+  alipay_merchant_private_key_pem: '',
+  alipay_public_key_pem: '',
+  wechat: {
+    enabled: false,
+    configured: false,
+    mode: 'native',
+    reason: '',
+  },
+  alipay: {
+    enabled: false,
+    configured: false,
+    mode: 'precreate',
+    reason: '',
+  },
+  updated_at: '',
 })
 const aiSettings = ref({
   enabled: true,
@@ -788,6 +1005,9 @@ const frontendVersionBuildTime = computed(() => frontendVersionInfo.buildTime ? 
 const backendVersionLabel = computed(() => formatVersionText(backendVersionInfo.value.version))
 const backendVersionCommit = computed(() => backendVersionInfo.value.commit || 'unknown')
 const backendVersionStartedAt = computed(() => backendVersionInfo.value.started_at || '-')
+const currentReleaseVersion = computed(() => formatVersionText(currentReleaseNotes.version))
+const currentReleaseDate = computed(() => currentReleaseNotes.releasedAt || '-')
+const currentReleaseItems = computed(() => Array.isArray(currentReleaseNotes.notes) ? currentReleaseNotes.notes : [])
 const getComparableAiSettings = (value = {}) => JSON.stringify({
   enabled: value?.enabled !== false,
   provider: value?.provider || 'ollama',
@@ -1089,6 +1309,79 @@ const fetchOcrSettings = async () => {
     }
   } catch (error) {
     ElMessage.error(error?.response?.data?.error || '加载 OCR 配置失败')
+  }
+}
+
+const applyPaymentSettingsResponse = (data = {}) => {
+  paymentSettings.value = {
+    enabled: data?.enabled === true,
+    notify_base_url: data?.notify_base_url || '',
+    wechat_enabled: data?.wechat_enabled === true,
+    wechat_mode: data?.wechat_mode || 'native',
+    wechat_appid: data?.wechat_appid || '',
+    wechat_mchid: data?.wechat_mchid || '',
+    wechat_api_v3_key: data?.wechat_api_v3_key || '',
+    wechat_private_key_pem: data?.wechat_private_key_pem || '',
+    wechat_serial_no: data?.wechat_serial_no || '',
+    wechat_platform_public_key_pem: data?.wechat_platform_public_key_pem || '',
+    alipay_enabled: data?.alipay_enabled === true,
+    alipay_mode: data?.alipay_mode || 'precreate',
+    alipay_app_id: data?.alipay_app_id || '',
+    alipay_gateway: data?.alipay_gateway || 'https://openapi.alipay.com/gateway.do',
+    alipay_merchant_private_key_pem: data?.alipay_merchant_private_key_pem || '',
+    alipay_public_key_pem: data?.alipay_public_key_pem || '',
+    wechat: {
+      enabled: data?.wechat?.enabled === true,
+      configured: data?.wechat?.configured === true,
+      mode: data?.wechat?.mode || data?.wechat_mode || 'native',
+      reason: data?.wechat?.reason || '',
+    },
+    alipay: {
+      enabled: data?.alipay?.enabled === true,
+      configured: data?.alipay?.configured === true,
+      mode: data?.alipay?.mode || data?.alipay_mode || 'precreate',
+      reason: data?.alipay?.reason || '',
+    },
+    updated_at: data?.updated_at || '',
+  }
+}
+
+const fetchPaymentSettings = async () => {
+  try {
+    const response = await systemApi.getPaymentSettings()
+    applyPaymentSettingsResponse(response?.data || {})
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '加载支付配置失败')
+  }
+}
+
+const savePaymentSettings = async () => {
+  savingPaymentSettings.value = true
+  try {
+    const response = await systemApi.updatePaymentSettings({
+      enabled: paymentSettings.value.enabled,
+      notify_base_url: paymentSettings.value.notify_base_url,
+      wechat_enabled: paymentSettings.value.wechat_enabled,
+      wechat_mode: paymentSettings.value.wechat_mode,
+      wechat_appid: paymentSettings.value.wechat_appid,
+      wechat_mchid: paymentSettings.value.wechat_mchid,
+      wechat_api_v3_key: paymentSettings.value.wechat_api_v3_key,
+      wechat_private_key_pem: paymentSettings.value.wechat_private_key_pem,
+      wechat_serial_no: paymentSettings.value.wechat_serial_no,
+      wechat_platform_public_key_pem: paymentSettings.value.wechat_platform_public_key_pem,
+      alipay_enabled: paymentSettings.value.alipay_enabled,
+      alipay_mode: paymentSettings.value.alipay_mode,
+      alipay_app_id: paymentSettings.value.alipay_app_id,
+      alipay_gateway: paymentSettings.value.alipay_gateway,
+      alipay_merchant_private_key_pem: paymentSettings.value.alipay_merchant_private_key_pem,
+      alipay_public_key_pem: paymentSettings.value.alipay_public_key_pem,
+    })
+    applyPaymentSettingsResponse(response?.data || {})
+    ElMessage.success('支付配置已保存')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '保存支付配置失败')
+  } finally {
+    savingPaymentSettings.value = false
   }
 }
 
@@ -1698,6 +1991,7 @@ onMounted(() => {
   fetchRoomFeatureOptions()
   fetchUtilityAccountOptions()
   fetchOcrSettings()
+  fetchPaymentSettings()
   fetchAiSettings()
   refreshSessions({ silent: true })
 })
@@ -1765,6 +2059,36 @@ onBeforeUnmount(() => {
   font-size: 12px;
   line-height: 1.5;
   color: var(--text-secondary);
+}
+
+.release-notes-box {
+  margin-top: 16px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
+  background: linear-gradient(180deg, rgba(14, 165, 233, 0.08), rgba(37, 99, 235, 0.04));
+}
+
+.release-notes-box__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.release-notes-box__meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.release-notes-box__list {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: var(--text-main);
+}
+
+.release-notes-box__list li + li {
+  margin-top: 8px;
 }
 
 .system-hero {
@@ -2253,6 +2577,28 @@ onBeforeUnmount(() => {
   color: var(--text-secondary);
 }
 
+.payment-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 16px;
+}
+
+.payment-channel-card {
+  padding: 16px;
+  border: 1px solid var(--surface-border);
+  border-radius: 16px;
+  background: var(--surface-muted);
+}
+
+.payment-channel-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
 .utility-account-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2410,6 +2756,10 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 768px) {
+  .payment-config-grid {
+    grid-template-columns: 1fr;
+  }
+
   .utility-account-grid {
     grid-template-columns: 1fr;
   }

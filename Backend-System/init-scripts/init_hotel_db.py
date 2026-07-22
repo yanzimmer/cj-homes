@@ -272,6 +272,7 @@ def ensure_tables():
             period_end TEXT NOT NULL,
             due_amount REAL NOT NULL DEFAULT 0,
             actual_amount REAL NOT NULL DEFAULT 0,
+            allocated_amount REAL NOT NULL DEFAULT 0,
             status TEXT NOT NULL DEFAULT '未交',
             payment_date TEXT DEFAULT '',
             payment_person TEXT DEFAULT '',
@@ -290,6 +291,17 @@ def ensure_tables():
         cur.execute("ALTER TABLE rent_ledger_entries ADD COLUMN payment_images TEXT DEFAULT '[]'")
     if "payment_person" not in rent_cols:
         cur.execute("ALTER TABLE rent_ledger_entries ADD COLUMN payment_person TEXT DEFAULT ''")
+    if "allocated_amount" not in rent_cols:
+        cur.execute("ALTER TABLE rent_ledger_entries ADD COLUMN allocated_amount REAL NOT NULL DEFAULT 0")
+    cur.execute(
+        """
+        UPDATE rent_ledger_entries
+        SET allocated_amount = COALESCE(actual_amount, 0)
+        WHERE COALESCE(allocated_amount, 0) = 0
+          AND COALESCE(actual_amount, 0) > 0
+          AND COALESCE(TRIM(status), '未交') <> '未交'
+        """
+    )
 
     # warehouse
     cur.execute(
@@ -893,14 +905,22 @@ def seed_demo_data():
         if not tenant_info:
             continue
         period_label = f"第{period_index}期 {'年租' if rent_unit == '年' else '月租'} {period_start} ~ {period_end}"
+        actual_amount = float(actual_amount or 0)
+        due_amount = float(due_amount or 0)
+        if str(status or '').strip() == '已交':
+            allocated_amount = due_amount
+        elif str(status or '').strip() == '部分已交':
+            allocated_amount = min(actual_amount, due_amount) if due_amount > 0 else actual_amount
+        else:
+            allocated_amount = 0
         cur.execute(
             """
             INSERT INTO rent_ledger_entries (
                 tenant_id, room_id, building, room_no, tenant_name, lease_start, lease_end,
                 rent_amount, rent_unit, period_index, period_label, period_start, period_end,
-                due_amount, actual_amount, status, payment_date, payment_person, payment_method, remarks,
+                due_amount, actual_amount, allocated_amount, status, payment_date, payment_person, payment_method, remarks,
                 payment_images, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
             """,
             (
                 tenant_info["id"],
@@ -918,6 +938,7 @@ def seed_demo_data():
                 period_end,
                 due_amount,
                 actual_amount,
+                allocated_amount,
                 status,
                 payment_date,
                 payment_person,

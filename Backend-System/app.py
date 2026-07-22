@@ -17,6 +17,7 @@ from dashboard_api import dashboard_bp
 from notify_api import notify_bp
 from rooms_api import rooms_bp, ensure_rooms_schema
 from self_checkin_api import self_checkin_bp, ensure_self_checkin_schema
+from rent_collection_api import rent_collection_bp, ensure_rent_collection_schema
 from tenants_api import tenants_bp
 from moves_api import moves_bp
 from repair_records_api import repair_bp, ensure_repair_records_schema
@@ -56,7 +57,7 @@ app.config['JWT_EXPIRATION_DELTA'] = JWT_EXPIRATION_DELTA
 app.config['SWAGGER'] = {
     'title': 'Homes Rental Management API',
     'uiversion': 3,
-    'version': '1.0.0',
+    'version': '1.1.0',
     'description': 'API documentation for Homes Rental Management System',
     'securityDefinitions': {
         'Bearer': {
@@ -76,7 +77,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 log_paths = configure_logging(app)
 app.logger.info(f"后端文件日志目录: {log_paths['log_dir']}")
 APP_STARTED_AT = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-BACKEND_APP_VERSION = os.getenv("BACKEND_APP_VERSION", "1.0.0")
+BACKEND_APP_VERSION = os.getenv("BACKEND_APP_VERSION", "1.1.0")
 REPO_ROOT = os.path.dirname(BASE_DIR)
 
 
@@ -410,6 +411,8 @@ def _business_operation(method, path, payload, response_data):
         return "修改AI模型配置", f"模型={_field(payload, 'model')} 启用={_field(payload, 'enabled')} 动作={_field(payload, 'action')}"
     if path == "/api/system/ocr-settings" and method == "PUT":
         return "修改OCR配置", f"启用={_field(payload, 'enabled')} 类型={_field(payload, 'provider')}"
+    if path == "/api/system/payment-settings" and method == "PUT":
+        return "修改支付配置", f"总开关={_field(payload, 'enabled')} 微信={_field(payload, 'wechat_enabled')} 支付宝={_field(payload, 'alipay_enabled')}"
     if path == "/api/system/room-feature-options" and method == "PUT":
         return "修改房间特色选项", f"字段={_changed_fields(payload)}"
     if path == "/api/system/import" and method == "POST":
@@ -442,6 +445,23 @@ def _business_operation(method, path, payload, response_data):
     match = re.fullmatch(r"/api/public/self-checkin/([^/]+)/submit", path)
     if match and method == "POST":
         return "提交自助入住申请", f"{_field(payload, 'name', 'tenant_name')} 房间={_room_label(payload)}"
+
+    match = re.fullmatch(r"/api/rent-collection/rooms/(\d+)/links", path)
+    if match and method == "POST":
+        return "生成房间缴租链接", f"房间id={match.group(1)}"
+    match = re.fullmatch(r"/api/rent-collection/links/(\d+)/(disable|enable)", path)
+    if match and method == "POST":
+        return ("停用房间缴租链接" if match.group(2) == "disable" else "启用房间缴租链接"), f"链接id={match.group(1)}"
+    match = re.fullmatch(r"/api/rent-collection/links/(\d+)", path)
+    if match and method == "DELETE":
+        return "删除房间缴租链接", f"链接id={match.group(1)}"
+    match = re.fullmatch(r"/api/public/rent-collection/([^/]+)/orders", path)
+    if match and method == "POST":
+        return "创建房租支付订单", f"支付方式={_field(payload, 'provider')} 金额={_field(payload, 'amount')}"
+    if path == "/api/payment-callbacks/wechat" and method == "POST":
+        return "微信支付回调", ""
+    if path == "/api/payment-callbacks/alipay" and method == "POST":
+        return "支付宝支付回调", ""
 
     match = re.fullmatch(r"/api/public-entry-links/([^/]+)", path)
     if match and method == "POST":
@@ -531,8 +551,10 @@ app.register_blueprint(notify_bp)
 ensure_session_schema()
 ensure_rooms_schema()
 ensure_self_checkin_schema()
+ensure_rent_collection_schema()
 app.register_blueprint(rooms_bp)
 app.register_blueprint(self_checkin_bp)
+app.register_blueprint(rent_collection_bp)
 app.register_blueprint(tenants_bp)
 app.register_blueprint(moves_bp)
 ensure_repair_records_schema()

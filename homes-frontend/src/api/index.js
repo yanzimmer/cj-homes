@@ -86,6 +86,14 @@ export const roomsApi = {
   deleteRoom: (roomId) => apiClient.delete(`/rooms/${roomId}`),
   checkoutRoom: (roomNo) => apiClient.post(`/rooms/${encodeURIComponent(roomNo)}/checkout`),
   getRoomTenants: (roomNo) => apiClient.get(`/rooms/${roomNo}/tenants`),
+  getRentCollectionRoomSummaries: (roomIds = []) => apiClient.get('/rent-collection/rooms/summary', {
+    params: { room_ids: Array.isArray(roomIds) ? roomIds.join(',') : String(roomIds || '') }
+  }),
+  listRentCollectionLinks: (roomId) => apiClient.get(`/rent-collection/rooms/${roomId}/links`),
+  createRentCollectionLink: (roomId) => apiClient.post(`/rent-collection/rooms/${roomId}/links`),
+  disableRentCollectionLink: (linkId) => apiClient.post(`/rent-collection/links/${linkId}/disable`),
+  enableRentCollectionLink: (linkId) => apiClient.post(`/rent-collection/links/${linkId}/enable`),
+  deleteRentCollectionLink: (linkId) => apiClient.delete(`/rent-collection/links/${linkId}`),
   listSelfCheckinLinks: (roomId) => apiClient.get(`/self-checkin/rooms/${roomId}/links`),
   createSelfCheckinLink: (roomId) => apiClient.post(`/self-checkin/rooms/${roomId}/links`),
   disableSelfCheckinLink: (linkId) => apiClient.post(`/self-checkin/links/${linkId}/disable`),
@@ -243,6 +251,8 @@ export const systemApi = {
   updateUtilityAccountOptions: (payload) => apiClient.put('/system/utility-account-options', payload),
   getOcrSettings: () => apiClient.get('/system/ocr-settings'),
   updateOcrSettings: (payload) => apiClient.put('/system/ocr-settings', payload),
+  getPaymentSettings: () => apiClient.get('/system/payment-settings'),
+  updatePaymentSettings: (payload) => apiClient.put('/system/payment-settings', payload),
   getAiSettings: () => apiClient.get('/system/ai-settings'),
   updateAiSettings: (payload) => apiClient.put('/system/ai-settings', payload),
   testAiSettings: (payload) => apiClient.post('/system/ai-settings/test', payload),
@@ -368,6 +378,12 @@ export const publicSelfCheckinApi = {
     })
   },
   submit: (token, payload) => apiClient.post(`/public/self-checkin/${token}/submit`, payload),
+}
+
+export const publicRentCollectionApi = {
+  getPage: (token) => apiClient.get(`/public/rent-collection/${token}`),
+  createOrder: (token, payload) => apiClient.post(`/public/rent-collection/${token}/orders`, payload),
+  getOrder: (token, outTradeNo) => apiClient.get(`/public/rent-collection/${token}/orders/${encodeURIComponent(outTradeNo)}`),
 }
 
 export const publicBusinessEntryApi = {

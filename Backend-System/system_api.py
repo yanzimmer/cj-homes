@@ -21,6 +21,7 @@ from room_feature_config import get_room_feature_options, save_room_feature_opti
 from utility_account_config import get_utility_account_options, save_utility_account_options
 from ocr_settings import build_ocr_status, load_ocr_settings, save_ocr_settings
 from local_ai_settings import ALLOWED_PROCUREMENT_MODELS, load_ai_settings, save_ai_settings
+from payment_settings import serialize_payment_settings, save_payment_settings
 
 system_bp = Blueprint('system', __name__, url_prefix='/api/system')
 
@@ -566,6 +567,20 @@ def update_ocr_settings_api(current_user):
     payload = dict(saved)
     payload.update(status)
     return jsonify(payload)
+
+
+@system_bp.route('/payment-settings', methods=['GET'])
+@token_required
+def get_payment_settings_api(current_user):
+    return jsonify(serialize_payment_settings())
+
+
+@system_bp.route('/payment-settings', methods=['PUT'])
+@token_required
+def update_payment_settings_api(current_user):
+    data = request.json or {}
+    saved = save_payment_settings(data)
+    return jsonify(serialize_payment_settings(saved))
 
 
 @system_bp.route('/ai-settings', methods=['GET'])

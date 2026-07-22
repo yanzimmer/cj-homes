@@ -114,6 +114,33 @@ def _normalize_price_unit(value):
     return text if text in ROOM_PRICE_UNITS else '月'
 
 
+def _ensure_default_room_public_links(conn, room_ids):
+    from self_checkin_api import ensure_self_checkin_schema, ensure_default_self_checkin_link
+    from rent_collection_api import ensure_rent_collection_schema, ensure_default_rent_collection_link
+
+    normalized_ids = []
+    for room_id in room_ids:
+        try:
+            value = int(room_id)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            normalized_ids.append(value)
+    if not normalized_ids:
+        return
+    ensure_self_checkin_schema()
+    ensure_rent_collection_schema()
+    for room_id in normalized_ids:
+        ensure_default_self_checkin_link(conn, room_id)
+        ensure_default_rent_collection_link(conn, room_id)
+
+
+def _delete_room_public_links(conn, room_id):
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM self_checkin_links WHERE room_id = ?", (room_id,))
+    cursor.execute("DELETE FROM rent_collection_links WHERE room_id = ?", (room_id,))
+
+
 @rooms_bp.route('/rooms/feature-options', methods=['GET'])
 @token_required
 def api_get_room_feature_options(current_user):
@@ -251,6 +278,11 @@ def api_list_rooms(current_user):
     has_water_meter_img = 'water_meter_img' in room_columns
     has_electricity_meter_img = 'electricity_meter_img' in room_columns
     cursor = conn.cursor()
+    cursor.execute("SELECT id FROM rooms ORDER BY id ASC")
+    room_ids = [row[0] for row in cursor.fetchall()]
+    if room_ids:
+        _ensure_default_room_public_links(conn, room_ids)
+        conn.commit()
     cursor.execute(
         f"""
     SELECT
@@ -754,6 +786,7 @@ def api_add_room(current_user):
             tuple(insert_values),
         )
         room_id = cursor.lastrowid
+        _ensure_default_room_public_links(conn, [room_id])
         conn.commit()
         conn.close()
         return jsonify({'message': f'房间 {room_no} 已添加', 'id': room_id, 'room_no': _extract_room_number(room_no, building), 'room_display': room_no})
@@ -933,8 +966,12 @@ def api_delete_room(current_user, room_id):
     self_checkin_links_count = cursor.fetchone()[0]
     cursor.execute("SELECT COUNT(*) FROM self_checkin_submissions WHERE room_id = ?", (room_id,))
     self_checkin_submissions_count = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM rent_collection_links WHERE room_id = ?", (room_id,))
+    rent_collection_links_count = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM rent_payment_orders WHERE room_id = ?", (room_id,))
+    rent_payment_orders_count = cursor.fetchone()[0]
 
-    if total_tenants > 0 or moves_count > 0 or repairs_count > 0 or self_checkin_links_count > 0 or self_checkin_submissions_count > 0:
+    if total_tenants > 0 or moves_count > 0 or repairs_count > 0 or self_checkin_submissions_count > 0 or rent_payment_orders_count > 0:
         details = []
         if total_tenants > 0:
             details.append(f"租户档案 {total_tenants} 条（含已退租）")
@@ -942,14 +979,16 @@ def api_delete_room(current_user, room_id):
             details.append(f"搬迁记录 {moves_count} 条")
         if repairs_count > 0:
             details.append(f"维修记录 {repairs_count} 条")
-        if self_checkin_links_count > 0:
-            details.append(f"入住链接 {self_checkin_links_count} 条")
         if self_checkin_submissions_count > 0:
             details.append(f"入住提交记录 {self_checkin_submissions_count} 条")
+        if rent_payment_orders_count > 0:
+            details.append(f"缴租订单 {rent_payment_orders_count} 条")
         conn.close()
         return jsonify({'error': f'房间 {room_no} 存在关联数据，无法删除：' + '；'.join(details) + '。请先清理关联数据后再尝试删除。'}), 400
 
     try:
+        if self_checkin_links_count > 0 or rent_collection_links_count > 0:
+            _delete_room_public_links(conn, room_id)
         cursor.execute("DELETE FROM rooms WHERE id = ?", (room_id,))
         if cursor.rowcount == 0:
             conn.close()

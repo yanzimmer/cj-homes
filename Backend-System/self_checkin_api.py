@@ -136,6 +136,17 @@ def _room_to_dict(row):
     }
 
 
+def _serialize_self_checkin_link_row(row):
+    return {
+        "id": row[0],
+        "token": row[1],
+        "status": row[2],
+        "max_submissions": row[3],
+        "expires_at": row[4],
+        "created_at": row[5],
+    }
+
+
 def _submission_to_dict(row):
     return {
         "id": row[0],
@@ -203,61 +214,16 @@ def _merge_remarks(existing_value, submitted_value):
     return f"{existing_text}\n{submitted_text}"
 
 
-@self_checkin_bp.route("/self-checkin/rooms/<int:room_id>/links", methods=["GET"])
-@token_required
-def api_list_self_checkin_links(current_user, room_id):
-    ensure_self_checkin_schema()
-    conn = connect()
+def ensure_default_self_checkin_link(conn, room_id):
     cur = conn.cursor()
+    cur.execute("SELECT id FROM rooms WHERE id = ? LIMIT 1", (room_id,))
+    room = cur.fetchone()
+    if not room:
+        raise ValueError(f"房间ID {room_id} 不存在")
+
     cur.execute(
         """
         SELECT id, token, status, max_submissions, expires_at, created_at
-        FROM self_checkin_links
-        WHERE room_id = ?
-        ORDER BY id DESC
-        """,
-        (room_id,),
-    )
-    rows = cur.fetchall()
-    conn.close()
-    return jsonify(
-        {
-            "links": [
-                {
-                    "id": row[0],
-                    "token": row[1],
-                    "status": row[2],
-                    "max_submissions": row[3],
-                    "expires_at": row[4],
-                    "created_at": row[5],
-                }
-                for row in rows
-            ]
-        }
-    )
-
-
-@self_checkin_bp.route("/self-checkin/rooms/<int:room_id>/links", methods=["POST"])
-@token_required
-def api_create_self_checkin_link(current_user, room_id):
-    ensure_self_checkin_schema()
-    conn = connect()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT id, room_no, building, room_type, price, deposit, status
-        FROM rooms
-        WHERE id = ?
-        """,
-        (room_id,),
-    )
-    room = cur.fetchone()
-    if not room:
-        conn.close()
-        return jsonify({"error": f"房间ID {room_id} 不存在"}), 404
-    cur.execute(
-        """
-        SELECT id, token, status, created_at
         FROM self_checkin_links
         WHERE room_id = ?
         ORDER BY id DESC
@@ -267,8 +233,7 @@ def api_create_self_checkin_link(current_user, room_id):
     )
     existing_link = cur.fetchone()
     if existing_link:
-        conn.close()
-        return jsonify({"error": "当前房间已有入住链接，请先删除原链接后再生成新链接"}), 400
+        return _serialize_self_checkin_link_row(existing_link), False
 
     token = secrets.token_urlsafe(24)
     cur.execute(
@@ -278,21 +243,65 @@ def api_create_self_checkin_link(current_user, room_id):
         """,
         (room_id, token),
     )
-    link_id = cur.lastrowid
-    conn.commit()
-    conn.close()
-    return jsonify(
-        {
-            "link": {
-                "id": link_id,
-                "token": token,
-                "status": "active",
-                "max_submissions": 20,
-                "created_at": _now_text(),
-            },
-            "room": _room_to_dict(room),
-        }
+    cur.execute(
+        """
+        SELECT id, token, status, max_submissions, expires_at, created_at
+        FROM self_checkin_links
+        WHERE id = ?
+        LIMIT 1
+        """,
+        (cur.lastrowid,),
     )
+    created_link = cur.fetchone()
+    return _serialize_self_checkin_link_row(created_link), True
+
+
+@self_checkin_bp.route("/self-checkin/rooms/<int:room_id>/links", methods=["GET"])
+@token_required
+def api_list_self_checkin_links(current_user, room_id):
+    ensure_self_checkin_schema()
+    conn = connect()
+    try:
+        link, created = ensure_default_self_checkin_link(conn, room_id)
+        if created:
+            conn.commit()
+        return jsonify({"links": [link]})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 404
+    finally:
+        conn.close()
+
+
+@self_checkin_bp.route("/self-checkin/rooms/<int:room_id>/links", methods=["POST"])
+@token_required
+def api_create_self_checkin_link(current_user, room_id):
+    ensure_self_checkin_schema()
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, room_no, building, room_type, price, deposit, status
+            FROM rooms
+            WHERE id = ?
+            """,
+            (room_id,),
+        )
+        room = cur.fetchone()
+        if not room:
+            return jsonify({"error": f"房间ID {room_id} 不存在"}), 404
+        link, created = ensure_default_self_checkin_link(conn, room_id)
+        conn.commit()
+        return jsonify(
+            {
+                "link": link,
+                "room": _room_to_dict(room),
+                "created": created,
+                "message": "入住链接已生成" if created else "当前房间已存在固定入住链接",
+            }
+        )
+    finally:
+        conn.close()
 
 
 @self_checkin_bp.route("/self-checkin/links/<int:link_id>/disable", methods=["POST"])

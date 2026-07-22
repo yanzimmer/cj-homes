@@ -22,6 +22,11 @@ const routes = [
     component: () => import('../views/PublicBusinessEntry.vue')
   },
   {
+    path: '/rent/:token',
+    name: 'PublicRentCollection',
+    component: () => import('../views/PublicRentCollection.vue')
+  },
+  {
     path: '/dashboard',
     name: 'Dashboard',
     component: () => import('../views/Dashboard.vue'),

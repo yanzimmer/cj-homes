@@ -7,6 +7,10 @@
           <span>租户数</span>
         </div>
         <div class="ledger-mobile-stat">
+          <strong>¥{{ formatAmount(summaryPayload.overview.actualAmount || 0) }}</strong>
+          <span>实收金额</span>
+        </div>
+        <div class="ledger-mobile-stat">
           <strong>¥{{ formatAmount(summaryPayload.overview.outstandingAmount || 0) }}</strong>
           <span>待收金额</span>
         </div>
@@ -87,6 +91,10 @@
             <div>
               <strong>¥{{ formatAmount(group.stats.dueAmount) }}</strong>
               <span>应收</span>
+            </div>
+            <div>
+              <strong>¥{{ formatAmount(group.stats.actualAmount) }}</strong>
+              <span>实收</span>
             </div>
             <div>
               <strong>¥{{ formatAmount(group.stats.outstandingAmount) }}</strong>
@@ -249,6 +257,11 @@
             ¥{{ formatAmount(row.stats.dueAmount) }}
           </template>
         </el-table-column>
+        <el-table-column label="实收" min-width="110" align="right">
+          <template #default="{ row }">
+            ¥{{ formatAmount(row.stats.actualAmount) }}
+          </template>
+        </el-table-column>
         <el-table-column label="待收" min-width="110" align="right">
           <template #default="{ row }">
             <span class="outstanding-text">¥{{ formatAmount(row.stats.outstandingAmount) }}</span>
@@ -305,6 +318,7 @@
             :precision="2"
             style="width: 100%"
           />
+          <div class="feature-hint">如果这里填写大于本期应收，系统会从当前期开始自动冲抵后续月份。</div>
         </el-form-item>
         <el-form-item label="收款日期">
           <el-date-picker
@@ -411,6 +425,8 @@ import { DISPLAY_MODE_EVENT, getPreferredDisplayMode } from '../utils/displayMod
 
 const currentYear = new Date().getFullYear()
 const MAX_PAYMENT_IMAGES = 20
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
+const API_ORIGIN = API_BASE.replace(/\/api\/?$/, '')
 
 const loading = ref(false)
 const mobileMode = ref(false)
@@ -526,6 +542,16 @@ function formatPeriodRange(entry) {
   return start || end || periodLabel || '-'
 }
 
+function toImageUrl(value) {
+  if (!value) return ''
+  const text = String(value)
+  if (text.startsWith('http://') || text.startsWith('https://') || text.startsWith('blob:') || text.startsWith('data:')) {
+    return text
+  }
+  if (text.startsWith('/')) return `${API_ORIGIN}${text}`
+  return `${API_ORIGIN}/${text}`
+}
+
 function getStatusType(status) {
   if (status === '已交') return 'success'
   if (status === '部分已交') return 'warning'
@@ -612,15 +638,6 @@ function exportTenantExcel(group) {
   }
 }
 
-function toImageUrl(value) {
-  if (!value) return ''
-  const text = String(value)
-  if (text.startsWith('http://') || text.startsWith('https://') || text.startsWith('blob:') || text.startsWith('data:')) {
-    return text
-  }
-  return text
-}
-
 function isRowExpanded(row) {
   return expandedRowKeys.value.includes(row.tenantId)
 }
@@ -692,7 +709,7 @@ function handleFilterChange() {
 async function markPaid(entry) {
   savingEntryId.value = entry.id
   try {
-    await rentLedgerApi.updateEntry(entry.id, {
+    const { data } = await rentLedgerApi.updateEntry(entry.id, {
       status: '已交',
       actual_amount: entry.due_amount,
       payment_date: entry.payment_date || new Date().toISOString().slice(0, 10),
@@ -701,7 +718,7 @@ async function markPaid(entry) {
       remarks: entry.remarks || '',
       payment_images: entry.payment_images || [],
     })
-    ElMessage.success('已标记为已交')
+    ElMessage.success(data?.message || '已标记为已交')
     await loadSummary()
   } catch (error) {
     ElMessage.error(error?.response?.data?.error || '更新状态失败')
@@ -804,11 +821,11 @@ function handleEntryImagePaste(event) {
 
 function removeEntryImage(index) {
   if (index < 0 || index >= entryForm.payment_images.length) return
-  const target = entryForm.payment_images[index]
+  const target = String(entryForm.payment_images[index] || '')
   entryForm.payment_images.splice(index, 1)
   entryImageFiles.value = entryImageFiles.value.filter((item) => item.url !== target)
-  if (String(target || '').startsWith('blob:')) {
-    URL.revokeObjectURL(String(target))
+  if (target.startsWith('blob:')) {
+    URL.revokeObjectURL(target)
   }
 }
 
@@ -833,24 +850,16 @@ async function submitEntry() {
   const valid = await entryFormRef.value.validate().catch(() => false)
   if (!valid) return
 
-  const payload = {
-    status: entryForm.status,
-    actual_amount: entryForm.actual_amount,
-    payment_date: entryForm.payment_date,
-    payment_person: entryForm.payment_person,
-    payment_method: entryForm.payment_method,
-    remarks: entryForm.remarks,
-    payment_images: entryForm.payment_images.filter((item) => typeof item === 'string' && !item.startsWith('blob:')).slice(0, MAX_PAYMENT_IMAGES),
-  }
-
   submitting.value = true
   try {
-    await rentLedgerApi.updateEntry(entryForm.id, payload)
+    const uploadedUrls = []
+    const existingImages = entryForm.payment_images
+      .filter((item) => typeof item === 'string' && item && !item.startsWith('blob:'))
+      .slice(0, MAX_PAYMENT_IMAGES)
 
     if (entryImageFiles.value.length > 0) {
       uploadingImages.value = true
       uploadProgress.value = 0
-      const uploadedUrls = []
       const total = entryImageFiles.value.length
 
       for (let index = 0; index < total; index++) {
@@ -871,20 +880,26 @@ async function submitEntry() {
           throw new Error('上传成功但未返回图片地址')
         }
         uploadedUrls.push(fileUrl)
-        if (String(item.url || '').startsWith('blob:')) {
-          URL.revokeObjectURL(item.url)
-        }
       }
-
-      await rentLedgerApi.updateEntry(entryForm.id, {
-        ...payload,
-        payment_images: [...payload.payment_images, ...uploadedUrls].slice(0, MAX_PAYMENT_IMAGES),
-      })
       uploadProgress.value = 100
     }
 
+    const payload = {
+      status: entryForm.status,
+      actual_amount: entryForm.actual_amount,
+      payment_date: entryForm.payment_date,
+      payment_person: entryForm.payment_person,
+      payment_method: entryForm.payment_method,
+      remarks: entryForm.remarks,
+      payment_images: [...existingImages, ...uploadedUrls]
+        .map((item) => String(item || '').trim())
+        .filter((item) => item)
+        .slice(0, MAX_PAYMENT_IMAGES),
+    }
+
+    const { data } = await rentLedgerApi.updateEntry(entryForm.id, payload)
     entryDialog.visible = false
-    ElMessage.success('收租记录已更新')
+    ElMessage.success(data?.message || '收租记录已更新')
     await loadSummary()
   } catch (error) {
     ElMessage.error(error?.response?.data?.error || error?.message || '保存收租记录失败')

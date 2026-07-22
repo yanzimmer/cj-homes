@@ -178,7 +178,8 @@ def _load_monthly_rent_ledger_stats(cursor, year):
             SUM(CASE WHEN status = '部分已交' THEN 1 ELSE 0 END) AS partial_periods,
             SUM(CASE WHEN status = '未交' THEN 1 ELSE 0 END) AS unpaid_periods,
             COALESCE(SUM(COALESCE(due_amount, 0)), 0) AS due_amount,
-            COALESCE(SUM(COALESCE(actual_amount, 0)), 0) AS actual_amount
+            COALESCE(SUM(COALESCE(actual_amount, 0)), 0) AS actual_amount,
+            COALESCE(SUM(COALESCE(allocated_amount, actual_amount, 0)), 0) AS allocated_amount
         FROM rent_ledger_entries
         WHERE substr(period_start, 1, 4) = ?
         GROUP BY substr(period_start, 1, 7)
@@ -199,7 +200,8 @@ def _load_monthly_rent_ledger_stats(cursor, year):
         month = row["month"] or ""
         due_amount = round(float(row["due_amount"] or 0), 2)
         actual_amount = round(float(row["actual_amount"] or 0), 2)
-        outstanding_amount = round(max(due_amount - actual_amount, 0), 2)
+        allocated_amount = round(float(row["allocated_amount"] or 0), 2)
+        outstanding_amount = round(max(due_amount - allocated_amount, 0), 2)
         item = {
             "month": month,
             "totalPeriods": int(row["total_periods"] or 0),
@@ -277,11 +279,12 @@ def _load_rent_reminder_stats(conn, advance_days, today):
             period_start,
             period_end,
             due_amount,
+            allocated_amount,
             actual_amount,
             status
         FROM rent_ledger_entries
         WHERE COALESCE(TRIM(period_start), '') <> ''
-          AND COALESCE(due_amount, 0) > COALESCE(actual_amount, 0)
+          AND COALESCE(due_amount, 0) > COALESCE(allocated_amount, actual_amount, 0)
           AND COALESCE(TRIM(status), '未交') <> '已交'
         ORDER BY date(period_start) ASC, id ASC
         """
@@ -298,7 +301,7 @@ def _load_rent_reminder_stats(conn, advance_days, today):
         if days_until_due > advance_days:
             continue
 
-        outstanding_amount = round(max(float(row["due_amount"] or 0) - float(row["actual_amount"] or 0), 0), 2)
+        outstanding_amount = round(max(float(row["due_amount"] or 0) - float(row["allocated_amount"] if "allocated_amount" in row.keys() else row["actual_amount"] or 0), 0), 2)
         if outstanding_amount <= 0:
             continue
 
