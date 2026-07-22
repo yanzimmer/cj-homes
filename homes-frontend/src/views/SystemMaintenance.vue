@@ -2005,7 +2005,7 @@ const handleImport = () => {
       const uploadResult = await uploadFileByChunks(selectedFile.value, {
         category: 'system_import',
         subDir: buildImportSubDir(),
-        chunkSize: 1024 * 1024,
+        chunkSize: 512 * 1024,
         maxRetries: 3,
         retryDelay: 800,
         onProgress: (percent) => {
