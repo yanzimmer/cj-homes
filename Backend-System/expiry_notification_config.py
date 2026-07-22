@@ -129,7 +129,8 @@ def _deep_merge_dict(base, override):
 
 
 def _normalize_config_shape(config):
-    merged = _deep_merge_dict(DEFAULT_CONFIG, config if isinstance(config, dict) else {})
+    raw_config = config if isinstance(config, dict) else {}
+    merged = _deep_merge_dict(DEFAULT_CONFIG, raw_config)
 
     legacy_advance_days = merged.get("advance_days")
     try:
@@ -137,9 +138,9 @@ def _normalize_config_shape(config):
     except Exception:
         legacy_days = 7
 
-    if "lease_advance_days" not in (config or {}):
+    if "lease_advance_days" not in raw_config:
         merged["lease_advance_days"] = legacy_days
-    if "rent_advance_days" not in (config or {}):
+    if "rent_advance_days" not in raw_config:
         merged["rent_advance_days"] = legacy_days
     merged["advance_days"] = merged["lease_advance_days"]
 
@@ -147,21 +148,42 @@ def _normalize_config_shape(config):
         merged.setdefault("tenant_notification_methods", merged.get("notification_methods") or [])
         merged.setdefault("landlord_notification_methods", merged.get("notification_methods") or [])
 
-    if "tenant_notification_scenes" not in (config or {}):
-        merged["tenant_notification_scenes"] = ["lease_expiry"]
-    if "landlord_notification_scenes" not in (config or {}):
-        merged["landlord_notification_scenes"] = ["lease_expiry"]
+    tenant_scenes = [
+        item for item in (merged.get("tenant_notification_scenes", []) or [])
+        if item in NOTIFICATION_SCENES
+    ]
+    landlord_scenes = [
+        item for item in (merged.get("landlord_notification_scenes", []) or [])
+        if item in NOTIFICATION_SCENES
+    ]
 
-    tenant_scenes = [item for item in merged.get("tenant_notification_scenes", []) if item in NOTIFICATION_SCENES]
-    landlord_scenes = [item for item in merged.get("landlord_notification_scenes", []) if item in NOTIFICATION_SCENES]
-    merged["tenant_notification_scenes"] = tenant_scenes or ["lease_expiry"]
-    merged["landlord_notification_scenes"] = landlord_scenes or ["lease_expiry"]
+    if "tenant_notification_scenes" in raw_config:
+        merged["tenant_notification_scenes"] = tenant_scenes
+    else:
+        merged["tenant_notification_scenes"] = tenant_scenes or ["lease_expiry"]
+
+    if "landlord_notification_scenes" in raw_config:
+        merged["landlord_notification_scenes"] = landlord_scenes
+    else:
+        merged["landlord_notification_scenes"] = landlord_scenes or ["lease_expiry"]
     return merged
 
 
+def _has_explicit_config_value(config, section, field):
+    if not isinstance(config, dict):
+        return False
+    section_value = config.get(section)
+    if not isinstance(section_value, dict):
+        return False
+    return field in section_value
+
+
 def _apply_env_overrides(config, include_secrets=False):
-    merged = _normalize_config_shape(config)
+    raw_config = config if isinstance(config, dict) else {}
+    merged = _normalize_config_shape(raw_config)
     for (section, field), (env_name, caster) in ENV_FIELD_MAP.items():
+        if _has_explicit_config_value(raw_config, section, field):
+            continue
         raw = os.getenv(env_name)
         if raw is None or raw == "":
             continue
@@ -194,13 +216,6 @@ def _strip_masked_values(value):
     return value
 
 
-def _remove_stored_secrets(config):
-    cleaned = _normalize_config_shape(config)
-    for section, field in SENSITIVE_FIELDS:
-        if isinstance(cleaned.get(section), dict):
-            cleaned[section][field] = ""
-    return cleaned
-
 def get_config():
     """获取当前配置，敏感字段仅返回脱敏占位符。"""
     return _apply_env_overrides(_read_config_raw(), include_secrets=False)
@@ -222,11 +237,10 @@ def update_config(new_config):
                 current_config[key] = value
 
         current_config = _normalize_config_shape(current_config)
-        
+
         # 更新最后修改时间
         current_config["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        current_config = _remove_stored_secrets(current_config)
-        
+
         # 写入文件
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(current_config, f, ensure_ascii=False, indent=4)

@@ -452,17 +452,26 @@ def _run_ai_disable(task_id, current_model):
         error='',
     )
     try:
+        stop_warning = ''
         if is_local_ollama and current_model:
-            _stop_ollama_model(current_model)
+            try:
+                _stop_ollama_model(current_model)
+            except FileNotFoundError:
+                stop_warning = '未检测到 ollama 命令，已跳过停止本地模型'
+            except Exception as stop_error:
+                stop_warning = f'停止本地模型时已跳过：{stop_error}'
         saved = save_ai_settings({'enabled': False})
+        completed_message = (
+            '本地 AI 功能已停用'
+            if is_local_ollama
+            else 'AI 功能已停用；远程 Ollama 模型无法从本系统关闭'
+        )
+        if stop_warning:
+            completed_message = f'{completed_message}；{stop_warning}'
         _set_ai_switch_status(
             status='completed',
             phase='disabled',
-            message=(
-                '本地 AI 功能已停用'
-                if is_local_ollama
-                else 'AI 功能已停用；远程 Ollama 模型无法从本系统关闭'
-            ),
+            message=completed_message,
             finished_at=saved.get('updated_at') or datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             error='',
         )
@@ -652,11 +661,28 @@ def update_ai_settings_api(current_user):
         )
         return jsonify(_serialize_ai_settings(current))
 
+    if action in {'enable', 'disable'}:
+        save_payload = dict(update_payload)
+        save_payload['enabled'] = (action == 'enable')
+        current = save_ai_settings(save_payload)
+        now_text = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        saved_model = current.get('model') if current_provider == 'api' else current.get('procurement_model')
+        _set_ai_switch_status(
+            id=str(uuid.uuid4()),
+            status='completed',
+            phase='enabled' if action == 'enable' else 'disabled',
+            message='AI 配置显示已开启' if action == 'enable' else 'AI 配置显示已关闭',
+            from_model='',
+            to_model=str(saved_model or '').strip(),
+            started_at=now_text,
+            finished_at=now_text,
+            error='',
+        )
+        return jsonify(_serialize_ai_settings(current))
+
     if current_provider == 'api':
         enabled = current.get('enabled', True)
-        if action == 'disable':
-            enabled = False
-        elif action in {'enable', 'switch_model'}:
+        if action == 'switch_model':
             enabled = True
         else:
             return jsonify({'error': '不支持的 AI 操作'}), 400
@@ -698,41 +724,10 @@ def update_ai_settings_api(current_user):
     if immediate_payload:
         current = save_ai_settings(immediate_payload)
 
-    task_id = str(uuid.uuid4())
-    if action == 'disable':
-        _set_ai_switch_status(
-            id=task_id,
-            status='running',
-            phase='stopping_old',
-            message='本地 AI 功能停用任务已开始',
-            from_model=previous_model,
-            to_model='',
-            started_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            finished_at='',
-            error='',
-        )
-        Thread(target=_run_ai_disable, args=(task_id, previous_model), daemon=True).start()
-        return jsonify(_serialize_ai_settings(current))
-
-    if action == 'enable':
-        enabled_model = str(current.get('procurement_model') or current_model or previous_model).strip()
-        _set_ai_switch_status(
-            id=task_id,
-            status='running',
-            phase='starting_new',
-            message='本地 AI 功能启用任务已开始',
-            from_model=enabled_model,
-            to_model=enabled_model,
-            started_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            finished_at='',
-            error='',
-        )
-        Thread(target=_run_ai_enable, args=(task_id, enabled_model), daemon=True).start()
-        return jsonify(_serialize_ai_settings(current))
-
     if action != 'switch_model':
         return jsonify({'error': '不支持的 AI 操作'}), 400
 
+    task_id = str(uuid.uuid4())
     _set_ai_switch_status(
         id=task_id,
         status='running',

@@ -684,10 +684,10 @@ const fetchConfig = async () => {
         config.landlord_notification_methods = ['email']
       }
 
-      config.tenant_notification_scenes = Array.isArray(data.tenant_notification_scenes) && data.tenant_notification_scenes.length > 0
+      config.tenant_notification_scenes = Array.isArray(data.tenant_notification_scenes)
         ? data.tenant_notification_scenes
         : ['lease_expiry']
-      config.landlord_notification_scenes = Array.isArray(data.landlord_notification_scenes) && data.landlord_notification_scenes.length > 0
+      config.landlord_notification_scenes = Array.isArray(data.landlord_notification_scenes)
         ? data.landlord_notification_scenes
         : ['lease_expiry']
       

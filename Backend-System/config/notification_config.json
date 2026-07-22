@@ -4,18 +4,10 @@
     "rent_advance_days": 7,
     "advance_days": 30,
     "reminder_count": 2,
-    "tenant_notification_methods": [
-        "email"
-    ],
-    "landlord_notification_methods": [
-        "email"
-    ],
-    "tenant_notification_scenes": [
-        "lease_expiry"
-    ],
-    "landlord_notification_scenes": [
-        "lease_expiry"
-    ],
+    "tenant_notification_methods": [],
+    "landlord_notification_methods": [],
+    "tenant_notification_scenes": [],
+    "landlord_notification_scenes": [],
     "smtp_config": {
         "server": "smtp.qq.com",
         "port": 587,
@@ -26,8 +18,8 @@
     "sms_config": {
         "secret_id": "",
         "secret_key": "",
-        "app_id": "1401054168",
-        "sign_name": "675518",
+        "app_id": "",
+        "sign_name": "",
         "tenant_template_id": "2548266",
         "landlord_template_id": "2548267",
         "tenant_template_text": "",
@@ -52,7 +44,7 @@
             "phone": "15286304124"
         }
     ],
-    "last_updated": "2026-05-28 15:04:23",
+    "last_updated": "2026-07-22 14:11:32",
     "notification_methods": [
         "email"
     ]

@@ -767,9 +767,6 @@ def api_recognize_tenant_id_card(current_user):
 @tenants_bp.route('/tenants/ai-draft', methods=['POST'])
 @token_required
 def api_create_tenant_ai_draft(current_user):
-    if not load_ai_settings().get("enabled", True):
-        return jsonify({'error': 'AI 功能已停用，请在系统维护页面启用后再使用'}), 503
-
     images = []
 
     if request.content_type and request.content_type.startswith('multipart/form-data'):

@@ -462,9 +462,6 @@ def _repair_record_to_dict(row):
 
 @repair_bp.route("/repair-records/ai-draft", methods=["POST"])
 def api_create_repair_ai_draft():
-    if not load_ai_settings().get("enabled", True):
-        return jsonify({"error": "AI 功能已停用，请在系统维护页面启用后再使用"}), 503
-
     user_text = ""
     images = []
 

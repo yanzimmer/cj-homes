@@ -14,7 +14,7 @@ notify_bp = Blueprint('notify', __name__, url_prefix='/api')
 @token_required
 def get_notification_config(current_user):
     """获取租期到期通知配置"""
-    config = notify_config.get_config()
+    config = notify_config.get_runtime_config()
     return jsonify(config)
 
 

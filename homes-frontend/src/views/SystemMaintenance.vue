@@ -1,862 +1,1023 @@
 <template>
-  <div class="system-container page-container">
-    <div class="system-hero">
+  <div class="notification-config system-maintenance-layout" :class="{ 'notification-config--mobile': mobileMode }">
+    <div class="page-header">
       <div>
-        <h2 class="hero-title">系统维护中心</h2>
-        <p class="hero-subtitle">统一管理备份恢复、OCR 配置、系统重置和演示数据生成</p>
+        <h2>系统维护中心</h2>
+        <span class="subtitle">统一管理备份恢复、系统快照、OCR、房间配置、支付与 AI、会话安全和危险操作</span>
       </div>
-      <el-tag class="hero-tag" effect="dark">高安全操作区</el-tag>
-    </div>
-
-    <div class="system-version-card card-box system-card">
-      <div class="card-header">
-        <el-icon class="icon"><Monitor /></el-icon>
-        <h3>系统版本信息</h3>
-      </div>
-      <div class="card-content">
-        <div class="version-grid">
-          <div class="version-item">
-            <div class="version-item__label">前端版本</div>
-            <div class="version-item__value">{{ frontendVersionLabel }}</div>
-            <div class="version-item__meta">Commit {{ frontendVersionCommit }}</div>
-            <div class="version-item__meta">构建时间 {{ frontendVersionBuildTime }}</div>
-          </div>
-          <div class="version-item">
-            <div class="version-item__label">后端版本</div>
-            <div class="version-item__value">{{ backendVersionLabel }}</div>
-            <div class="version-item__meta">Commit {{ backendVersionCommit }}</div>
-            <div class="version-item__meta">启动时间 {{ backendVersionStartedAt }}</div>
-          </div>
+      <div class="header-operations">
+        <div v-if="systemLastUpdatedText && !mobileMode" class="last-updated">
+          <el-icon><Monitor /></el-icon>
+          <span>最近配置时间: {{ systemLastUpdatedText }}</span>
         </div>
-        <div class="release-notes-box">
-          <div class="release-notes-box__title">本次升级说明</div>
-          <div class="release-notes-box__meta">版本 {{ currentReleaseVersion }} · 发布时间 {{ currentReleaseDate }}</div>
-          <ul class="release-notes-box__list">
-            <li v-for="item in currentReleaseItems" :key="item">{{ item }}</li>
-          </ul>
-        </div>
+        <el-button class="header-action-btn" :loading="reloadingMaintenance" @click="reloadMaintenanceData">
+          <el-icon><Refresh /></el-icon> 刷新状态
+        </el-button>
       </div>
     </div>
 
-    <div class="system-top-grid">
-      <!-- 导出数据 -->
-      <div class="system-grid-item">
-        <div class="card-box h-100 system-card">
-          <div class="card-header">
-            <el-icon class="icon"><Download /></el-icon>
-            <h3>数据导出</h3>
-          </div>
-          <div class="card-content">
-            <div class="description">
-              导出系统完整数据，包含：
-              <ul>
-                <li>数据库所有记录（房间、租户、合同等）</li>
-                <li>系统配置文件（通知设置等）</li>
-                <li>所有上传的文件（身份证图片、维修图片等）</li>
-              </ul>
-            </div>
-            <div class="action-area">
-              <el-button type="primary" size="large" :loading="exporting" @click="handleExport">
-                <el-icon class="el-icon--left"><Download /></el-icon>
-                立即导出备份 (.zip)
-              </el-button>
-            </div>
-          </div>
-        </div>
+    <div class="config-form">
+      <div v-if="mobileMode" class="mobile-tab-strip">
+        <button
+          v-for="item in maintenanceTabs"
+          :key="item.name"
+          type="button"
+          class="mobile-tab-chip"
+          :class="{ 'mobile-tab-chip--active': activeTab === item.name }"
+          @click="activeTab = item.name"
+        >
+          {{ item.label }}
+        </button>
       </div>
 
-      <!-- 导入数据 -->
-      <div class="system-grid-item">
-        <div class="card-box h-100 system-card import-card">
-          <div class="card-header">
-            <el-icon class="icon"><Upload /></el-icon>
-            <h3>数据导入</h3>
-          </div>
-          <div class="card-content">
-            <div class="description">
-              从备份文件恢复系统数据。
-              <span class="warning-text">注意：导入将覆盖当前系统的所有数据！请谨慎操作。</span>
-            </div>
-            
-            <div class="upload-area">
-              <el-upload
-                class="upload-demo"
-                drag
-                action="#"
-                :auto-upload="false"
-                :on-change="handleFileChange"
-                :show-file-list="false"
-                accept=".zip"
-              >
-                <el-icon class="el-icon--upload"><upload-filled /></el-icon>
-                <div class="el-upload__text">
-                  将备份文件拖到此处，或 <em>点击上传</em>
-                </div>
-                <template #tip>
-                  <div class="el-upload__tip">
-                    只能上传 .zip 格式的备份文件
+      <el-tabs v-model="activeTab" :tab-position="tabPosition" class="config-tabs">
+        <el-tab-pane name="overview" label="概览">
+          <template #label>
+            <span class="custom-tabs-label">
+              <el-icon><Monitor /></el-icon>
+              <span>概览</span>
+            </span>
+          </template>
+
+          <div class="tab-pane-stack">
+            <div class="system-version-card card-box system-card">
+              <div class="card-header">
+                <el-icon class="icon"><Monitor /></el-icon>
+                <h3>系统版本信息</h3>
+              </div>
+              <div class="card-content">
+                <div class="version-grid">
+                  <div class="version-item">
+                    <div class="version-item__label">前端版本</div>
+                    <div class="version-item__value">{{ frontendVersionLabel }}</div>
+                    <div class="version-item__meta">Commit {{ frontendVersionCommit }}</div>
+                    <div class="version-item__meta">构建时间 {{ frontendVersionBuildTime }}</div>
                   </div>
-                </template>
-              </el-upload>
-
-              <div v-if="selectedFile" class="selected-file">
-                <el-icon><Document /></el-icon>
-                <span>{{ selectedFile.name }}</span>
-                <el-button link type="danger" @click="selectedFile = null; importUploadProgress = 0">移除</el-button>
-              </div>
-
-              <div class="action-area" v-if="selectedFile">
-                <el-button type="warning" size="large" :loading="importing" @click="handleImport">
-                  <el-icon class="el-icon--left"><Refresh /></el-icon>
-                  立即导入备份
-                </el-button>
-              </div>
-
-              <div v-if="importing || importUploadProgress > 0" class="upload-progress-wrap">
-                <el-progress :percentage="importUploadProgress" :stroke-width="8" />
-              </div>
-            </div>
-
-            <div class="rollback-box">
-              <div class="rollback-header">
-                <div>
-                  <div>系统快照</div>
-                  <div class="rollback-subtitle">快照统一存放在专用文件夹，支持手动创建、导入前自动留档，以及按版本回滚。</div>
-                </div>
-                <el-tag :type="snapshots.length ? 'warning' : 'info'" size="small">
-                  {{ snapshots.length ? `${snapshots.length} 份快照` : '暂无快照' }}
-                </el-tag>
-              </div>
-              <div class="action-area rollback-action">
-                <el-button
-                  type="primary"
-                  plain
-                  :disabled="isSnapshotTaskRunning || importing"
-                  :loading="isCreatingSnapshot"
-                  @click="handleCreateSnapshot"
-                >
-                  <el-icon class="el-icon--left"><Document /></el-icon>
-                  立即创建快照
-                </el-button>
-                <el-button
-                  type="danger"
-                  plain
-                  :disabled="!selectedSnapshot || isSnapshotTaskRunning || importing"
-                  :loading="isRestoringSnapshot"
-                  @click="handleRollbackImport"
-                >
-                  <el-icon class="el-icon--left"><Refresh /></el-icon>
-                  一键回滚
-                </el-button>
-              </div>
-
-              <div v-if="latestSnapshot" class="rollback-meta">
-                <div>最新快照：{{ latestSnapshot.created_at || '未知时间' }}</div>
-                <div>来源：{{ snapshotTypeLabel(latestSnapshot) }} · {{ latestSnapshot.source_name || '未命名快照' }}</div>
-                <div>大小：{{ latestSnapshot.size_text || '未知' }}</div>
-              </div>
-
-              <div v-if="snapshotTaskStatus.status !== 'idle'" class="snapshot-task-box">
-                <div class="snapshot-task-head">
-                  <el-tag :type="snapshotTaskStatusTagType" size="small">{{ snapshotTaskStatusLabel }}</el-tag>
-                  <span class="snapshot-task-text">{{ snapshotTaskStatus.message || '正在处理快照任务' }}</span>
-                </div>
-                <div v-if="isSnapshotTaskRunning" class="upload-progress-wrap">
-                  <el-progress :percentage="snapshotTaskStatus.progress || 0" :stroke-width="8" />
-                </div>
-                <div v-if="snapshotTaskStatus.error" class="feature-hint warning-text">{{ snapshotTaskStatus.error }}</div>
-              </div>
-
-              <div v-if="snapshots.length" class="snapshot-list">
-                <div
-                  v-for="item in snapshots"
-                  :key="item.id"
-                  class="snapshot-row"
-                  :class="[
-                    { selected: selectedSnapshotId === item.id },
-                    `snapshot-row-${snapshotTypeClassName(item)}`
-                  ]"
-                  @click="selectedSnapshotId = item.id"
-                >
-                  <span class="snapshot-radio" :class="{ checked: selectedSnapshotId === item.id }"></span>
-                  <span class="snapshot-row-main">
-                    <span class="snapshot-row-title">
-                      <el-tag size="small" :type="snapshotTypeTagType(item)" effect="plain">{{ snapshotTypeLabel(item) }}</el-tag>
-                      <span class="snapshot-title-text">{{ item.source_name || '未命名快照' }}</span>
-                    </span>
-                    <span class="snapshot-row-subtitle">{{ item.created_at || '未知时间' }} · {{ item.size_text || '未知大小' }}</span>
-                  </span>
-                  <span class="snapshot-row-tools">
-                    <el-button link type="danger" :disabled="isSnapshotTaskRunning || importing" @click.stop="handleDeleteSnapshot(item)">删除</el-button>
-                  </span>
-                </div>
-              </div>
-              <div v-else class="feature-hint">
-                还没有可用快照。你可以先手动创建一份，后续每次导入前系统也会自动新增一份导入前快照。
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="system-feature-section">
-      <div class="system-grid-item">
-        <div class="card-box h-100 system-card">
-          <div class="card-header">
-            <el-icon class="icon"><Setting /></el-icon>
-            <h3>房间设施配置</h3>
-          </div>
-          <div class="card-content">
-            <div class="description">
-              在这里维护房间管理页可勾选的设施项，例如冰箱、热水器、沙发。保存后房间管理页会自动使用最新选项。
-            </div>
-
-            <div class="feature-editor">
-              <div class="feature-input-wrap">
-                <el-input
-                  v-model="newRoomFeature"
-                  placeholder="输入新设施项，例如：沙发"
-                  @keyup.enter="addRoomFeature"
-                />
-                <el-button type="primary" :loading="savingRoomFeatures" @click="addRoomFeature">添加设施项</el-button>
-              </div>
-              <div class="feature-hint">新增或删除后会自动保存，不需要再额外点保存按钮。</div>
-            </div>
-
-            <div class="feature-tags">
-              <el-tag
-                v-for="item in roomFeatureOptions"
-                :key="item"
-                closable
-                @close="removeRoomFeature(item)"
-              >
-                {{ item }}
-              </el-tag>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="system-grid-item">
-        <div class="card-box h-100 system-card">
-          <div class="card-header">
-            <el-icon class="icon"><Setting /></el-icon>
-            <h3>水电费账户预设</h3>
-          </div>
-          <div class="card-content">
-            <div class="description">
-              在这里预设水费和电费的常用账户。保存后，AI 识图会优先按账户名称自动匹配。
-            </div>
-
-            <div class="utility-account-grid">
-              <div class="utility-account-group">
-                <div class="feature-editor">
-                  <div class="feature-group-title">电费账户</div>
-                  <div class="feature-input-wrap">
-                    <el-input
-                      v-model="newUtilityAccount.electricity"
-                      placeholder="输入电费账户，例如：191-A"
-                      @keyup.enter="addUtilityAccount('electricity')"
-                    />
-                    <el-button type="primary" :loading="savingUtilityAccounts" @click="addUtilityAccount('electricity')">添加账户</el-button>
+                  <div class="version-item">
+                    <div class="version-item__label">后端版本</div>
+                    <div class="version-item__value">{{ backendVersionLabel }}</div>
+                    <div class="version-item__meta">Commit {{ backendVersionCommit }}</div>
+                    <div class="version-item__meta">启动时间 {{ backendVersionStartedAt }}</div>
                   </div>
                 </div>
-                <div class="utility-account-list">
+                <div class="release-notes-box">
+                  <div class="release-notes-box__title">本次升级说明</div>
+                  <div class="release-notes-box__meta">版本 {{ currentReleaseVersion }} · 发布时间 {{ currentReleaseDate }}</div>
+                  <ul class="release-notes-box__list">
+                    <li v-for="item in currentReleaseItems" :key="item">{{ item }}</li>
+                  </ul>
+                </div>
+                <div v-if="historicalReleaseNotes.length" class="release-history-box">
+                  <div class="release-notes-box__title">历史版本说明</div>
                   <div
-                    v-for="account in utilityAccountOptions.electricity"
-                    :key="`electricity-${account}`"
-                    class="utility-account-card"
+                    v-for="history in historicalReleaseNotes"
+                    :key="history.version"
+                    class="release-history-item"
                   >
-                    <div class="utility-account-card__header">
-                      <strong>{{ account }}</strong>
-                      <el-button link type="danger" :disabled="savingUtilityAccounts" @click="removeUtilityAccount('electricity', account)">删除账户</el-button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="utility-account-group">
-                <div class="feature-editor">
-                  <div class="feature-group-title">水费账户</div>
-                  <div class="feature-input-wrap">
-                    <el-input
-                      v-model="newUtilityAccount.water"
-                      placeholder="输入水费账户，例如：361-A"
-                      @keyup.enter="addUtilityAccount('water')"
-                    />
-                    <el-button type="primary" :loading="savingUtilityAccounts" @click="addUtilityAccount('water')">添加账户</el-button>
-                  </div>
-                </div>
-                <div class="utility-account-list">
-                  <div
-                    v-for="account in utilityAccountOptions.water"
-                    :key="`water-${account}`"
-                    class="utility-account-card"
-                  >
-                    <div class="utility-account-card__header">
-                      <strong>{{ account }}</strong>
-                      <el-button link type="danger" :disabled="savingUtilityAccounts" @click="removeUtilityAccount('water', account)">删除账户</el-button>
-                    </div>
+                    <div class="release-notes-box__meta">版本 {{ formatVersionText(history.version) }} · 发布时间 {{ history.releasedAt || '-' }}</div>
+                    <ul class="release-notes-box__list">
+                      <li v-for="item in history.notes" :key="`${history.version}-${item}`">{{ item }}</li>
+                    </ul>
                   </div>
                 </div>
               </div>
             </div>
-            <div class="feature-hint">新增或删除后会自动保存，不需要再额外点保存按钮。</div>
           </div>
-        </div>
-      </div>
+        </el-tab-pane>
 
-      <div class="system-grid-item">
-        <div class="card-box h-100 system-card">
-          <div class="card-header">
-            <el-icon class="icon"><Key /></el-icon>
-            <h3>支付收款配置</h3>
-          </div>
-          <div class="card-content">
-            <div class="description">
-              这里用于接入房间缴租页的微信支付和支付宝商户参数。租客扫码进入房间缴租页后，系统会按这里的配置创建正式支付订单，并在支付回调成功后自动更新该房间的收租台账。
-            </div>
+        <el-tab-pane name="backup" label="备份恢复">
+          <template #label>
+            <span class="custom-tabs-label">
+              <el-icon><Download /></el-icon>
+              <span>备份恢复</span>
+            </span>
+          </template>
 
-            <div class="ai-summary-row">
-              <el-tag :type="paymentSettings.enabled ? 'success' : 'info'" effect="plain">
-                总开关：{{ paymentSettings.enabled ? '已启用' : '未启用' }}
-              </el-tag>
-              <el-tag :type="paymentSettings.wechat.configured ? 'success' : 'warning'" effect="plain">
-                微信：{{ paymentSettings.wechat.configured ? '已配置' : '待完善' }}
-              </el-tag>
-              <el-tag :type="paymentSettings.alipay.configured ? 'success' : 'warning'" effect="plain">
-                支付宝：{{ paymentSettings.alipay.configured ? '已配置' : '待完善' }}
-              </el-tag>
-              <el-tag :type="paymentSettings.notify_base_url ? 'success' : 'warning'" effect="plain">
-                回调地址：{{ paymentSettings.notify_base_url ? '已填写' : '未填写' }}
-              </el-tag>
-            </div>
-
-            <div v-if="paymentSettings.updated_at" class="feature-hint ai-updated-at">
-              最近保存：{{ paymentSettings.updated_at }}
-            </div>
-
-            <el-form label-position="top" class="ocr-settings-form">
-              <el-form-item label="支付功能总开关">
-                <el-switch
-                  v-model="paymentSettings.enabled"
-                  active-text="启用"
-                  inactive-text="停用"
-                />
-              </el-form-item>
-
-              <el-form-item label="后端可访问的回调基础地址">
-                <el-input
-                  v-model="paymentSettings.notify_base_url"
-                  placeholder="例如：https://your-domain.com"
-                  clearable
-                />
-              </el-form-item>
-              <div class="feature-hint">
-                这里必须填写商户平台最终能回调到的后端公网地址，保存后系统会自动拼出微信和支付宝的回调路径。
-              </div>
-
-              <div class="payment-config-grid">
-                <section class="payment-channel-card">
-                  <div class="payment-channel-card__head">
-                    <div>
-                      <div class="feature-group-title">微信支付</div>
-                      <div class="feature-hint">
-                        当前仅支持 `Native` 收款码模式，适合在房间缴租页生成一笔正式微信支付码。
-                      </div>
-                    </div>
-                    <el-tag :type="paymentSettings.wechat.enabled ? 'success' : 'info'" effect="dark">
-                      {{ paymentSettings.wechat.enabled ? '已启用' : '未启用' }}
-                    </el-tag>
-                  </div>
-
-                  <el-form-item label="微信渠道开关">
-                    <el-switch
-                      v-model="paymentSettings.wechat_enabled"
-                      active-text="启用"
-                      inactive-text="停用"
-                    />
-                  </el-form-item>
-                  <el-form-item label="支付模式">
-                    <el-input v-model="paymentSettings.wechat_mode" disabled />
-                  </el-form-item>
-                  <el-form-item label="AppID">
-                    <el-input v-model="paymentSettings.wechat_appid" placeholder="请输入微信支付 AppID" clearable />
-                  </el-form-item>
-                  <el-form-item label="商户号 MchID">
-                    <el-input v-model="paymentSettings.wechat_mchid" placeholder="请输入微信商户号" clearable />
-                  </el-form-item>
-                  <el-form-item label="API v3 Key">
-                    <el-input
-                      v-model="paymentSettings.wechat_api_v3_key"
-                      type="password"
-                      show-password
-                      placeholder="请输入 32 位 API v3 Key"
-                      clearable
-                    />
-                  </el-form-item>
-                  <el-form-item label="商户私钥 PEM">
-                    <el-input
-                      v-model="paymentSettings.wechat_private_key_pem"
-                      type="textarea"
-                      :rows="6"
-                      placeholder="-----BEGIN PRIVATE KEY-----"
-                    />
-                  </el-form-item>
-                  <el-form-item label="商户证书序列号">
-                    <el-input v-model="paymentSettings.wechat_serial_no" placeholder="请输入商户证书序列号" clearable />
-                  </el-form-item>
-                  <el-form-item label="微信支付平台公钥 PEM">
-                    <el-input
-                      v-model="paymentSettings.wechat_platform_public_key_pem"
-                      type="textarea"
-                      :rows="6"
-                      placeholder="-----BEGIN PUBLIC KEY-----"
-                    />
-                  </el-form-item>
-                  <div class="feature-hint" :class="{ 'warning-text': !paymentSettings.wechat.configured }">
-                    {{ paymentSettings.wechat.reason || '微信支付参数已完整，可用于创建缴租订单。' }}
-                  </div>
-                </section>
-
-                <section class="payment-channel-card">
-                  <div class="payment-channel-card__head">
-                    <div>
-                      <div class="feature-group-title">支付宝</div>
-                      <div class="feature-hint">
-                        当前使用 `precreate` 预下单模式，系统会生成一笔正式支付宝支付码并等待异步回调入账。
-                      </div>
-                    </div>
-                    <el-tag :type="paymentSettings.alipay.enabled ? 'success' : 'info'" effect="dark">
-                      {{ paymentSettings.alipay.enabled ? '已启用' : '未启用' }}
-                    </el-tag>
-                  </div>
-
-                  <el-form-item label="支付宝渠道开关">
-                    <el-switch
-                      v-model="paymentSettings.alipay_enabled"
-                      active-text="启用"
-                      inactive-text="停用"
-                    />
-                  </el-form-item>
-                  <el-form-item label="支付模式">
-                    <el-input v-model="paymentSettings.alipay_mode" disabled />
-                  </el-form-item>
-                  <el-form-item label="App ID">
-                    <el-input v-model="paymentSettings.alipay_app_id" placeholder="请输入支付宝应用 App ID" clearable />
-                  </el-form-item>
-                  <el-form-item label="网关地址">
-                    <el-input
-                      v-model="paymentSettings.alipay_gateway"
-                      placeholder="https://openapi.alipay.com/gateway.do"
-                      clearable
-                    />
-                  </el-form-item>
-                  <el-form-item label="商户应用私钥 PEM">
-                    <el-input
-                      v-model="paymentSettings.alipay_merchant_private_key_pem"
-                      type="textarea"
-                      :rows="6"
-                      placeholder="-----BEGIN PRIVATE KEY-----"
-                    />
-                  </el-form-item>
-                  <el-form-item label="支付宝公钥 PEM">
-                    <el-input
-                      v-model="paymentSettings.alipay_public_key_pem"
-                      type="textarea"
-                      :rows="6"
-                      placeholder="-----BEGIN PUBLIC KEY-----"
-                    />
-                  </el-form-item>
-                  <div class="feature-hint" :class="{ 'warning-text': !paymentSettings.alipay.configured }">
-                    {{ paymentSettings.alipay.reason || '支付宝参数已完整，可用于创建缴租订单。' }}
-                  </div>
-                </section>
-              </div>
-
-              <div class="action-area ai-action-area">
-                <el-button type="primary" :loading="savingPaymentSettings" @click="savePaymentSettings">
-                  保存支付配置
-                </el-button>
-              </div>
-            </el-form>
-          </div>
-        </div>
-      </div>
-
-      <div class="system-grid-item">
-        <div class="card-box h-100 system-card">
-          <div class="card-header">
-            <el-icon class="icon"><Cpu /></el-icon>
-            <h3>AI 模式配置</h3>
-          </div>
-          <div class="card-content">
-            <div class="description">
-              为采购管理、维修记录、租户管理、自助入住和水电费的 “AI 输入” 选择使用本地 Ollama，或切换到 OpenAI 兼容 API。图片会直接交给当前本地模型识别；身份证专用识别继续使用阿里云 OCR。
-            </div>
-            <div class="ai-summary-row">
-              <el-tag type="info" effect="plain">当前模式：{{ aiProviderLabel }}</el-tag>
-              <el-tag type="success" effect="plain">当前模型：{{ aiCurrentModelLabel }}</el-tag>
-              <el-tag v-if="hasPendingAiChanges" type="warning" effect="plain">有未保存改动</el-tag>
-            </div>
-            <div v-if="aiSettings.updated_at" class="feature-hint ai-updated-at">
-              最近保存：{{ aiSettings.updated_at }}
-            </div>
-            <div v-if="aiTestResult" class="ai-test-result" :class="{ 'ai-test-result--ok': aiTestResult.ok, 'ai-test-result--error': !aiTestResult.ok }">
-              <div class="ai-test-result__head">
-                <el-tag :type="aiTestResult.ok ? 'success' : 'danger'" effect="dark">
-                  {{ aiTestResult.ok ? '连接正常' : '连接失败' }}
-                </el-tag>
-                <span class="ai-test-result__time">测试时间：{{ aiTestResult.tested_at || '-' }}</span>
-              </div>
-              <div class="ai-test-result__message">{{ aiTestResult.message }}</div>
-              <div v-if="aiTestResult.preview" class="ai-test-result__preview">返回预览：{{ aiTestResult.preview }}</div>
-              <div v-if="aiTestResult.provider === 'ollama' && Array.isArray(aiTestResult.available_models)" class="ai-test-result__preview">
-                本地模型：{{ aiTestResult.available_models.length ? aiTestResult.available_models.join('、') : '当前未发现模型' }}
-              </div>
-            </div>
-
-            <el-form label-position="top" class="ocr-settings-form">
-              <el-form-item label="AI 功能">
-                <el-switch
-                  v-model="aiSettings.enabled"
-                  :disabled="isAiSwitching"
-                  active-text="启用"
-                  inactive-text="停用"
-                  @change="toggleAiEnabled"
-                />
-              </el-form-item>
-              <el-form-item label="接入方式">
-                <el-radio-group v-model="aiSettings.provider" :disabled="isAiSwitching">
-                  <el-radio-button label="ollama">本地 Ollama</el-radio-button>
-                  <el-radio-button label="api">OpenAI 兼容 API</el-radio-button>
-                </el-radio-group>
-              </el-form-item>
-
-              <template v-if="aiSettings.provider === 'ollama'">
-                <el-form-item label="Ollama 服务地址">
-                  <el-input
-                    v-model="aiSettings.ollama_base_url"
-                    placeholder="http://127.0.0.1:11434"
-                    :disabled="isAiSwitching"
-                    clearable
-                  />
-                </el-form-item>
-                <el-form-item label="本地模型">
-                  <el-select
-                    v-model="aiSettings.procurement_model"
-                    style="width: 100%"
-                    :disabled="isAiSwitching || !aiSettings.enabled"
-                  >
-                    <el-option
-                      v-for="model in aiSettings.available_procurement_models"
-                      :key="model"
-                      :label="model"
-                      :value="model"
-                    />
-                  </el-select>
-                </el-form-item>
-                <div class="feature-hint">
-                  图片识别请优先选择支持视觉的本地模型，例如 `qwen2.5vl:3b`。Ollama 和后端同机时使用 http://127.0.0.1:11434；远程部署时填写 http://另一台机器IP:11434。
+          <div class="maintenance-grid">
+            <div class="system-grid-item">
+              <div class="card-box h-100 system-card">
+                <div class="card-header">
+                  <el-icon class="icon"><Download /></el-icon>
+                  <h3>数据导出</h3>
                 </div>
-                <div v-if="!isLocalOllamaEndpoint" class="feature-hint warning-text">
-                  当前是远程 Ollama 地址，本系统无法关闭远程机器上的模型，只能切换当前调用的模型和地址。
+                <div class="card-content">
+                  <div class="description">
+                    导出系统完整数据，包含：
+                    <ul>
+                      <li>数据库所有记录（房间、租户、合同等）</li>
+                      <li>系统配置文件（通知设置等）</li>
+                      <li>所有上传的文件（身份证图片、维修图片等）</li>
+                    </ul>
+                  </div>
+                  <div class="action-area">
+                    <el-button type="primary" size="large" :loading="exporting" @click="handleExport">
+                      <el-icon class="el-icon--left"><Download /></el-icon>
+                      立即导出备份 (.zip)
+                    </el-button>
+                  </div>
                 </div>
-              </template>
+              </div>
+            </div>
 
-              <template v-else>
-                <el-form-item label="API Base URL">
-                  <el-input
-                    v-model="aiSettings.base_url"
-                    placeholder="https://api.deepseek.com"
-                    :disabled="isAiSwitching"
-                    clearable
-                  />
-                </el-form-item>
-                <el-form-item label="API 模型">
-                  <div class="ai-model-picker">
-                    <el-select
-                      v-model="aiSettings.model"
-                      filterable
-                      allow-create
-                      default-first-option
-                      clearable
-                      style="width: 100%"
-                      placeholder="先读取模型列表，或直接手动输入模型名"
-                      :disabled="isAiSwitching || !aiSettings.enabled"
-                      @change="handleApiModelChange"
+            <div class="system-grid-item">
+              <div class="card-box h-100 system-card import-card">
+                <div class="card-header">
+                  <el-icon class="icon"><Upload /></el-icon>
+                  <h3>数据导入</h3>
+                </div>
+                <div class="card-content">
+                  <div class="description">
+                    从备份文件恢复系统数据。
+                    <span class="warning-text">注意：导入将覆盖当前系统的所有数据！请谨慎操作。</span>
+                  </div>
+
+                  <div class="upload-area">
+                    <el-upload
+                      class="upload-demo"
+                      drag
+                      action="#"
+                      :auto-upload="false"
+                      :on-change="handleFileChange"
+                      :show-file-list="false"
+                      accept=".zip"
                     >
-                      <el-option
-                        v-for="item in availableApiModels"
-                        :key="item.id"
-                        :label="item.id"
-                        :value="item.id"
-                      >
-                        <div class="ai-model-option">
-                          <span>{{ item.id }}</span>
-                          <span class="ai-model-option__owner">{{ item.owned_by || 'api' }}</span>
+                      <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+                      <div class="el-upload__text">
+                        将备份文件拖到此处，或 <em>点击上传</em>
+                      </div>
+                      <template #tip>
+                        <div class="el-upload__tip">
+                          只能上传 .zip 格式的备份文件
                         </div>
-                      </el-option>
-                    </el-select>
-                    <el-button :loading="loadingApiModels" :disabled="isAiSwitching" @click="fetchApiModels">
-                      读取模型列表
-                    </el-button>
+                      </template>
+                    </el-upload>
+
+                    <div v-if="selectedFile" class="selected-file">
+                      <el-icon><Document /></el-icon>
+                      <span>{{ selectedFile.name }}</span>
+                      <el-button link type="danger" @click="selectedFile = null; importUploadProgress = 0">移除</el-button>
+                    </div>
+
+                    <div v-if="selectedFile" class="action-area">
+                      <el-button type="warning" size="large" :loading="importing" @click="handleImport">
+                        <el-icon class="el-icon--left"><Refresh /></el-icon>
+                        立即导入备份
+                      </el-button>
+                    </div>
+
+                    <div v-if="importing || importUploadProgress > 0" class="upload-progress-wrap">
+                      <el-progress :percentage="importUploadProgress" :stroke-width="8" />
+                    </div>
                   </div>
-                </el-form-item>
-                <el-form-item label="API Key">
-                  <el-input
-                    v-model="aiSettings.api_key"
-                    type="password"
-                    show-password
-                    placeholder="请输入 API Key"
-                    :disabled="isAiSwitching || !aiSettings.enabled"
-                    clearable
-                  />
-                </el-form-item>
-                <div class="feature-hint">
-                  这里适合填写 DeepSeek 这类 OpenAI 兼容 API。默认会按 `Base URL + /chat/completions` 发起请求。
+
                 </div>
-                <div v-if="apiModelsMeta.message" class="feature-hint">
-                  {{ apiModelsMeta.message }}
+              </div>
+            </div>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane name="snapshots" label="系统快照">
+          <template #label>
+            <span class="custom-tabs-label">
+              <el-icon><Document /></el-icon>
+              <span>系统快照</span>
+            </span>
+          </template>
+
+          <div class="tab-pane-stack">
+            <div class="system-grid-item">
+              <div class="card-box h-100 system-card">
+                <div class="card-header">
+                  <el-icon class="icon"><Document /></el-icon>
+                  <h3>系统快照</h3>
                 </div>
-              </template>
-              <div class="ocr-status-row">
-                <el-tag :type="aiSwitchStatusTagType">
-                  {{ aiSwitchStatusLabel }}
-                </el-tag>
-                <span class="ocr-status-text">
-                  {{ aiStatusText }}
-                </span>
-              </div>
-              <div v-if="aiSwitchStatus.status === 'running'" class="upload-progress-wrap">
-                <el-progress :percentage="aiSwitchProgress" :indeterminate="true" :stroke-width="8" />
-              </div>
-              <div v-if="aiSwitchStatus.error" class="feature-hint warning-text">{{ aiSwitchStatus.error }}</div>
+                <div class="card-content">
+                  <div class="description">
+                    快照统一存放在专用文件夹，支持手动创建、导入前自动留档，以及按版本回滚。
+                  </div>
+                  <div class="rollback-box rollback-box--embedded">
+                    <div class="rollback-header">
+                      <div>
+                        <div>快照列表</div>
+                        <div class="rollback-subtitle">建议在大改数据前先手动创建一份快照，方便后续快速回滚。</div>
+                      </div>
+                      <el-tag :type="snapshots.length ? 'warning' : 'info'" size="small">
+                        {{ snapshots.length ? `${snapshots.length} 份快照` : '暂无快照' }}
+                      </el-tag>
+                    </div>
+                    <div class="action-area rollback-action">
+                      <el-button
+                        type="primary"
+                        plain
+                        :disabled="isSnapshotTaskRunning || importing"
+                        :loading="isCreatingSnapshot"
+                        @click="handleCreateSnapshot"
+                      >
+                        <el-icon class="el-icon--left"><Document /></el-icon>
+                        立即创建快照
+                      </el-button>
+                      <el-button
+                        type="danger"
+                        plain
+                        :disabled="!selectedSnapshot || isSnapshotTaskRunning || importing"
+                        :loading="isRestoringSnapshot"
+                        @click="handleRollbackImport"
+                      >
+                        <el-icon class="el-icon--left"><Refresh /></el-icon>
+                        一键回滚
+                      </el-button>
+                    </div>
 
-              <div class="action-area ai-action-area">
-                <el-button type="primary" :loading="savingAiSettings" @click="saveAiSettings">
-                  保存配置
-                </el-button>
-                <el-button :loading="testingAiSettings" :disabled="savingAiSettings || isAiSwitching" @click="testAiSettings">
-                  测试连接
-                </el-button>
-              </div>
-              <div class="feature-hint">
-                保存配置会长期保留当前接入方式和参数；切换模型时现在会自动保存，选择本地模型后也会直接发起切换。
-              </div>
-            </el-form>
-          </div>
-        </div>
-      </div>
+                    <div v-if="latestSnapshot" class="rollback-meta">
+                      <div>最新快照：{{ latestSnapshot.created_at || '未知时间' }}</div>
+                      <div>来源：{{ snapshotTypeLabel(latestSnapshot) }} · {{ latestSnapshot.source_name || '未命名快照' }}</div>
+                      <div>大小：{{ latestSnapshot.size_text || '未知' }}</div>
+                    </div>
 
-      <div class="system-grid-item">
-        <div class="card-box h-100 system-card">
-          <div class="card-header">
-            <el-icon class="icon"><Connection /></el-icon>
-            <h3>登录会话管理</h3>
-          </div>
-          <div class="card-content">
-            <div class="description">
-              可以在这里决定是否允许多端同时登录，并查看当前在线设备。切到单点登录后，下一次新登录会自动让旧设备失效；如需立即下线某台设备，也可以直接手动执行。
+                    <div v-if="snapshotTaskStatus.status !== 'idle'" class="snapshot-task-box">
+                      <div class="snapshot-task-head">
+                        <el-tag :type="snapshotTaskStatusTagType" size="small">{{ snapshotTaskStatusLabel }}</el-tag>
+                        <span class="snapshot-task-text">{{ snapshotTaskStatus.message || '正在处理快照任务' }}</span>
+                      </div>
+                      <div v-if="isSnapshotTaskRunning" class="upload-progress-wrap">
+                        <el-progress :percentage="snapshotTaskStatus.progress || 0" :stroke-width="8" />
+                      </div>
+                      <div v-if="snapshotTaskStatus.error" class="feature-hint warning-text">{{ snapshotTaskStatus.error }}</div>
+                    </div>
+
+                    <div v-if="snapshots.length" class="snapshot-list">
+                      <div
+                        v-for="item in snapshots"
+                        :key="item.id"
+                        class="snapshot-row"
+                        :class="[
+                          { selected: selectedSnapshotId === item.id },
+                          `snapshot-row-${snapshotTypeClassName(item)}`
+                        ]"
+                        @click="selectedSnapshotId = item.id"
+                      >
+                        <span class="snapshot-radio" :class="{ checked: selectedSnapshotId === item.id }"></span>
+                        <span class="snapshot-row-main">
+                          <span class="snapshot-row-title">
+                            <el-tag size="small" :type="snapshotTypeTagType(item)" effect="plain">{{ snapshotTypeLabel(item) }}</el-tag>
+                            <span class="snapshot-title-text">{{ item.source_name || '未命名快照' }}</span>
+                          </span>
+                          <span class="snapshot-row-subtitle">{{ item.created_at || '未知时间' }} · {{ item.size_text || '未知大小' }}</span>
+                        </span>
+                        <span class="snapshot-row-tools">
+                          <el-button link type="danger" :disabled="isSnapshotTaskRunning || importing" @click.stop="handleDeleteSnapshot(item)">删除</el-button>
+                        </span>
+                      </div>
+                    </div>
+                    <div v-else class="feature-hint">
+                      还没有可用快照。你可以先手动创建一份，后续每次导入前系统也会自动新增一份导入前快照。
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
+          </div>
+        </el-tab-pane>
 
-            <div class="ai-summary-row">
-              <el-tag type="info" effect="plain">当前策略：{{ sessionModeLabel }}</el-tag>
-              <el-tag type="success" effect="plain">在线会话：{{ sessionSettings.active_count }}</el-tag>
-              <el-tag type="danger" effect="plain">受限设备：{{ sessionSettings.restricted_count }}</el-tag>
-              <el-tag type="warning" effect="plain">Token 有效期：{{ sessionSettings.token_ttl_minutes }} 分钟</el-tag>
-            </div>
+        <el-tab-pane name="room_features" label="房间设施配置">
+          <template #label>
+            <span class="custom-tabs-label">
+              <el-icon><Setting /></el-icon>
+              <span>房间设施配置</span>
+            </span>
+          </template>
 
-            <el-form label-position="top" class="ocr-settings-form">
-              <el-form-item label="登录策略">
-                <el-radio-group v-model="sessionSettings.login_mode">
-                  <el-radio-button label="multi">允许多端登录</el-radio-button>
-                  <el-radio-button label="single">单点登录</el-radio-button>
-                </el-radio-group>
-              </el-form-item>
-              <div class="feature-hint">
-                单点登录模式下，新设备登录后旧设备会在下一次请求时自动失效；当前已经在线的设备不会因为保存这一项立即被踢下线。
-              </div>
-              <el-form-item label="Token 默认有效时间">
-                <el-input-number
-                  v-model="sessionSettings.token_ttl_minutes"
-                  :min="5"
-                  :max="10080"
-                  :step="5"
-                  style="width: 100%"
-                />
-              </el-form-item>
-              <div class="feature-hint">
-                单位是分钟，最短 5 分钟，最长 7 天。新的登录和后续活跃续期都会按这里的时长重新计算。
-              </div>
+          <div class="tab-pane-stack">
+            <div class="system-grid-item">
+              <div class="card-box h-100 system-card">
+                <div class="card-header">
+                  <el-icon class="icon"><Setting /></el-icon>
+                  <h3>房间设施配置</h3>
+                </div>
+                <div class="card-content">
+                  <div class="description">
+                    在这里维护房间管理页可勾选的设施项，例如冰箱、热水器、沙发。保存后房间管理页会自动使用最新选项。
+                  </div>
 
-              <div class="action-area ai-action-area">
-                <el-button type="primary" :loading="savingSessionSettings" @click="saveSessionSettings">
-                  保存会话配置
-                </el-button>
-                <el-button :loading="loadingSessions" @click="refreshSessions">
-                  刷新会话列表
-                </el-button>
-              </div>
-            </el-form>
+                  <div class="feature-editor">
+                    <div class="feature-input-wrap">
+                      <el-input
+                        v-model="newRoomFeature"
+                        placeholder="输入新设施项，例如：沙发"
+                        @keyup.enter="addRoomFeature"
+                      />
+                      <el-button type="primary" :loading="savingRoomFeatures" @click="addRoomFeature">添加设施项</el-button>
+                    </div>
+                    <div class="feature-hint">新增或删除后会自动保存，不需要再额外点保存按钮。</div>
+                  </div>
 
-            <div v-if="sessionItems.length" class="session-list">
-              <article
-                v-for="item in sessionItems"
-                :key="item.session_id"
-                class="session-card"
-                :class="{
-                  'session-card--current': item.is_current,
-                  'session-card--offline': item.status !== 'active'
-                }"
-              >
-                <div class="session-card__head">
-                  <div class="session-card__title">
-                    <strong>{{ item.device_label || '未知设备' }}</strong>
-                    <el-tag v-if="item.is_current" type="primary" effect="dark" size="small">当前设备</el-tag>
-                    <el-tag :type="sessionStatusTagType(item.status)" effect="plain" size="small">
-                      {{ sessionStatusLabel(item.status) }}
+                  <div class="feature-tags">
+                    <el-tag
+                      v-for="item in roomFeatureOptions"
+                      :key="item"
+                      closable
+                      @close="removeRoomFeature(item)"
+                    >
+                      {{ item }}
                     </el-tag>
-                    <el-tag v-if="item.login_restricted" type="danger" effect="dark" size="small">已限制登录</el-tag>
-                  </div>
-                  <div class="session-card__actions">
-                    <el-button
-                      v-if="item.status === 'active' && !item.is_current"
-                      link
-                      type="danger"
-                      :loading="sessionActionSessionId === item.session_id && sessionActionType === 'revoke'"
-                      @click="revokeUserSession(item)"
-                    >
-                      手动下线
-                    </el-button>
-                    <el-button
-                      v-if="!item.login_restricted && !item.is_current"
-                      link
-                      type="warning"
-                      :loading="sessionActionSessionId === item.session_id && sessionActionType === 'restrict'"
-                      @click="restrictSessionDevice(item)"
-                    >
-                      下线并限制登录
-                    </el-button>
-                    <el-button
-                      v-if="item.login_restricted"
-                      link
-                      type="primary"
-                      :loading="sessionActionSessionId === item.session_id && sessionActionType === 'release'"
-                      @click="releaseSessionDevice(item)"
-                    >
-                      解除限制登录
-                    </el-button>
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+        </el-tab-pane>
 
-                <div class="session-card__meta">
-                  <span>账号：{{ item.full_name || item.username }}</span>
-                  <span>IP：{{ item.ip_address || '-' }}</span>
-                  <span>登录时间：{{ item.created_at || '-' }}</span>
-                  <span>最近活动：{{ item.last_seen_at || '-' }}</span>
+        <el-tab-pane name="utility_accounts" label="水电费账户预设">
+          <template #label>
+            <span class="custom-tabs-label">
+              <el-icon><Setting /></el-icon>
+              <span>水电费账户预设</span>
+            </span>
+          </template>
+
+          <div class="tab-pane-stack">
+            <div class="system-grid-item">
+              <div class="card-box h-100 system-card">
+                <div class="card-header">
+                  <el-icon class="icon"><Setting /></el-icon>
+                  <h3>水电费账户预设</h3>
                 </div>
+                <div class="card-content">
+                  <div class="description">
+                    在这里预设水费和电费的常用账户。保存后，AI 识图会优先按账户名称自动匹配。
+                  </div>
 
-                <div v-if="item.revoked_reason" class="feature-hint">
-                  原因：{{ item.revoked_reason }}
+                  <div class="utility-account-grid">
+                    <div class="utility-account-group">
+                      <div class="feature-editor">
+                        <div class="feature-group-title">电费账户</div>
+                        <div class="feature-input-wrap">
+                          <el-input
+                            v-model="newUtilityAccount.electricity"
+                            placeholder="输入电费账户，例如：191-A"
+                            @keyup.enter="addUtilityAccount('electricity')"
+                          />
+                          <el-button type="primary" :loading="savingUtilityAccounts" @click="addUtilityAccount('electricity')">添加账户</el-button>
+                        </div>
+                      </div>
+                      <div class="utility-account-list">
+                        <div
+                          v-for="account in utilityAccountOptions.electricity"
+                          :key="`electricity-${account}`"
+                          class="utility-account-card"
+                        >
+                          <div class="utility-account-card__header">
+                            <strong>{{ account }}</strong>
+                            <el-button link type="danger" :disabled="savingUtilityAccounts" @click="removeUtilityAccount('electricity', account)">删除账户</el-button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="utility-account-group">
+                      <div class="feature-editor">
+                        <div class="feature-group-title">水费账户</div>
+                        <div class="feature-input-wrap">
+                          <el-input
+                            v-model="newUtilityAccount.water"
+                            placeholder="输入水费账户，例如：361-A"
+                            @keyup.enter="addUtilityAccount('water')"
+                          />
+                          <el-button type="primary" :loading="savingUtilityAccounts" @click="addUtilityAccount('water')">添加账户</el-button>
+                        </div>
+                      </div>
+                      <div class="utility-account-list">
+                        <div
+                          v-for="account in utilityAccountOptions.water"
+                          :key="`water-${account}`"
+                          class="utility-account-card"
+                        >
+                          <div class="utility-account-card__header">
+                            <strong>{{ account }}</strong>
+                            <el-button link type="danger" :disabled="savingUtilityAccounts" @click="removeUtilityAccount('water', account)">删除账户</el-button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="feature-hint">新增或删除后会自动保存，不需要再额外点保存按钮。</div>
                 </div>
-                <div v-if="item.login_restricted && item.restriction_reason" class="feature-hint warning-text">
-                  限制说明：{{ item.restriction_reason }}
+              </div>
+            </div>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane name="ocr" label="阿里云 OCR 配置">
+          <template #label>
+            <span class="custom-tabs-label">
+              <el-icon><Key /></el-icon>
+              <span>阿里云 OCR 配置</span>
+            </span>
+          </template>
+
+          <div class="tab-pane-stack">
+            <div class="system-grid-item">
+              <div class="card-box h-100 system-card">
+                <div class="card-header">
+                  <el-icon class="icon"><Key /></el-icon>
+                  <h3>阿里云 OCR 配置</h3>
                 </div>
-              </article>
-            </div>
-            <div v-else class="feature-hint">当前还没有可显示的会话记录。</div>
-          </div>
-        </div>
-      </div>
+                <div class="card-content">
+                  <div class="description">
+                    在这里填写阿里云 OCR 的 AccessKey，并设置身份证识别总次数上限。达到上限后，自助入住页的身份证识别按钮会自动禁用。
+                  </div>
 
-      <div class="system-grid-item">
-        <div class="card-box h-100 system-card">
-          <div class="card-header">
-            <el-icon class="icon"><Key /></el-icon>
-            <h3>阿里云 OCR 配置</h3>
-          </div>
-          <div class="card-content">
-            <div class="description">
-              在这里填写阿里云 OCR 的 AccessKey，并设置身份证识别总次数上限。达到上限后，自助入住页的身份证识别按钮会自动禁用。
-            </div>
+                  <el-form label-position="top" class="ocr-settings-form">
+                    <el-form-item label="AccessKey ID">
+                      <el-input v-model="ocrSettings.access_key_id" placeholder="请输入 ALIBABA_CLOUD_ACCESS_KEY_ID" />
+                    </el-form-item>
+                    <el-form-item label="AccessKey Secret">
+                      <el-input
+                        v-model="ocrSettings.access_key_secret"
+                        type="password"
+                        show-password
+                        placeholder="请输入 ALIBABA_CLOUD_ACCESS_KEY_SECRET"
+                      />
+                    </el-form-item>
+                    <el-form-item label="OCR Endpoint">
+                      <el-input v-model="ocrSettings.endpoint" placeholder="默认：ocr-api.cn-hangzhou.aliyuncs.com" />
+                    </el-form-item>
+                    <el-form-item label="身份证识别总次数上限">
+                      <el-input-number v-model="ocrSettings.max_recognitions" :min="0" :step="1" style="width: 100%" />
+                    </el-form-item>
+                    <div class="feature-hint">填 `0` 表示不限制次数；比如填 `10`，累计识别 10 次后按钮会自动禁用。</div>
 
-            <el-form label-position="top" class="ocr-settings-form">
-              <el-form-item label="AccessKey ID">
-                <el-input v-model="ocrSettings.access_key_id" placeholder="请输入 ALIBABA_CLOUD_ACCESS_KEY_ID" />
-              </el-form-item>
-              <el-form-item label="AccessKey Secret">
-                <el-input
-                  v-model="ocrSettings.access_key_secret"
-                  type="password"
-                  show-password
-                  placeholder="请输入 ALIBABA_CLOUD_ACCESS_KEY_SECRET"
-                />
-              </el-form-item>
-              <el-form-item label="OCR Endpoint">
-                <el-input v-model="ocrSettings.endpoint" placeholder="默认：ocr-api.cn-hangzhou.aliyuncs.com" />
-              </el-form-item>
-              <el-form-item label="身份证识别总次数上限">
-                <el-input-number v-model="ocrSettings.max_recognitions" :min="0" :step="1" style="width: 100%" />
-              </el-form-item>
-              <div class="feature-hint">填 `0` 表示不限制次数；比如填 `10`，累计识别 10 次后按钮会自动禁用。</div>
+                    <div class="ocr-status-row">
+                      <el-tag :type="ocrSettings.enabled ? 'success' : 'warning'">
+                        {{ ocrSettings.enabled ? '当前可用' : '当前不可用' }}
+                      </el-tag>
+                      <span class="ocr-status-text">
+                        已使用 {{ ocrSettings.used_count || 0 }} 次
+                        <template v-if="ocrSettings.max_recognitions > 0">
+                          ，剩余 {{ ocrSettings.remaining_count ?? 0 }} / {{ ocrSettings.max_recognitions }} 次
+                        </template>
+                      </span>
+                    </div>
+                    <div v-if="ocrSettings.reason" class="feature-hint">{{ ocrSettings.reason }}</div>
 
-              <div class="ocr-status-row">
-                <el-tag :type="ocrSettings.enabled ? 'success' : 'warning'">
-                  {{ ocrSettings.enabled ? '当前可用' : '当前不可用' }}
-                </el-tag>
-                <span class="ocr-status-text">
-                  已使用 {{ ocrSettings.used_count || 0 }} 次
-                  <template v-if="ocrSettings.max_recognitions > 0">
-                    ，剩余 {{ ocrSettings.remaining_count ?? 0 }} / {{ ocrSettings.max_recognitions }} 次
-                  </template>
-                </span>
+                    <div class="action-area">
+                      <el-button type="primary" :loading="savingOcrSettings" @click="saveOcrSettings">
+                        保存 OCR 配置
+                      </el-button>
+                    </div>
+                  </el-form>
+                </div>
               </div>
-              <div v-if="ocrSettings.reason" class="feature-hint">{{ ocrSettings.reason }}</div>
-
-              <div class="action-area">
-                <el-button type="primary" :loading="savingOcrSettings" @click="saveOcrSettings">
-                  保存 OCR 配置
-                </el-button>
-              </div>
-            </el-form>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="system-danger-section">
-      <div class="system-grid-item">
-        <div class="card-box danger-zone system-card danger-card">
-          <div class="card-header">
-            <el-icon class="icon danger"><Delete /></el-icon>
-            <h3>危险区域</h3>
-          </div>
-          <div class="card-content">
-            <div class="danger-row">
-              <div class="danger-info">
-                <h4>重置系统数据</h4>
-                <p>将删除所有房间、租户、合同、维修记录及上传文件，仅保留管理员账号。此操作不可撤销！</p>
-              </div>
-              <el-button type="danger" @click="handleReset" :loading="resetting">
-                重置系统
-              </el-button>
-            </div>
-            
-            <div class="danger-row danger-row-divider">
-              <div class="danger-info">
-                <h4>生成模拟演示数据</h4>
-                <p>在清空状态下，自动生成一套包含房间、租户、合同和维修记录的演示数据。</p>
-              </div>
-              <el-button type="success" @click="handleSeed" :loading="seeding">
-                <el-icon class="el-icon--left"><MagicStick /></el-icon>
-                生成数据
-              </el-button>
             </div>
           </div>
-        </div>
-      </div>
+        </el-tab-pane>
+
+        <el-tab-pane name="payment" label="支付收款配置">
+          <template #label>
+            <span class="custom-tabs-label">
+              <el-icon><Key /></el-icon>
+              <span>支付收款配置</span>
+            </span>
+          </template>
+
+          <div class="tab-pane-stack">
+            <div class="system-grid-item">
+              <div class="card-box h-100 system-card">
+                <div class="card-header">
+                  <el-icon class="icon"><Key /></el-icon>
+                  <h3>支付收款配置</h3>
+                </div>
+                <div class="card-content">
+                  <div class="description">
+                    这里用于接入房间缴租页的微信支付和支付宝商户参数。租客扫码进入房间缴租页后，系统会按这里的配置创建正式支付订单，并在支付回调成功后自动更新该房间的收租台账。
+                  </div>
+
+                  <div class="ai-summary-row">
+                    <el-tag :type="paymentSettings.enabled ? 'success' : 'info'" effect="plain">
+                      总开关：{{ paymentSettings.enabled ? '已启用' : '未启用' }}
+                    </el-tag>
+                    <el-tag :type="paymentSettings.wechat.configured ? 'success' : 'warning'" effect="plain">
+                      微信：{{ paymentSettings.wechat.configured ? '已配置' : '待完善' }}
+                    </el-tag>
+                    <el-tag :type="paymentSettings.alipay.configured ? 'success' : 'warning'" effect="plain">
+                      支付宝：{{ paymentSettings.alipay.configured ? '已配置' : '待完善' }}
+                    </el-tag>
+                    <el-tag :type="paymentSettings.notify_base_url ? 'success' : 'warning'" effect="plain">
+                      回调地址：{{ paymentSettings.notify_base_url ? '已填写' : '未填写' }}
+                    </el-tag>
+                  </div>
+
+                  <div v-if="paymentSettings.updated_at" class="feature-hint ai-updated-at">
+                    最近保存：{{ paymentSettings.updated_at }}
+                  </div>
+
+                  <el-form label-position="top" class="ocr-settings-form">
+                    <el-form-item label="支付功能总开关">
+                      <el-switch
+                        v-model="paymentSettings.enabled"
+                        active-text="启用"
+                        inactive-text="停用"
+                      />
+                    </el-form-item>
+
+                    <el-form-item label="后端可访问的回调基础地址">
+                      <el-input
+                        v-model="paymentSettings.notify_base_url"
+                        placeholder="例如：https://your-domain.com"
+                        clearable
+                      />
+                    </el-form-item>
+                    <div class="feature-hint">
+                      这里必须填写商户平台最终能回调到的后端公网地址，保存后系统会自动拼出微信和支付宝的回调路径。
+                    </div>
+
+                    <div class="payment-config-grid">
+                      <section class="payment-channel-card">
+                        <div class="payment-channel-card__head">
+                          <div>
+                            <div class="feature-group-title">微信支付</div>
+                            <div class="feature-hint">
+                              当前仅支持 `Native` 收款码模式，适合在房间缴租页生成一笔正式微信支付码。
+                            </div>
+                          </div>
+                          <el-tag :type="paymentSettings.wechat.enabled ? 'success' : 'info'" effect="dark">
+                            {{ paymentSettings.wechat.enabled ? '已启用' : '未启用' }}
+                          </el-tag>
+                        </div>
+
+                        <el-form-item label="微信渠道开关">
+                          <el-switch
+                            v-model="paymentSettings.wechat_enabled"
+                            active-text="启用"
+                            inactive-text="停用"
+                          />
+                        </el-form-item>
+                        <el-form-item label="支付模式">
+                          <el-input v-model="paymentSettings.wechat_mode" disabled />
+                        </el-form-item>
+                        <el-form-item label="AppID">
+                          <el-input v-model="paymentSettings.wechat_appid" placeholder="请输入微信支付 AppID" clearable />
+                        </el-form-item>
+                        <el-form-item label="商户号 MchID">
+                          <el-input v-model="paymentSettings.wechat_mchid" placeholder="请输入微信商户号" clearable />
+                        </el-form-item>
+                        <el-form-item label="API v3 Key">
+                          <el-input
+                            v-model="paymentSettings.wechat_api_v3_key"
+                            type="password"
+                            show-password
+                            placeholder="请输入 32 位 API v3 Key"
+                            clearable
+                          />
+                        </el-form-item>
+                        <el-form-item label="商户私钥 PEM">
+                          <el-input
+                            v-model="paymentSettings.wechat_private_key_pem"
+                            type="textarea"
+                            :rows="6"
+                            placeholder="-----BEGIN PRIVATE KEY-----"
+                          />
+                        </el-form-item>
+                        <el-form-item label="商户证书序列号">
+                          <el-input v-model="paymentSettings.wechat_serial_no" placeholder="请输入商户证书序列号" clearable />
+                        </el-form-item>
+                        <el-form-item label="微信支付平台公钥 PEM">
+                          <el-input
+                            v-model="paymentSettings.wechat_platform_public_key_pem"
+                            type="textarea"
+                            :rows="6"
+                            placeholder="-----BEGIN PUBLIC KEY-----"
+                          />
+                        </el-form-item>
+                        <div class="feature-hint" :class="{ 'warning-text': !paymentSettings.wechat.configured }">
+                          {{ paymentSettings.wechat.reason || '微信支付参数已完整，可用于创建缴租订单。' }}
+                        </div>
+                      </section>
+
+                      <section class="payment-channel-card">
+                        <div class="payment-channel-card__head">
+                          <div>
+                            <div class="feature-group-title">支付宝</div>
+                            <div class="feature-hint">
+                              当前使用 `precreate` 预下单模式，系统会生成一笔正式支付宝支付码并等待异步回调入账。
+                            </div>
+                          </div>
+                          <el-tag :type="paymentSettings.alipay.enabled ? 'success' : 'info'" effect="dark">
+                            {{ paymentSettings.alipay.enabled ? '已启用' : '未启用' }}
+                          </el-tag>
+                        </div>
+
+                        <el-form-item label="支付宝渠道开关">
+                          <el-switch
+                            v-model="paymentSettings.alipay_enabled"
+                            active-text="启用"
+                            inactive-text="停用"
+                          />
+                        </el-form-item>
+                        <el-form-item label="支付模式">
+                          <el-input v-model="paymentSettings.alipay_mode" disabled />
+                        </el-form-item>
+                        <el-form-item label="App ID">
+                          <el-input v-model="paymentSettings.alipay_app_id" placeholder="请输入支付宝应用 App ID" clearable />
+                        </el-form-item>
+                        <el-form-item label="网关地址">
+                          <el-input
+                            v-model="paymentSettings.alipay_gateway"
+                            placeholder="https://openapi.alipay.com/gateway.do"
+                            clearable
+                          />
+                        </el-form-item>
+                        <el-form-item label="商户应用私钥 PEM">
+                          <el-input
+                            v-model="paymentSettings.alipay_merchant_private_key_pem"
+                            type="textarea"
+                            :rows="6"
+                            placeholder="-----BEGIN PRIVATE KEY-----"
+                          />
+                        </el-form-item>
+                        <el-form-item label="支付宝公钥 PEM">
+                          <el-input
+                            v-model="paymentSettings.alipay_public_key_pem"
+                            type="textarea"
+                            :rows="6"
+                            placeholder="-----BEGIN PUBLIC KEY-----"
+                          />
+                        </el-form-item>
+                        <div class="feature-hint" :class="{ 'warning-text': !paymentSettings.alipay.configured }">
+                          {{ paymentSettings.alipay.reason || '支付宝参数已完整，可用于创建缴租订单。' }}
+                        </div>
+                      </section>
+                    </div>
+
+                    <div class="action-area ai-action-area">
+                      <el-button type="primary" :loading="savingPaymentSettings" @click="savePaymentSettings">
+                        保存支付配置
+                      </el-button>
+                    </div>
+                  </el-form>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane name="ai" label="AI 模式配置">
+          <template #label>
+            <span class="custom-tabs-label">
+              <el-icon><Cpu /></el-icon>
+              <span>AI 模式配置</span>
+            </span>
+          </template>
+
+          <div class="tab-pane-stack">
+            <div class="system-grid-item">
+              <div class="card-box h-100 system-card">
+                <div class="card-header">
+                  <el-icon class="icon"><Cpu /></el-icon>
+                  <h3>AI 模式配置</h3>
+                </div>
+                <div class="card-content">
+                  <div class="description">
+                    为采购管理、维修记录、租户管理、自助入住和水电费的 “AI 输入” 选择使用本地 Ollama，或切换到 OpenAI 兼容 API。图片会直接交给当前本地模型识别；身份证专用识别继续使用阿里云 OCR。
+                  </div>
+                  <div class="ai-summary-row">
+                    <el-tag v-if="aiSettings.enabled" type="info" effect="plain">当前模式：{{ aiProviderLabel }}</el-tag>
+                    <el-tag v-if="aiSettings.enabled" type="success" effect="plain">当前模型：{{ aiCurrentModelLabel }}</el-tag>
+                    <el-tag v-else type="info" effect="plain">AI 已停用</el-tag>
+                    <el-tag v-if="hasPendingAiChanges" type="warning" effect="plain">有未保存改动</el-tag>
+                  </div>
+                  <div v-if="aiSettings.updated_at" class="feature-hint ai-updated-at">
+                    最近保存：{{ aiSettings.updated_at }}
+                  </div>
+                  <div v-if="aiSettings.enabled && aiTestResult" class="ai-test-result" :class="{ 'ai-test-result--ok': aiTestResult.ok, 'ai-test-result--error': !aiTestResult.ok }">
+                    <div class="ai-test-result__head">
+                      <el-tag :type="aiTestResult.ok ? 'success' : 'danger'" effect="dark">
+                        {{ aiTestResult.ok ? '连接正常' : '连接失败' }}
+                      </el-tag>
+                      <span class="ai-test-result__time">测试时间：{{ aiTestResult.tested_at || '-' }}</span>
+                    </div>
+                    <div class="ai-test-result__message">{{ aiTestResult.message }}</div>
+                    <div v-if="aiTestResult.preview" class="ai-test-result__preview">返回预览：{{ aiTestResult.preview }}</div>
+                    <div v-if="aiTestResult.provider === 'ollama' && Array.isArray(aiTestResult.available_models)" class="ai-test-result__preview">
+                      本地模型：{{ aiTestResult.available_models.length ? aiTestResult.available_models.join('、') : '当前未发现模型' }}
+                    </div>
+                  </div>
+
+                  <el-form label-position="top" class="ocr-settings-form">
+                    <el-form-item label="AI 功能">
+                      <el-switch
+                        v-model="aiSettings.enabled"
+                        :disabled="isAiSwitching"
+                        active-text="启用"
+                        inactive-text="停用"
+                        @change="toggleAiEnabled"
+                      />
+                    </el-form-item>
+                    <template v-if="aiSettings.enabled">
+                      <el-form-item label="接入方式">
+                        <el-radio-group v-model="aiSettings.provider" :disabled="isAiSwitching">
+                          <el-radio-button label="ollama">本地 Ollama</el-radio-button>
+                          <el-radio-button label="api">OpenAI 兼容 API</el-radio-button>
+                        </el-radio-group>
+                      </el-form-item>
+
+                      <template v-if="aiSettings.provider === 'ollama'">
+                        <el-form-item label="Ollama 服务地址">
+                          <el-input
+                            v-model="aiSettings.ollama_base_url"
+                            placeholder="http://127.0.0.1:11434"
+                            :disabled="isAiSwitching"
+                            clearable
+                          />
+                        </el-form-item>
+                        <el-form-item label="本地模型">
+                          <el-select
+                            v-model="aiSettings.procurement_model"
+                            style="width: 100%"
+                            :disabled="isAiSwitching || !aiSettings.enabled"
+                          >
+                            <el-option
+                              v-for="model in aiSettings.available_procurement_models"
+                              :key="model"
+                              :label="model"
+                              :value="model"
+                            />
+                          </el-select>
+                        </el-form-item>
+                        <div class="feature-hint">
+                          图片识别请优先选择支持视觉的本地模型，例如 `qwen2.5vl:3b`。Ollama 和后端同机时使用 http://127.0.0.1:11434；远程部署时填写 http://另一台机器IP:11434。
+                        </div>
+                        <div v-if="!isLocalOllamaEndpoint" class="feature-hint warning-text">
+                          当前是远程 Ollama 地址，本系统无法关闭远程机器上的模型，只能切换当前调用的模型和地址。
+                        </div>
+                      </template>
+
+                      <template v-else>
+                        <el-form-item label="API Base URL">
+                          <el-input
+                            v-model="aiSettings.base_url"
+                            placeholder="https://api.deepseek.com"
+                            :disabled="isAiSwitching"
+                            clearable
+                          />
+                        </el-form-item>
+                        <el-form-item label="API 模型">
+                          <div class="ai-model-picker">
+                            <el-select
+                              v-model="aiSettings.model"
+                              filterable
+                              allow-create
+                              default-first-option
+                              clearable
+                              style="width: 100%"
+                              placeholder="先读取模型列表，或直接手动输入模型名"
+                              :disabled="isAiSwitching || !aiSettings.enabled"
+                              @change="handleApiModelChange"
+                            >
+                              <el-option
+                                v-for="item in availableApiModels"
+                                :key="item.id"
+                                :label="item.id"
+                                :value="item.id"
+                              >
+                                <div class="ai-model-option">
+                                  <span>{{ item.id }}</span>
+                                  <span class="ai-model-option__owner">{{ item.owned_by || 'api' }}</span>
+                                </div>
+                              </el-option>
+                            </el-select>
+                            <el-button :loading="loadingApiModels" :disabled="isAiSwitching" @click="fetchApiModels">
+                              读取模型列表
+                            </el-button>
+                          </div>
+                        </el-form-item>
+                        <el-form-item label="API Key">
+                          <el-input
+                            v-model="aiSettings.api_key"
+                            type="password"
+                            show-password
+                            placeholder="请输入 API Key"
+                            :disabled="isAiSwitching || !aiSettings.enabled"
+                            clearable
+                          />
+                        </el-form-item>
+                        <div class="feature-hint">
+                          这里适合填写 DeepSeek 这类 OpenAI 兼容 API。默认会按 `Base URL + /chat/completions` 发起请求。
+                        </div>
+                        <div v-if="apiModelsMeta.message" class="feature-hint">
+                          {{ apiModelsMeta.message }}
+                        </div>
+                      </template>
+                      <div class="ocr-status-row">
+                        <el-tag :type="aiSwitchStatusTagType">
+                          {{ aiSwitchStatusLabel }}
+                        </el-tag>
+                        <span class="ocr-status-text">
+                          {{ aiStatusText }}
+                        </span>
+                      </div>
+                      <div v-if="aiSwitchStatus.status === 'running'" class="upload-progress-wrap">
+                        <el-progress :percentage="aiSwitchProgress" :indeterminate="true" :stroke-width="8" />
+                      </div>
+                      <div v-if="aiSwitchStatus.error" class="feature-hint warning-text">{{ aiSwitchStatus.error }}</div>
+
+                      <div class="action-area ai-action-area">
+                        <el-button type="primary" :loading="savingAiSettings" @click="saveAiSettings">
+                          保存配置
+                        </el-button>
+                        <el-button :loading="testingAiSettings" :disabled="savingAiSettings || isAiSwitching" @click="testAiSettings">
+                          测试连接
+                        </el-button>
+                      </div>
+                      <div class="feature-hint">
+                        保存配置会长期保留当前接入方式和参数；切换模型时现在会自动保存，选择本地模型后也会直接发起切换。
+                      </div>
+                    </template>
+                    <div v-else class="feature-hint">
+                      AI 功能已停用，启用后才显示接入方式和参数配置。
+                    </div>
+                  </el-form>
+                </div>
+              </div>
+            </div>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane name="sessions" label="登录会话管理">
+          <template #label>
+            <span class="custom-tabs-label">
+              <el-icon><Connection /></el-icon>
+              <span>登录会话管理</span>
+            </span>
+          </template>
+
+          <div class="tab-pane-stack">
+            <div class="system-grid-item">
+              <div class="card-box h-100 system-card">
+                <div class="card-header">
+                  <el-icon class="icon"><Connection /></el-icon>
+                  <h3>登录会话管理</h3>
+                </div>
+                <div class="card-content">
+                  <div class="description">
+                    可以在这里决定是否允许多端同时登录，并查看当前在线设备。切到单点登录后，下一次新登录会自动让旧设备失效；如需立即下线某台设备，也可以直接手动执行。
+                  </div>
+
+                  <div class="ai-summary-row">
+                    <el-tag type="info" effect="plain">当前策略：{{ sessionModeLabel }}</el-tag>
+                    <el-tag type="success" effect="plain">在线会话：{{ sessionSettings.active_count }}</el-tag>
+                    <el-tag type="danger" effect="plain">受限设备：{{ sessionSettings.restricted_count }}</el-tag>
+                    <el-tag type="warning" effect="plain">Token 有效期：{{ sessionSettings.token_ttl_minutes }} 分钟</el-tag>
+                  </div>
+
+                  <el-form label-position="top" class="ocr-settings-form">
+                    <el-form-item label="登录策略">
+                      <el-radio-group v-model="sessionSettings.login_mode">
+                        <el-radio-button label="multi">允许多端登录</el-radio-button>
+                        <el-radio-button label="single">单点登录</el-radio-button>
+                      </el-radio-group>
+                    </el-form-item>
+                    <div class="feature-hint">
+                      单点登录模式下，新设备登录后旧设备会在下一次请求时自动失效；当前已经在线的设备不会因为保存这一项立即被踢下线。
+                    </div>
+                    <el-form-item label="Token 默认有效时间">
+                      <el-input-number
+                        v-model="sessionSettings.token_ttl_minutes"
+                        :min="5"
+                        :max="10080"
+                        :step="5"
+                        style="width: 100%"
+                      />
+                    </el-form-item>
+                    <div class="feature-hint">
+                      单位是分钟，最短 5 分钟，最长 7 天。新的登录和后续活跃续期都会按这里的时长重新计算。
+                    </div>
+
+                    <div class="action-area ai-action-area">
+                      <el-button type="primary" :loading="savingSessionSettings" @click="saveSessionSettings">
+                        保存会话配置
+                      </el-button>
+                      <el-button :loading="loadingSessions" @click="refreshSessions">
+                        刷新会话列表
+                      </el-button>
+                    </div>
+                  </el-form>
+
+                  <div v-if="sessionItems.length" class="session-list">
+                    <article
+                      v-for="item in sessionItems"
+                      :key="item.session_id"
+                      class="session-card"
+                      :class="{
+                        'session-card--current': item.is_current,
+                        'session-card--offline': item.status !== 'active'
+                      }"
+                    >
+                      <div class="session-card__head">
+                        <div class="session-card__title">
+                          <strong>{{ item.device_label || '未知设备' }}</strong>
+                          <el-tag v-if="item.is_current" type="primary" effect="dark" size="small">当前设备</el-tag>
+                          <el-tag :type="sessionStatusTagType(item.status)" effect="plain" size="small">
+                            {{ sessionStatusLabel(item.status) }}
+                          </el-tag>
+                          <el-tag v-if="item.login_restricted" type="danger" effect="dark" size="small">已限制登录</el-tag>
+                        </div>
+                        <div class="session-card__actions">
+                          <el-button
+                            v-if="item.status === 'active' && !item.is_current"
+                            link
+                            type="danger"
+                            :loading="sessionActionSessionId === item.session_id && sessionActionType === 'revoke'"
+                            @click="revokeUserSession(item)"
+                          >
+                            手动下线
+                          </el-button>
+                          <el-button
+                            v-if="!item.login_restricted && !item.is_current"
+                            link
+                            type="warning"
+                            :loading="sessionActionSessionId === item.session_id && sessionActionType === 'restrict'"
+                            @click="restrictSessionDevice(item)"
+                          >
+                            下线并限制登录
+                          </el-button>
+                          <el-button
+                            v-if="item.login_restricted"
+                            link
+                            type="primary"
+                            :loading="sessionActionSessionId === item.session_id && sessionActionType === 'release'"
+                            @click="releaseSessionDevice(item)"
+                          >
+                            解除限制登录
+                          </el-button>
+                        </div>
+                      </div>
+
+                      <div class="session-card__meta">
+                        <span>账号：{{ item.full_name || item.username }}</span>
+                        <span>IP：{{ item.ip_address || '-' }}</span>
+                        <span>登录时间：{{ item.created_at || '-' }}</span>
+                        <span>最近活动：{{ item.last_seen_at || '-' }}</span>
+                      </div>
+
+                      <div v-if="item.revoked_reason" class="feature-hint">
+                        原因：{{ item.revoked_reason }}
+                      </div>
+                      <div v-if="item.login_restricted && item.restriction_reason" class="feature-hint warning-text">
+                        限制说明：{{ item.restriction_reason }}
+                      </div>
+                    </article>
+                  </div>
+                  <div v-else class="feature-hint">当前还没有可显示的会话记录。</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane name="danger" label="危险操作">
+          <template #label>
+            <span class="custom-tabs-label">
+              <el-icon><Delete /></el-icon>
+              <span>危险操作</span>
+            </span>
+          </template>
+
+          <div class="tab-pane-stack">
+            <div class="system-grid-item">
+              <div class="card-box danger-zone system-card danger-card">
+                <div class="card-header">
+                  <el-icon class="icon danger"><Delete /></el-icon>
+                  <h3>危险区域</h3>
+                </div>
+                <div class="card-content">
+                  <div class="danger-row">
+                    <div class="danger-info">
+                      <h4>重置系统数据</h4>
+                      <p>将删除所有房间、租户、合同、维修记录及上传文件，仅保留管理员账号。此操作不可撤销！</p>
+                    </div>
+                    <el-button type="danger" @click="handleReset" :loading="resetting">
+                      重置系统
+                    </el-button>
+                  </div>
+
+                  <div class="danger-row danger-row-divider">
+                    <div class="danger-info">
+                      <h4>生成模拟演示数据</h4>
+                      <p>在清空状态下，自动生成一套包含房间、租户、合同和维修记录的演示数据。</p>
+                    </div>
+                    <el-button type="success" @click="handleSeed" :loading="seeding">
+                      <el-icon class="el-icon--left"><MagicStick /></el-icon>
+                      生成数据
+                    </el-button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
     </div>
   </div>
 </template>
@@ -867,12 +1028,16 @@ import { Download, Upload, UploadFilled, Document, Refresh, Delete, MagicStick, 
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { authApi, metaApi, systemApi } from '../api'
 import { uploadFileByChunks } from '../utils/chunkUploader'
-import { currentReleaseNotes, formatVersionText, frontendVersionInfo } from '../utils/versionInfo'
+import { DISPLAY_MODE_EVENT, getPreferredDisplayMode } from '../utils/displayMode'
+import { currentReleaseNotes, formatVersionText, frontendVersionInfo, historicalReleaseNotes } from '../utils/versionInfo'
 
+const activeTab = ref('overview')
+const mobileMode = ref(false)
 const exporting = ref(false)
 const importing = ref(false)
 const resetting = ref(false)
 const seeding = ref(false)
+const reloadingMaintenance = ref(false)
 const selectedFile = ref(null)
 const importUploadProgress = ref(0)
 const snapshots = ref([])
@@ -996,6 +1161,22 @@ const sessionSettings = ref({
   token_ttl_minutes: 30,
 })
 const sessionItems = ref([])
+const tabPosition = computed(() => (mobileMode.value ? 'top' : 'left'))
+const maintenanceTabs = [
+  { name: 'overview', label: '概览' },
+  { name: 'backup', label: '备份恢复' },
+  { name: 'snapshots', label: '系统快照' },
+  { name: 'room_features', label: '房间设施配置' },
+  { name: 'utility_accounts', label: '水电费账户预设' },
+  { name: 'ocr', label: '阿里云 OCR 配置' },
+  { name: 'payment', label: '支付收款配置' },
+  { name: 'ai', label: 'AI 模式配置' },
+  { name: 'sessions', label: '登录会话管理' },
+  { name: 'danger', label: '危险操作' },
+]
+const syncDisplayMode = () => {
+  mobileMode.value = getPreferredDisplayMode() === 'mobile'
+}
 const isAiSwitching = computed(() => aiSwitchStatus.value.status === 'running')
 const isApiProvider = computed(() => aiSettings.value.provider === 'api')
 const sessionModeLabel = computed(() => sessionSettings.value.login_mode === 'single' ? '单点登录' : '允许多端登录')
@@ -1008,6 +1189,15 @@ const backendVersionStartedAt = computed(() => backendVersionInfo.value.started_
 const currentReleaseVersion = computed(() => formatVersionText(currentReleaseNotes.version))
 const currentReleaseDate = computed(() => currentReleaseNotes.releasedAt || '-')
 const currentReleaseItems = computed(() => Array.isArray(currentReleaseNotes.notes) ? currentReleaseNotes.notes : [])
+const systemLastUpdatedText = computed(() => {
+  const candidates = [
+    aiSettings.value.updated_at,
+    paymentSettings.value.updated_at,
+    snapshotTaskStatus.value.finished_at,
+  ].filter(item => String(item || '').trim())
+  if (!candidates.length) return ''
+  return [...candidates].sort().reverse()[0]
+})
 const getComparableAiSettings = (value = {}) => JSON.stringify({
   enabled: value?.enabled !== false,
   provider: value?.provider || 'ollama',
@@ -1608,10 +1798,7 @@ const runAiAction = async (action, successMessage) => {
 }
 
 const toggleAiEnabled = async (value) => {
-  const successMessage = isApiProvider.value
-    ? (value ? 'AI 功能已启用' : 'AI 功能已停用')
-    : (value ? 'AI 功能启用已开始' : 'AI 功能停用已开始')
-  await runAiAction(value ? 'enable' : 'disable', successMessage)
+  await runAiAction(value ? 'enable' : 'disable', value ? 'AI 配置显示已开启' : 'AI 配置显示已关闭')
 }
 
 const saveAiSettings = async () => {
@@ -1979,7 +2166,34 @@ const handleSeed = () => {
   }).catch(() => {})
 }
 
+const reloadMaintenanceData = async () => {
+  reloadingMaintenance.value = true
+  try {
+    await Promise.all([
+      fetchVersionInfo(),
+      fetchSnapshots({ silent: true }),
+      fetchRoomFeatureOptions(),
+      fetchUtilityAccountOptions(),
+      fetchOcrSettings(),
+      fetchPaymentSettings(),
+      fetchAiSettings(),
+      refreshSessions({ silent: true }),
+      systemApi.getSnapshotTaskStatus().then((response) => {
+        applySnapshotTaskStatus(response?.data || {})
+        if (snapshotTaskStatus.value.status === 'running') {
+          startSnapshotTaskPolling()
+        }
+      }).catch(() => {}),
+    ])
+    ElMessage.success('系统状态已刷新')
+  } finally {
+    reloadingMaintenance.value = false
+  }
+}
+
 onMounted(() => {
+  syncDisplayMode()
+  window.addEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
   fetchVersionInfo()
   fetchSnapshots({ silent: true })
   systemApi.getSnapshotTaskStatus().then((response) => {
@@ -1997,19 +2211,42 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener(DISPLAY_MODE_EVENT, syncDisplayMode)
   stopAiSwitchPolling()
   stopSnapshotTaskPolling()
 })
 </script>
 
 <style scoped>
+.notification-config {
+  padding: 20px;
+  height: calc(100vh - 100px);
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: 18px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+.notification-config--mobile {
+  padding: 16px;
+  height: auto;
+  min-height: calc(100vh - 100px);
+}
+
 .page-header {
-  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+  flex-shrink: 0;
 }
 
 .page-header h2 {
   margin: 0;
-  color: var(--el-color-primary);
+  color: #409EFF;
 }
 
 .subtitle {
@@ -2019,10 +2256,152 @@ onBeforeUnmount(() => {
   display: block;
 }
 
-.system-container {
+.header-operations {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.header-action-btn {
+  margin-left: 0 !important;
+}
+
+.last-updated {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.85rem;
+  color: #909399;
+}
+
+.config-form {
+  flex: 1;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.mobile-tab-strip {
+  display: flex;
   gap: 20px;
+  overflow-x: auto;
+  padding: 0 2px 12px;
+  margin-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.mobile-tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-tab-chip {
+  flex: 0 0 auto;
+  min-width: max-content;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+  color: var(--text-regular);
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  transition: all 0.2s ease;
+}
+
+.mobile-tab-chip--active {
+  background: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+  color: #fff;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.2);
+}
+
+.config-tabs {
+  flex: 1;
+  height: 100%;
+  background-color: var(--card-bg);
+  border-radius: 16px;
+  border: 1px solid var(--surface-border);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  display: flex;
+  overflow: hidden;
+}
+
+:deep(.el-tabs__header) {
+  background-color: var(--surface-muted);
+  margin-right: 0 !important;
+  border-right: 1px solid var(--surface-border);
+  width: 208px;
+}
+
+:deep(.el-tabs__nav-wrap) {
+  padding: 16px 0;
+}
+
+:deep(.el-tabs__nav-wrap::after) {
+  display: none;
+}
+
+:deep(.el-tabs__active-bar) {
+  display: none;
+}
+
+:deep(.el-tabs__item) {
+  height: 50px;
+  line-height: 50px;
+  font-size: 14px;
+  color: var(--text-regular);
+  text-align: left;
+  padding: 0 20px !important;
+  justify-content: flex-start;
+  transition: background-color 0.3s, color 0.3s;
+  border-left: 3px solid transparent;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+:deep(.el-tabs__item:hover) {
+  color: var(--el-color-primary);
+  background-color: rgba(37, 99, 235, 0.06);
+}
+
+:deep(.el-tabs__item.is-active) {
+  color: var(--el-color-primary);
+  background-color: rgba(37, 99, 235, 0.12);
+  border-left-color: var(--el-color-primary);
+  font-weight: 600;
+  border-right: none;
+}
+
+:deep(.el-tabs__content) {
+  flex: 1;
+  padding: 24px;
+  height: 100%;
+  overflow-y: auto;
+  background-color: var(--card-bg);
+}
+
+.custom-tabs-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tab-pane-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.maintenance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+.maintenance-grid-item--full {
+  grid-column: 1 / -1;
 }
 
 .system-version-card {
@@ -2067,6 +2446,20 @@ onBeforeUnmount(() => {
   border-radius: 14px;
   border: 1px solid var(--surface-border);
   background: linear-gradient(180deg, rgba(14, 165, 233, 0.08), rgba(37, 99, 235, 0.04));
+}
+
+.release-history-box {
+  margin-top: 16px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--surface-border);
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.release-history-item + .release-history-item {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--surface-border);
 }
 
 .release-notes-box__title {
@@ -2519,6 +2912,42 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 768px) {
+  .page-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .header-operations {
+    width: 100%;
+  }
+
+  .header-operations :deep(.el-button) {
+    flex: 1 1 calc(50% - 5px);
+  }
+
+  :deep(.el-tabs__header) {
+    display: none;
+  }
+
+  :deep(.el-tabs__item) {
+    border-left: none;
+    border-bottom: 3px solid transparent;
+    justify-content: center;
+    min-width: 112px;
+  }
+
+  :deep(.el-tabs__item.is-active) {
+    border-bottom-color: var(--el-color-primary);
+  }
+
+  :deep(.el-tabs__content) {
+    padding: 16px;
+  }
+
+  .maintenance-grid {
+    grid-template-columns: 1fr;
+  }
+
   .system-top-grid .card-content {
     grid-template-columns: 1fr;
   }

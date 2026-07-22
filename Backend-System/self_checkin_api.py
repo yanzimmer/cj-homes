@@ -746,9 +746,6 @@ def api_recognize_public_self_checkin_id_card(token):
 
 @self_checkin_bp.route("/public/self-checkin/<token>/ai-draft", methods=["POST"])
 def api_create_public_self_checkin_ai_draft(token):
-    if not load_ai_settings().get("enabled", True):
-        return jsonify({"error": "AI 功能已停用，请联系管理员启用后再使用"}), 503
-
     ensure_self_checkin_schema()
     conn = connect()
     cur = conn.cursor()

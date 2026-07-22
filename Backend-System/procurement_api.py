@@ -335,9 +335,6 @@ def _group_procurements(procurements):
 
 @procurement_bp.route('/api/procurements/ai-draft', methods=['POST'])
 def create_procurement_ai_draft():
-    if not load_ai_settings().get('enabled', True):
-        return jsonify({'error': 'AI 功能已停用，请在系统维护页面启用后再使用'}), 503
-
     user_text = ''
     images = []
 
