@@ -1194,9 +1194,13 @@ def _extract_zip_tree(zf, prefix, target_root, label):
 
 
 def _clear_directory(directory):
-    if os.path.isdir(directory):
-        shutil.rmtree(directory)
     os.makedirs(directory, exist_ok=True)
+    for entry in os.scandir(directory):
+        target_path = entry.path
+        if entry.is_dir(follow_symlinks=False):
+            shutil.rmtree(target_path)
+        else:
+            os.remove(target_path)
 
 
 def _copy_directory_contents(source_dir, target_dir):
