@@ -1,6 +1,19 @@
-const APP_RELEASE_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.1.1'
+const APP_RELEASE_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.1.2'
 
 const releaseHistory = [
+  {
+    version: '1.1.2',
+    releasedAt: '2026-07-22',
+    notes: [
+      '修复收租台账编辑保存时偶发提示 500，但实际数据已保存的体验问题，改为返回明确成功结果。',
+      '修复编辑收租记录时备注、收款人、收款方式等字段无法真正清空保存的问题。',
+      '收租台账操作按钮改为状态切换：已交显示红色“标记未交”，未交或部分已交显示绿色“标记已交”。',
+      '收租台账的部分已交状态改为直接显示“部分已交（还缺 xxx）”，更直观看到剩余待收金额。',
+      '系统快照列表改为“最新快照 + 历史快照分组展示”，区分手动快照、导入前自动快照和迁移快照。',
+      '修复生产环境系统导入 413 问题，补充 Nginx 上传大小限制并清理配置文件 BOM。',
+      '修复导入回滚时 Docker 挂载目录被整目录删除导致失败的问题，改为仅清空目录内容。',
+    ],
+  },
   {
     version: '1.1.1',
     releasedAt: '2026-07-22',

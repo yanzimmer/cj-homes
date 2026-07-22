@@ -2,7 +2,7 @@ import json
 import os
 
 
-DEFAULT_APP_VERSION = "1.1.1"
+DEFAULT_APP_VERSION = "1.1.2"
 
 
 def resolve_backend_app_version(root_dir):
