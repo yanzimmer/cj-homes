@@ -113,7 +113,7 @@
                   <strong>第 {{ entry.period_index || '-' }} 期</strong>
                   <div class="ledger-mobile-period__range">{{ formatPeriodRange(entry) }}</div>
                 </div>
-                <el-tag :type="getStatusType(entry.status)">{{ entry.status }}</el-tag>
+                <el-tag :type="getStatusType(entry.status)">{{ getStatusLabel(entry) }}</el-tag>
               </div>
               <div class="ledger-mobile-period__amounts">
                 <span>应收 ¥{{ formatAmount(entry.due_amount) }}</span>
@@ -126,12 +126,12 @@
               <div class="ledger-mobile-period__actions">
                 <el-button
                   size="small"
-                  type="success"
+                  :type="getToggleActionType(entry)"
                   plain
-                  :disabled="savingEntryId === entry.id || entry.status === '已交'"
-                  @click="markPaid(entry)"
+                  :disabled="savingEntryId === entry.id"
+                  @click="togglePaidStatus(entry)"
                 >
-                  标记已交
+                  {{ getToggleActionLabel(entry) }}
                 </el-button>
                 <el-button size="small" type="primary" @click="openEntryDialog(group, entry)">编辑</el-button>
               </div>
@@ -176,9 +176,9 @@
                     ¥{{ formatAmount(entry.due_amount) }}
                   </template>
                 </el-table-column>
-                <el-table-column prop="status" label="状态" width="108" align="center">
+                <el-table-column prop="status" label="状态" width="170" align="center">
                   <template #default="{ row: entry }">
-                    <el-tag :type="getStatusType(entry.status)">{{ entry.status }}</el-tag>
+                    <el-tag :type="getStatusType(entry.status)">{{ getStatusLabel(entry) }}</el-tag>
                   </template>
                 </el-table-column>
                 <el-table-column label="实收" width="110" align="center">
@@ -208,12 +208,12 @@
                     <div class="operation-buttons">
                       <el-button
                         size="small"
-                        type="success"
+                        :type="getToggleActionType(entry)"
                         plain
-                        :disabled="savingEntryId === entry.id || entry.status === '已交'"
-                        @click="markPaid(entry)"
+                        :disabled="savingEntryId === entry.id"
+                        @click="togglePaidStatus(entry)"
                       >
-                        标记已交
+                        {{ getToggleActionLabel(entry) }}
                       </el-button>
                       <el-button size="small" type="primary" @click="openEntryDialog(row, entry)">编辑</el-button>
                     </div>
@@ -558,6 +558,16 @@ function getStatusType(status) {
   return 'danger'
 }
 
+function getStatusLabel(entry) {
+  const status = String(entry?.status || '未交').trim() || '未交'
+  if (status !== '部分已交') return status
+  const outstanding = Number(entry?.outstanding_amount || 0)
+  if (outstanding > 0) {
+    return `部分已交（还缺 ${formatAmount(outstanding)}）`
+  }
+  return status
+}
+
 function sanitizeFileNameSegment(value, fallback) {
   const text = String(value || '').trim()
   const cleaned = text.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_')
@@ -725,6 +735,39 @@ async function markPaid(entry) {
   } finally {
     savingEntryId.value = null
   }
+}
+
+function getToggleActionLabel(entry) {
+  return entry?.status === '已交' ? '标记未交' : '标记已交'
+}
+
+function getToggleActionType(entry) {
+  return entry?.status === '已交' ? 'danger' : 'success'
+}
+
+async function togglePaidStatus(entry) {
+  if (entry?.status === '已交') {
+    savingEntryId.value = entry.id
+    try {
+      const { data } = await rentLedgerApi.updateEntry(entry.id, {
+        status: '未交',
+        actual_amount: 0,
+        payment_date: '',
+        payment_person: '',
+        payment_method: '',
+        remarks: entry.remarks || '',
+        payment_images: [],
+      })
+      ElMessage.success(data?.message || '已标记为未交')
+      await loadSummary()
+    } catch (error) {
+      ElMessage.error(error?.response?.data?.error || '更新状态失败')
+    } finally {
+      savingEntryId.value = null
+    }
+    return
+  }
+  await markPaid(entry)
 }
 
 function revokeEntryPreviewUrls() {

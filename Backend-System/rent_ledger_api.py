@@ -399,6 +399,7 @@ def _update_entry_payment_fields(
     remarks,
     payment_images,
     replace_payment_images=False,
+    preserve_empty_text_fields=True,
 ):
     due_amount = _parse_amount(row["due_amount"], 0)
     current_payment_date = _clean_text(row["payment_date"])
@@ -414,15 +415,22 @@ def _update_entry_payment_fields(
         next_payment_date = ""
         next_payment_person = ""
         next_payment_method = ""
-        next_remarks = remarks if remarks != "" else current_remarks
+        next_remarks = current_remarks if preserve_empty_text_fields and remarks == "" else remarks
         next_payment_images = []
     else:
         next_actual_amount = _parse_amount(actual_amount, row["actual_amount"])
         next_allocated_amount = min(_parse_amount(allocated_amount, _allocated_amount_from_row(row)), due_amount) if due_amount > 0 else _parse_amount(allocated_amount, _allocated_amount_from_row(row))
-        next_payment_date = payment_date or current_payment_date or date.today().isoformat()
-        next_payment_person = payment_person if payment_person != "" else current_payment_person
-        next_payment_method = payment_method if payment_method != "" else current_payment_method
-        next_remarks = _append_text_line(current_remarks, remarks) if remarks != "" else current_remarks
+        next_payment_date = (
+            payment_date
+            if payment_date != ""
+            else (current_payment_date or date.today().isoformat()) if preserve_empty_text_fields else ""
+        )
+        next_payment_person = current_payment_person if preserve_empty_text_fields and payment_person == "" else payment_person
+        next_payment_method = current_payment_method if preserve_empty_text_fields and payment_method == "" else payment_method
+        if preserve_empty_text_fields:
+            next_remarks = _append_text_line(current_remarks, remarks) if remarks != "" else current_remarks
+        else:
+            next_remarks = remarks
         if replace_payment_images:
             next_payment_images = _parse_images(payment_images)
         else:
@@ -947,10 +955,14 @@ def update_rent_ledger_entry(current_user, entry_id):
             if allocation_result["unallocated_amount"] > 0:
                 message += f"，超出已生成账期的 {allocation_result['unallocated_amount']:.2f} 元保留在当前这笔实收中"
 
+            response_entry = _row_to_entry(updated_row) if updated_row else None
+            if updated_row is None:
+                message = f"{message}，当前记录已更新，请刷新页面查看最新结果"
+
             return jsonify(
                 {
                     "message": message,
-                    "entry": _row_to_entry(updated_row),
+                    "entry": response_entry,
                     "affected_entry_ids": affected_ids,
                     "unallocated_amount": allocation_result["unallocated_amount"],
                 }
@@ -988,11 +1000,16 @@ def update_rent_ledger_entry(current_user, entry_id):
             remarks,
             payment_images,
             replace_payment_images=True,
+            preserve_empty_text_fields=False,
         )
         cursor.execute("SELECT * FROM rent_ledger_entries WHERE id = ?", (entry_id,))
         updated_row = cursor.fetchone()
         conn.commit()
-        return jsonify({"message": "收租台账已更新", "entry": _row_to_entry(updated_row)}), 200
+        message = "收租台账已更新"
+        response_entry = _row_to_entry(updated_row) if updated_row else None
+        if updated_row is None:
+            message = "收租台账已更新，请刷新页面查看最新记录"
+        return jsonify({"message": message, "entry": response_entry}), 200
     except sqlite3.Error as exc:
         conn.rollback()
         return jsonify({"error": str(exc)}), 500

@@ -245,28 +245,117 @@
                       <div v-if="snapshotTaskStatus.error" class="feature-hint warning-text">{{ snapshotTaskStatus.error }}</div>
                     </div>
 
-                    <div v-if="snapshots.length" class="snapshot-list">
-                      <div
-                        v-for="item in snapshots"
-                        :key="item.id"
-                        class="snapshot-row"
-                        :class="[
-                          { selected: selectedSnapshotId === item.id },
-                          `snapshot-row-${snapshotTypeClassName(item)}`
-                        ]"
-                        @click="selectedSnapshotId = item.id"
-                      >
-                        <span class="snapshot-radio" :class="{ checked: selectedSnapshotId === item.id }"></span>
-                        <span class="snapshot-row-main">
-                          <span class="snapshot-row-title">
-                            <el-tag size="small" :type="snapshotTypeTagType(item)" effect="plain">{{ snapshotTypeLabel(item) }}</el-tag>
-                            <span class="snapshot-title-text">{{ item.source_name || '未命名快照' }}</span>
+                    <div v-if="snapshots.length" class="snapshot-overview">
+                      <div v-if="latestSnapshot" class="snapshot-section">
+                        <div class="snapshot-section__title">最新快照</div>
+                        <div
+                          class="snapshot-row snapshot-row--featured"
+                          :class="[
+                            { selected: selectedSnapshotId === latestSnapshot.id },
+                            `snapshot-row-${snapshotTypeClassName(latestSnapshot)}`
+                          ]"
+                          @click="selectedSnapshotId = latestSnapshot.id"
+                        >
+                          <span class="snapshot-radio" :class="{ checked: selectedSnapshotId === latestSnapshot.id }"></span>
+                          <span class="snapshot-row-main">
+                            <span class="snapshot-row-title">
+                              <el-tag size="small" :type="snapshotTypeTagType(latestSnapshot)" effect="plain">{{ snapshotTypeLabel(latestSnapshot) }}</el-tag>
+                              <span class="snapshot-title-text">{{ latestSnapshot.source_name || '未命名快照' }}</span>
+                            </span>
+                            <span class="snapshot-row-subtitle">{{ latestSnapshot.created_at || '未知时间' }} · {{ latestSnapshot.size_text || '未知大小' }}</span>
                           </span>
-                          <span class="snapshot-row-subtitle">{{ item.created_at || '未知时间' }} · {{ item.size_text || '未知大小' }}</span>
-                        </span>
-                        <span class="snapshot-row-tools">
-                          <el-button link type="danger" :disabled="isSnapshotTaskRunning || importing" @click.stop="handleDeleteSnapshot(item)">删除</el-button>
-                        </span>
+                          <span class="snapshot-row-tools">
+                            <el-button link type="danger" :disabled="isSnapshotTaskRunning || importing" @click.stop="handleDeleteSnapshot(latestSnapshot)">删除</el-button>
+                          </span>
+                        </div>
+                      </div>
+
+                      <div v-if="historicalSnapshots.length" class="snapshot-section">
+                        <div class="snapshot-section__title">历史快照</div>
+
+                        <div v-if="manualHistorySnapshots.length" class="snapshot-subsection">
+                          <div class="snapshot-subsection__title">手动快照 · {{ manualHistorySnapshots.length }} 条</div>
+                          <div class="snapshot-list">
+                            <div
+                              v-for="item in manualHistorySnapshots"
+                              :key="item.id"
+                              class="snapshot-row"
+                              :class="[
+                                { selected: selectedSnapshotId === item.id },
+                                `snapshot-row-${snapshotTypeClassName(item)}`
+                              ]"
+                              @click="selectedSnapshotId = item.id"
+                            >
+                              <span class="snapshot-radio" :class="{ checked: selectedSnapshotId === item.id }"></span>
+                              <span class="snapshot-row-main">
+                                <span class="snapshot-row-title">
+                                  <el-tag size="small" :type="snapshotTypeTagType(item)" effect="plain">{{ snapshotTypeLabel(item) }}</el-tag>
+                                  <span class="snapshot-title-text">{{ item.source_name || '未命名快照' }}</span>
+                                </span>
+                                <span class="snapshot-row-subtitle">{{ item.created_at || '未知时间' }} · {{ item.size_text || '未知大小' }}</span>
+                              </span>
+                              <span class="snapshot-row-tools">
+                                <el-button link type="danger" :disabled="isSnapshotTaskRunning || importing" @click.stop="handleDeleteSnapshot(item)">删除</el-button>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div v-if="autoHistorySnapshots.length" class="snapshot-subsection">
+                          <div class="snapshot-subsection__title">导入前自动快照 · {{ autoHistorySnapshots.length }} 条</div>
+                          <div class="snapshot-list">
+                            <div
+                              v-for="item in autoHistorySnapshots"
+                              :key="item.id"
+                              class="snapshot-row"
+                              :class="[
+                                { selected: selectedSnapshotId === item.id },
+                                `snapshot-row-${snapshotTypeClassName(item)}`
+                              ]"
+                              @click="selectedSnapshotId = item.id"
+                            >
+                              <span class="snapshot-radio" :class="{ checked: selectedSnapshotId === item.id }"></span>
+                              <span class="snapshot-row-main">
+                                <span class="snapshot-row-title">
+                                  <el-tag size="small" :type="snapshotTypeTagType(item)" effect="plain">{{ snapshotTypeLabel(item) }}</el-tag>
+                                  <span class="snapshot-title-text">{{ item.source_name || '未命名快照' }}</span>
+                                </span>
+                                <span class="snapshot-row-subtitle">{{ item.created_at || '未知时间' }} · {{ item.size_text || '未知大小' }}</span>
+                              </span>
+                              <span class="snapshot-row-tools">
+                                <el-button link type="danger" :disabled="isSnapshotTaskRunning || importing" @click.stop="handleDeleteSnapshot(item)">删除</el-button>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div v-if="legacyHistorySnapshots.length" class="snapshot-subsection">
+                          <div class="snapshot-subsection__title">迁移快照 · {{ legacyHistorySnapshots.length }} 条</div>
+                          <div class="snapshot-list">
+                            <div
+                              v-for="item in legacyHistorySnapshots"
+                              :key="item.id"
+                              class="snapshot-row"
+                              :class="[
+                                { selected: selectedSnapshotId === item.id },
+                                `snapshot-row-${snapshotTypeClassName(item)}`
+                              ]"
+                              @click="selectedSnapshotId = item.id"
+                            >
+                              <span class="snapshot-radio" :class="{ checked: selectedSnapshotId === item.id }"></span>
+                              <span class="snapshot-row-main">
+                                <span class="snapshot-row-title">
+                                  <el-tag size="small" :type="snapshotTypeTagType(item)" effect="plain">{{ snapshotTypeLabel(item) }}</el-tag>
+                                  <span class="snapshot-title-text">{{ item.source_name || '未命名快照' }}</span>
+                                </span>
+                                <span class="snapshot-row-subtitle">{{ item.created_at || '未知时间' }} · {{ item.size_text || '未知大小' }}</span>
+                              </span>
+                              <span class="snapshot-row-tools">
+                                <el-button link type="danger" :disabled="isSnapshotTaskRunning || importing" @click.stop="handleDeleteSnapshot(item)">删除</el-button>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                     <div v-else class="feature-hint">
@@ -1262,6 +1351,10 @@ const aiSwitchStatusTagType = computed(() => {
   return 'info'
 })
 const latestSnapshot = computed(() => snapshots.value[0] || null)
+const historicalSnapshots = computed(() => snapshots.value.slice(1))
+const manualHistorySnapshots = computed(() => historicalSnapshots.value.filter(item => String(item?.snapshot_type || '').trim() === 'manual'))
+const autoHistorySnapshots = computed(() => historicalSnapshots.value.filter(item => String(item?.snapshot_type || '').trim() === 'import_auto'))
+const legacyHistorySnapshots = computed(() => historicalSnapshots.value.filter(item => String(item?.snapshot_type || '').trim() === 'legacy'))
 const selectedSnapshot = computed(() => snapshots.value.find(item => item.id === selectedSnapshotId.value) || null)
 const isSnapshotTaskRunning = computed(() => snapshotTaskStatus.value.status === 'running')
 const isCreatingSnapshot = computed(() => isSnapshotTaskRunning.value && snapshotTaskStatus.value.action === 'create')
@@ -2757,14 +2850,52 @@ onBeforeUnmount(() => {
   color: var(--text-secondary);
 }
 
-.snapshot-list {
+.snapshot-overview {
   margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.snapshot-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.snapshot-section__title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.snapshot-subsection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.snapshot-subsection + .snapshot-subsection {
+  margin-top: 4px;
+}
+
+.snapshot-subsection__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.snapshot-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
   max-height: 320px;
   overflow: auto;
   min-width: 0;
+}
+
+.snapshot-row--featured {
+  max-width: 100%;
 }
 
 .snapshot-row {
