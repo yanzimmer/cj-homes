@@ -9,7 +9,7 @@
           <h2>房租缴费</h2>
           <p>扫码后可查看当前房间待缴房租、历史缴租次数，并生成微信或支付宝支付订单。</p>
         </div>
-        <div v-if="roomLabel" class="public-rent-room">{{ roomLabel }}</div>
+        <div v-if="roomHeaderLabel" class="public-rent-room">{{ roomHeaderLabel }}</div>
       </div>
 
       <div v-if="loading" class="loading-state">正在加载缴租信息...</div>
@@ -35,21 +35,18 @@
           </div>
         </div>
 
-        <el-form label-position="top" class="public-rent-form">
-          <el-form-item label="租客">
-            <el-select v-model="selectedTenantId" placeholder="请选择租客" style="width: 100%" @change="applySuggestedAmount">
-              <el-option
-                v-for="item in tenantOptions"
-                :key="item.id"
-                :label="item.label"
-                :value="item.id"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="本次支付金额">
-            <el-input :model-value="`¥${formatAmount(paymentAmount)}`" readonly />
-          </el-form-item>
-          <el-form-item label="待缴账期">
+        <div class="public-rent-form">
+          <div class="public-rent-focus-grid">
+            <section class="public-rent-form__card public-rent-form__card--amount public-rent-form__card--single">
+              <div class="public-rent-section-label">本次支付金额</div>
+              <div class="payment-amount-display">
+                <strong>¥{{ formatAmount(paymentAmount) }}</strong>
+                <span>根据当前勾选账期自动汇总</span>
+              </div>
+            </section>
+          </div>
+          <section class="public-rent-form__full">
+            <div class="public-rent-section-label">待缴账期</div>
             <el-checkbox-group v-model="selectedPeriodStarts" class="period-check-list">
               <el-checkbox
                 v-for="item in tenantOutstandingPeriods"
@@ -60,8 +57,8 @@
               </el-checkbox>
             </el-checkbox-group>
             <div class="period-tip">不勾选时，系统会自动按最早未缴账期开始分配。</div>
-          </el-form-item>
-        </el-form>
+          </section>
+        </div>
 
         <div class="provider-actions">
           <el-button
@@ -148,6 +145,24 @@ const roomLabel = computed(() => {
 })
 
 const tenantOptions = computed(() => Array.isArray(overview.value?.tenant_options) ? overview.value.tenant_options : [])
+const selectedTenantOption = computed(() => (
+  tenantOptions.value.find((item) => Number(item?.id || 0) === Number(selectedTenantId.value || 0)) || tenantOptions.value[0] || null
+))
+const selectedTenantName = computed(() => {
+  const label = String(selectedTenantOption.value?.label || '').trim()
+  const room = roomLabel.value
+  if (!label) return ''
+  if (room && label.startsWith(room)) {
+    return label.slice(room.length).replace(/^[\s·\-]+/, '').trim()
+  }
+  return label
+})
+const roomHeaderLabel = computed(() => {
+  const room = roomLabel.value
+  const tenantName = selectedTenantName.value
+  if (room && tenantName) return `${room} · ${tenantName}`
+  return room || tenantName
+})
 
 const tenantOutstandingPeriods = computed(() => {
   const periods = Array.isArray(overview.value?.outstanding_periods) ? overview.value.outstanding_periods : []
@@ -352,11 +367,13 @@ onUnmounted(() => {
 }
 
 .public-rent-room {
-  padding: 10px 14px;
+  padding: 12px 16px;
   border-radius: 999px;
   background: rgba(16, 185, 129, 0.12);
   color: #047857;
-  font-weight: 700;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.2;
 }
 
 .loading-state {
@@ -379,10 +396,11 @@ onUnmounted(() => {
   padding: 14px;
   border-radius: 14px;
   border: 1px solid var(--surface-border);
-  background: var(--surface-muted);
+  background: var(--card-bg);
   display: flex;
   flex-direction: column;
   gap: 6px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
 }
 
 .public-rent-stat strong {
@@ -399,15 +417,91 @@ onUnmounted(() => {
 }
 
 .public-rent-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.public-rent-focus-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+}
+
+.public-rent-section-label {
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.public-rent-form__card {
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.05);
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.public-rent-form__card--amount {
+  justify-content: space-between;
+}
+
+.public-rent-form__card--single {
+  width: 100%;
+}
+
+.public-rent-form__full {
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--surface-border);
+  background: var(--card-bg);
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.payment-amount-display {
+  min-height: 84px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.payment-amount-display strong {
+  font-size: 28px;
+  line-height: 1.2;
+  color: var(--text-main);
+  word-break: break-word;
+}
+
+.payment-amount-display span {
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .period-check-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
+}
+
+.period-check-list :deep(.el-checkbox) {
+  margin-right: 0;
+  min-width: 0;
+  align-items: flex-start;
+}
+
+.period-check-list :deep(.el-checkbox__label) {
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+  min-width: 0;
 }
 
 .provider-actions {
@@ -472,13 +566,45 @@ onUnmounted(() => {
 }
 
 @media (max-width: 768px) {
+  .public-rent-page {
+    padding: 20px 12px;
+  }
+
+  .public-rent-card {
+    padding: 18px 14px;
+  }
+
   .public-rent-header {
     flex-direction: column;
   }
 
-  .public-rent-stats,
-  .public-rent-form {
+  .public-rent-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .public-rent-focus-grid {
     grid-template-columns: 1fr;
+  }
+
+  .public-rent-form__full {
+    padding: 14px 12px;
+  }
+
+  .public-rent-form__card {
+    padding: 14px 12px;
+  }
+
+  .payment-amount-display {
+    min-height: 72px;
+  }
+
+  .payment-amount-display strong {
+    font-size: 24px;
+  }
+
+  .period-check-list :deep(.el-checkbox__label) {
+    padding-left: 8px;
+    font-size: 13px;
   }
 }
 </style>

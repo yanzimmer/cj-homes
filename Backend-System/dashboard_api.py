@@ -270,23 +270,25 @@ def _load_rent_reminder_stats(conn, advance_days, today):
     cursor.execute(
         """
         SELECT
-            id,
-            tenant_id,
-            room_id,
-            tenant_name,
-            building,
-            room_no,
-            period_start,
-            period_end,
-            due_amount,
-            allocated_amount,
-            actual_amount,
-            status
-        FROM rent_ledger_entries
-        WHERE COALESCE(TRIM(period_start), '') <> ''
-          AND COALESCE(due_amount, 0) > COALESCE(allocated_amount, actual_amount, 0)
-          AND COALESCE(TRIM(status), '未交') <> '已交'
-        ORDER BY date(period_start) ASC, id ASC
+            e.id,
+            e.tenant_id,
+            e.room_id,
+            e.tenant_name,
+            e.building,
+            e.room_no,
+            e.period_start,
+            e.period_end,
+            e.due_amount,
+            e.allocated_amount,
+            e.actual_amount,
+            e.status
+        FROM rent_ledger_entries e
+        LEFT JOIN tenants t ON t.id = e.tenant_id
+        WHERE COALESCE(TRIM(e.period_start), '') <> ''
+          AND COALESCE(e.due_amount, 0) > COALESCE(e.allocated_amount, e.actual_amount, 0)
+          AND COALESCE(TRIM(e.status), '未交') <> '已交'
+          AND COALESCE(TRIM(t.status), '在住') <> '已退租'
+        ORDER BY date(e.period_start) ASC, e.id ASC
         """
     )
 

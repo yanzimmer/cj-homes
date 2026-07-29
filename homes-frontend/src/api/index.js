@@ -321,7 +321,7 @@ export const utilityBillsApi = {
 }
 
 export const rentLedgerApi = {
-  getSummary: (year, status = '') => apiClient.get('/rent-ledger/summary', { params: { year, status } }),
+  getSummary: (year, status = '', tenantStatus = '') => apiClient.get('/rent-ledger/summary', { params: { year, status, tenant_status: tenantStatus } }),
   sync: (year) => apiClient.post('/rent-ledger/sync', { year }),
   updateEntry: (id, data) => apiClient.put(`/rent-ledger/${id}`, data),
 }

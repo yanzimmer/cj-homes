@@ -188,7 +188,7 @@
         v-loading="loading" 
         border 
         style="width: 100%"
-        :fit="false"
+        fit
         :max-height="tableMaxHeight"
         @sort-change="handleSortChange"
         @selection-change="handleSelectionChange"
@@ -281,7 +281,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="description" label="描述" min-width="120" show-overflow-tooltip></el-table-column>
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" min-width="380" fixed="right">
           <template #default="scope">
             <div class="room-actions-inline">
               <el-button
@@ -2271,13 +2271,15 @@ const exportToPDF = async () => {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex-wrap: nowrap;
-  white-space: nowrap;
-  justify-content: center;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-content: center;
+  width: 100%;
 }
 
 .room-actions-inline :deep(.el-button--small) {
   padding: 5px 8px;
+  margin-left: 0;
 }
 
 .rooms-container :deep(.self-checkin-dialog) {

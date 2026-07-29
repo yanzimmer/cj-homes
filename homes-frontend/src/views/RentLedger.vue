@@ -38,6 +38,11 @@
           <el-option label="部分已交" value="部分已交" />
           <el-option label="已交" value="已交" />
         </el-select>
+        <el-select v-model="selectedTenantStatus" class="status-select" @change="handleFilterChange">
+          <el-option label="全部租户" value="" />
+          <el-option label="在住租户" value="在住" />
+          <el-option label="已退租租户" value="已退租" />
+        </el-select>
         <el-button type="primary" plain @click="applySearch">搜索</el-button>
         <el-button plain :loading="loading" @click="loadSummary">刷新</el-button>
       </div>
@@ -49,6 +54,16 @@
           <h3>收租总表</h3>
           <p>按租户汇总展示，可先搜索租户或房间，再查看和编辑每一期收款记录。</p>
         </div>
+        <div class="ledger-panel__tools">
+          <el-button
+            plain
+            type="success"
+            :loading="exportingSummary"
+            @click="exportSummaryExcel"
+          >
+            导出 Excel
+          </el-button>
+        </div>
       </div>
 
       <div v-if="mobileMode" class="ledger-mobile-list">
@@ -56,7 +71,10 @@
         <article v-for="group in filteredLedgerRows" :key="group.tenantId" class="ledger-mobile-card">
           <div class="ledger-mobile-card__header">
             <div>
-              <div class="ledger-mobile-card__title">{{ group.tenantName || '未命名租户' }}</div>
+              <div class="ledger-mobile-card__title">
+                {{ group.tenantName || '未命名租户' }}
+                <el-tag size="small" effect="plain" :type="getTenantStatusTagType(group.tenantStatus)">{{ group.tenantStatus || '在住' }}</el-tag>
+              </div>
               <div class="ledger-mobile-card__meta">{{ group.roomDisplay || '-' }} · {{ formatRent(group) }}</div>
             </div>
             <div class="ledger-mobile-card__tools">
@@ -223,7 +241,14 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="tenantName" label="租户" min-width="110" fixed="left" />
+        <el-table-column prop="tenantName" label="租户" min-width="140" fixed="left">
+          <template #default="{ row }">
+            <div class="tenant-cell">
+              <span>{{ row.tenantName || '-' }}</span>
+              <el-tag size="small" effect="plain" :type="getTenantStatusTagType(row.tenantStatus)">{{ row.tenantStatus || '在住' }}</el-tag>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column prop="roomDisplay" label="房间" min-width="100" />
         <el-table-column label="租金" min-width="120">
           <template #default="{ row }">
@@ -436,16 +461,19 @@ const uploadProgress = ref(0)
 const entryImageDragActive = ref(false)
 const savingEntryId = ref(null)
 const exportingTenantId = ref(null)
+const exportingSummary = ref(false)
 const ledgerTableRef = ref(null)
 const expandedRowKeys = ref([])
 const mobileExpandedTenantIds = ref([])
 
 const selectedYear = ref(currentYear)
 const selectedStatus = ref('')
+const selectedTenantStatus = ref('')
 const searchQuery = ref('')
 const summaryPayload = ref({
   year: currentYear,
   availableYears: [currentYear],
+  tenantStatusFilter: '',
   overview: {
     tenantCount: 0,
     totalPeriods: 0,
@@ -568,6 +596,10 @@ function getStatusLabel(entry) {
   return status
 }
 
+function getTenantStatusTagType(status) {
+  return status === '已退租' ? 'info' : 'success'
+}
+
 function sanitizeFileNameSegment(value, fallback) {
   const text = String(value || '').trim()
   const cleaned = text.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_')
@@ -578,13 +610,14 @@ function buildTenantExportRows(group) {
   const entries = Array.isArray(group?.entries) ? group.entries : []
   return entries.map((entry) => ({
     租户: group?.tenantName || '-',
+    租户状态: group?.tenantStatus || '在住',
     房间: group?.roomDisplay || '-',
     租金: formatRent(group),
     租期开始: group?.leaseStart || '-',
     租期结束: group?.leaseEnd || '-',
     期次: entry?.period_index || '-',
     账期: formatPeriodRange(entry),
-    状态: entry?.status || '未交',
+    状态: getStatusLabel(entry),
     应收金额: Number(entry?.due_amount || 0),
     实收金额: Number(entry?.actual_amount || 0),
     收款日期: entry?.payment_date || '',
@@ -595,7 +628,7 @@ function buildTenantExportRows(group) {
 }
 
 function buildTenantWorksheet(rows) {
-  const headers = ['租户', '房间', '租金', '租期开始', '租期结束', '期次', '账期', '状态', '应收金额', '实收金额', '收款日期', '收款人', '收款方式', '备注']
+  const headers = ['租户', '租户状态', '房间', '租金', '租期开始', '租期结束', '期次', '账期', '状态', '应收金额', '实收金额', '收款日期', '收款人', '收款方式', '备注']
   const worksheet = XLSX.utils.json_to_sheet(rows, { header: headers })
   if (rows.length === 0) {
     XLSX.utils.sheet_add_aoa(worksheet, [headers], { origin: 'A1' })
@@ -604,6 +637,61 @@ function buildTenantWorksheet(rows) {
     wch: header === '备注' ? 24 : header === '账期' ? 22 : 14,
   }))
   return worksheet
+}
+
+function buildSummaryExportRows(groupsToExport) {
+  return groupsToExport.map((group) => ({
+    租户: group?.tenantName || '-',
+    租户状态: group?.tenantStatus || '在住',
+    房间: group?.roomDisplay || '-',
+    租金: formatRent(group),
+    租期开始: group?.leaseStart || '-',
+    租期结束: group?.leaseEnd || '-',
+    已交期数: Number(group?.stats?.paidPeriods || 0),
+    部分已交期数: Number(group?.stats?.partialPeriods || 0),
+    未交期数: Number(group?.stats?.unpaidPeriods || 0),
+    总期次: Number(group?.stats?.totalPeriods || 0),
+    应收金额: Number(group?.stats?.dueAmount || 0),
+    实收金额: Number(group?.stats?.actualAmount || 0),
+    待收金额: Number(group?.stats?.outstandingAmount || 0),
+  }))
+}
+
+function buildSummaryWorksheet(rows) {
+  const headers = ['租户', '租户状态', '房间', '租金', '租期开始', '租期结束', '已交期数', '部分已交期数', '未交期数', '总期次', '应收金额', '实收金额', '待收金额']
+  const worksheet = XLSX.utils.json_to_sheet(rows, { header: headers })
+  if (rows.length === 0) {
+    XLSX.utils.sheet_add_aoa(worksheet, [headers], { origin: 'A1' })
+  }
+  worksheet['!cols'] = headers.map((header) => ({
+    wch: ['租户', '房间', '租金'].includes(header) ? 16 : ['租期开始', '租期结束'].includes(header) ? 14 : 12,
+  }))
+  return worksheet
+}
+
+function exportSummaryExcel() {
+  const groupsToExport = filteredLedgerRows.value
+  if (groupsToExport.length === 0) {
+    ElMessage.warning('当前没有可导出的收租总表数据')
+    return
+  }
+
+  exportingSummary.value = true
+  try {
+    const workbook = XLSX.utils.book_new()
+    const summaryRows = buildSummaryExportRows(groupsToExport)
+    const detailRows = groupsToExport.flatMap((group) => buildTenantExportRows(group))
+
+    XLSX.utils.book_append_sheet(workbook, buildSummaryWorksheet(summaryRows), '收租总表')
+    XLSX.utils.book_append_sheet(workbook, buildTenantWorksheet(detailRows), '收租明细')
+    downloadWorkbook(workbook, `收租总表_${selectedYear.value}.xlsx`)
+    ElMessage.success('收租总表 Excel 导出完成')
+  } catch (error) {
+    console.error('导出收租总表失败', error)
+    ElMessage.error('收租总表 Excel 导出失败')
+  } finally {
+    exportingSummary.value = false
+  }
 }
 
 function downloadWorkbook(workbook, fileName) {
@@ -687,10 +775,11 @@ function applySearch() {
 async function loadSummary() {
   loading.value = true
   try {
-    const { data } = await rentLedgerApi.getSummary(selectedYear.value, selectedStatus.value)
+    const { data } = await rentLedgerApi.getSummary(selectedYear.value, selectedStatus.value, selectedTenantStatus.value)
     summaryPayload.value = {
       year: Number(data?.year || selectedYear.value),
       availableYears: Array.isArray(data?.availableYears) ? data.availableYears : [selectedYear.value],
+      tenantStatusFilter: data?.tenantStatusFilter || '',
       overview: data?.overview || {
         tenantCount: 0,
         totalPeriods: 0,
@@ -1031,6 +1120,12 @@ onBeforeUnmount(() => {
   width: 140px;
 }
 
+.tenant-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .table-panel {
   background: var(--card-bg);
   border: 1px solid var(--surface-border);
@@ -1049,6 +1144,14 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 14px;
+}
+
+.ledger-panel__tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 .ledger-panel__header h3 {
@@ -1383,6 +1486,20 @@ onBeforeUnmount(() => {
 
   .ledger-mobile-card__stats {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .ledger-panel__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ledger-panel__tools {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .ledger-panel__tools :deep(.el-button) {
+    width: 100%;
   }
 
   .ledger-mobile-card__header {

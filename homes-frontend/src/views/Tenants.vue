@@ -109,7 +109,7 @@
       v-loading="loading" 
       border 
       style="width: 100%"
-      :fit="false"
+      fit
       @sort-change="handleSortChange"
       @selection-change="handleSelectionChange"
       :reserve-selection="true"
@@ -158,7 +158,7 @@
       <el-table-column prop="check_in_date" label="入住日期" width="110" sortable="custom"></el-table-column>
       <el-table-column prop="check_out_date" label="退房日期" width="110" sortable="custom"></el-table-column>
       <el-table-column prop="remarks" label="备注" min-width="120" show-overflow-tooltip></el-table-column>
-      <el-table-column label="操作" width="210" fixed="right">
+      <el-table-column label="操作" min-width="210" fixed="right">
         <template #default="scope">
           <div class="table-actions-row">
             <el-button size="small" @click="showTenantDetails(scope.row)">详情</el-button>
@@ -1138,11 +1138,13 @@ const addMonthsKeepingDay = (value, months) => {
   const baseDate = parseDateValue(value)
   if (!baseDate) return ''
   const target = new Date(baseDate.getTime())
-  const originalDay = target.getDate()
-  target.setDate(1)
-  target.setMonth(target.getMonth() + months)
-  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate()
-  target.setDate(Math.min(originalDay, lastDay))
+  for (let i = 0; i < Math.max(Number(months || 0), 0); i += 1) {
+    const originalDay = target.getDate()
+    target.setDate(1)
+    target.setMonth(target.getMonth() + 1)
+    const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate()
+    target.setDate(Math.min(originalDay, lastDay))
+  }
   return formatDate(target)
 }
 

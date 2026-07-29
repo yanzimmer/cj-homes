@@ -619,6 +619,16 @@
                     <div class="feature-hint">
                       这里必须填写商户平台最终能回调到的后端公网地址，保存后系统会自动拼出微信和支付宝的回调路径。
                     </div>
+                    <div class="payment-callback-preview">
+                      <div class="payment-callback-preview__item">
+                        <div class="feature-hint">微信完整回调地址</div>
+                        <el-input :model-value="wechatNotifyUrl || '请先填写上方基础地址'" readonly />
+                      </div>
+                      <div class="payment-callback-preview__item">
+                        <div class="feature-hint">支付宝完整回调地址</div>
+                        <el-input :model-value="alipayNotifyUrl || '请先填写上方基础地址'" readonly />
+                      </div>
+                    </div>
 
                     <div class="payment-config-grid">
                       <section class="payment-channel-card">
@@ -678,6 +688,12 @@
                             placeholder="-----BEGIN PUBLIC KEY-----"
                           />
                         </el-form-item>
+                        <div class="payment-field-guide">
+                          <div>AppID：填写你已绑定到微信支付商户号的应用 AppID。</div>
+                          <div>商户号 / API v3 Key / 证书序列号：在微信商户平台的 API 安全相关页面获取。</div>
+                          <div>商户私钥 PEM：使用商户 API 证书时生成并保留的私钥内容。</div>
+                          <div>微信支付平台公钥 PEM：用于校验微信回调签名的平台公钥。</div>
+                        </div>
                         <div class="feature-hint" :class="{ 'warning-text': !paymentSettings.wechat.configured }">
                           {{ paymentSettings.wechat.reason || '微信支付参数已完整，可用于创建缴租订单。' }}
                         </div>
@@ -732,6 +748,12 @@
                             placeholder="-----BEGIN PUBLIC KEY-----"
                           />
                         </el-form-item>
+                        <div class="payment-field-guide">
+                          <div>App ID：在支付宝开放平台创建应用后获得。</div>
+                          <div>商户应用私钥 PEM：你为该应用生成的 RSA2 私钥内容。</div>
+                          <div>支付宝公钥 PEM：在开放平台为应用配置公钥后获取的支付宝验签公钥。</div>
+                          <div>网关地址：正式环境一般使用 `https://openapi.alipay.com/gateway.do`。</div>
+                        </div>
                         <div class="feature-hint" :class="{ 'warning-text': !paymentSettings.alipay.configured }">
                           {{ paymentSettings.alipay.reason || '支付宝参数已完整，可用于创建缴租订单。' }}
                         </div>
@@ -1278,6 +1300,17 @@ const backendVersionStartedAt = computed(() => backendVersionInfo.value.started_
 const currentReleaseVersion = computed(() => formatVersionText(currentReleaseNotes.version))
 const currentReleaseDate = computed(() => currentReleaseNotes.releasedAt || '-')
 const currentReleaseItems = computed(() => Array.isArray(currentReleaseNotes.notes) ? currentReleaseNotes.notes : [])
+const normalizedPaymentNotifyBaseUrl = computed(() => String(paymentSettings.value.notify_base_url || '').trim().replace(/\/+$/, ''))
+const wechatNotifyUrl = computed(() => (
+  normalizedPaymentNotifyBaseUrl.value
+    ? `${normalizedPaymentNotifyBaseUrl.value}/api/payment-callbacks/wechat`
+    : ''
+))
+const alipayNotifyUrl = computed(() => (
+  normalizedPaymentNotifyBaseUrl.value
+    ? `${normalizedPaymentNotifyBaseUrl.value}/api/payment-callbacks/alipay`
+    : ''
+))
 const systemLastUpdatedText = computed(() => {
   const candidates = [
     aiSettings.value.updated_at,
@@ -3137,6 +3170,19 @@ onBeforeUnmount(() => {
   color: var(--text-secondary);
 }
 
+.payment-callback-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.payment-callback-preview__item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .payment-config-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3149,6 +3195,19 @@ onBeforeUnmount(() => {
   border: 1px solid var(--surface-border);
   border-radius: 16px;
   background: var(--surface-muted);
+}
+
+.payment-field-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(148, 163, 184, 0.10);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .payment-channel-card__head {
@@ -3317,6 +3376,10 @@ onBeforeUnmount(() => {
 
 @media (max-width: 768px) {
   .payment-config-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .payment-callback-preview {
     grid-template-columns: 1fr;
   }
 
