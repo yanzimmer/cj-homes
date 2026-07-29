@@ -1,28 +1,36 @@
 import { defineStore } from 'pinia'
 import { authApi } from '../api'
+import { clearAuthStorage, getStoredAuth, saveAuthSession } from '../utils/authStorage'
 
 export const useAuthStore = defineStore('auth', {
-  state: () => ({
-    token: localStorage.getItem('token') || null,
-    user: JSON.parse(localStorage.getItem('user')) || null,
-    sessionId: localStorage.getItem('session_id') || null,
-    loading: false,
-    error: null
-  }),
+  state: () => {
+    const stored = getStoredAuth()
+    return {
+      token: stored.token,
+      user: stored.user,
+      sessionId: stored.sessionId,
+      totpRequired: false,
+      recoveryCodeUsed: false,
+      recoveryCodesRemaining: null,
+      loading: false,
+      error: null
+    }
+  },
   
   getters: {
     isAuthenticated: (state) => !!state.token
   },
   
   actions: {
-    async login(username, password) {
+    async login(username, password, remember = true, totpCode = '') {
       this.loading = true
       this.error = null
       
       try {
         const response = await authApi.login({
           username,
-          password
+          password,
+          totp_code: totpCode,
         })
         
         this.token = response.data.token
@@ -31,17 +39,21 @@ export const useAuthStore = defineStore('auth', {
           fullName: response.data.full_name
         }
         
-        localStorage.setItem('token', this.token)
-        localStorage.setItem('user', JSON.stringify(this.user))
         this.sessionId = response.data.session_id || null
-        if (this.sessionId) {
-          localStorage.setItem('session_id', this.sessionId)
-        } else {
-          localStorage.removeItem('session_id')
-        }
+        this.totpRequired = false
+        this.recoveryCodeUsed = response.data.recovery_code_used === true
+        this.recoveryCodesRemaining = response.data.recovery_codes_remaining
+        saveAuthSession(
+          { token: this.token, user: this.user, sessionId: this.sessionId },
+          remember,
+        )
         
         return true
       } catch (error) {
+        const code = error?.response?.data?.code
+        if (['AUTH_TOTP_REQUIRED', 'AUTH_TOTP_INVALID', 'AUTH_TOTP_LOCKED'].includes(code)) {
+          this.totpRequired = true
+        }
         this.error = error.response?.data?.error || '登录失败，请检查网络连接'
         return false
       } finally {
@@ -53,9 +65,10 @@ export const useAuthStore = defineStore('auth', {
       this.token = null
       this.user = null
       this.sessionId = null
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      localStorage.removeItem('session_id')
+      this.totpRequired = false
+      this.recoveryCodeUsed = false
+      this.recoveryCodesRemaining = null
+      clearAuthStorage()
     }
   }
 })

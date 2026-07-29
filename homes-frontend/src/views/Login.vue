@@ -28,27 +28,38 @@
 
       <div class="card-right">
         <div class="form-header">
-          <h2>{{ isResetMode ? '重置密码' : '账号登录' }}</h2>
-          <p class="sub-text">{{ isResetMode ? '请输入您的安全口令以重置密码' : '请输入您的账号密码以继续' }}</p>
+          <h2>{{ isResetMode ? '重置密码' : (totpStep ? '两步验证' : '账号登录') }}</h2>
+          <p class="sub-text">{{ isResetMode ? '请输入您的安全口令以重置密码' : (totpStep ? '输入身份验证器动态码或恢复码' : '请输入您的账号密码以继续') }}</p>
         </div>
 
         <transition name="fade-slide" mode="out-in">
           <!-- 登录表单 -->
           <el-form v-if="!isResetMode" :model="loginForm" :rules="rules" ref="loginFormRef" class="custom-form" size="large">
             <el-form-item prop="username">
-              <el-input v-model="loginForm.username" placeholder="请输入用户名" :prefix-icon="User" />
+              <el-input v-model="loginForm.username" placeholder="请输入用户名" :prefix-icon="User" :disabled="totpStep" />
             </el-form-item>
             <el-form-item prop="password">
-              <el-input v-model="loginForm.password" type="password" show-password placeholder="请输入密码" :prefix-icon="Lock" @keyup.enter="handleLogin" />
+              <el-input v-model="loginForm.password" type="password" show-password placeholder="请输入密码" :prefix-icon="Lock" :disabled="totpStep" @keyup.enter="handleLogin" />
+            </el-form-item>
+            <el-form-item v-if="totpStep">
+              <el-input
+                v-model="loginForm.totpCode"
+                placeholder="6 位动态码或恢复码"
+                :prefix-icon="Key"
+                autocomplete="one-time-code"
+                maxlength="20"
+                @keyup.enter="handleLogin"
+              />
             </el-form-item>
             
             <div class="form-options">
               <el-checkbox v-model="rememberMe">记住我</el-checkbox>
-              <span class="forgot-link" @click="switchToReset">忘记密码？</span>
+              <span v-if="totpStep" class="back-link" @click="resetTotpStep">返回账号密码</span>
+              <span v-else class="forgot-link" @click="switchToReset">忘记密码？</span>
             </div>
 
             <el-button type="primary" :loading="loading" class="submit-btn" @click="handleLogin">
-              立即登录
+              {{ totpStep ? '验证并登录' : '立即登录' }}
             </el-button>
           </el-form>
 
@@ -123,9 +134,11 @@ const loginFormRef = ref(null)
 const loading = computed(() => authStore.loading)
 const loginForm = reactive({
   username: '',
-  password: ''
+  password: '',
+  totpCode: '',
 })
 const rememberMe = ref(true)
+const totpStep = ref(false)
 
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
@@ -134,17 +147,40 @@ const rules = {
 
 const handleLogin = async () => {
   if (!loginFormRef.value) return
+  if (totpStep.value && !loginForm.totpCode.trim()) {
+    ElMessage.warning('请输入身份验证器动态码或恢复码')
+    return
+  }
   await loginFormRef.value.validate(async (valid) => {
     if (valid) {
-      const success = await authStore.login(loginForm.username, loginForm.password)
+      const wasTotpStep = totpStep.value
+      const success = await authStore.login(
+        loginForm.username,
+        loginForm.password,
+        rememberMe.value,
+        loginForm.totpCode.trim(),
+      )
       if (success) {
-        ElMessage.success('登录成功')
+        if (authStore.recoveryCodeUsed) {
+          ElMessage.warning(`已使用一次性恢复码，剩余 ${authStore.recoveryCodesRemaining} 个`)
+        } else {
+          ElMessage.success('登录成功')
+        }
         router.push('/dashboard')
+      } else if (authStore.totpRequired && !wasTotpStep) {
+        totpStep.value = true
+        loginForm.totpCode = ''
       } else if (authStore.error) {
         ElMessage.error(authStore.error)
       }
     }
   })
+}
+
+const resetTotpStep = () => {
+  totpStep.value = false
+  authStore.totpRequired = false
+  loginForm.totpCode = ''
 }
 
 // 找回密码逻辑

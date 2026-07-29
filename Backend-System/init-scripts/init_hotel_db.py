@@ -116,12 +116,43 @@ def ensure_tables():
     )
     cur.execute("PRAGMA table_info(admins)")
     admin_cols = {row[1] for row in cur.fetchall()}
+    is_recovery_lockout_migration = "recovery_failed_attempts" not in admin_cols
     if "recovery_phrase_hash" not in admin_cols:
         cur.execute("ALTER TABLE admins ADD COLUMN recovery_phrase_hash TEXT")
     if "security_question" not in admin_cols:
         cur.execute("ALTER TABLE admins ADD COLUMN security_question TEXT")
     if "security_answer_hash" not in admin_cols:
         cur.execute("ALTER TABLE admins ADD COLUMN security_answer_hash TEXT")
+    if "recovery_failed_attempts" not in admin_cols:
+        cur.execute("ALTER TABLE admins ADD COLUMN recovery_failed_attempts INTEGER NOT NULL DEFAULT 0")
+    if "recovery_locked_until" not in admin_cols:
+        cur.execute("ALTER TABLE admins ADD COLUMN recovery_locked_until TEXT")
+    if "recovery_updated_at" not in admin_cols:
+        cur.execute("ALTER TABLE admins ADD COLUMN recovery_updated_at TEXT")
+    if "totp_secret" not in admin_cols:
+        cur.execute("ALTER TABLE admins ADD COLUMN totp_secret TEXT")
+    if "totp_pending_secret" not in admin_cols:
+        cur.execute("ALTER TABLE admins ADD COLUMN totp_pending_secret TEXT")
+    if "totp_enabled" not in admin_cols:
+        cur.execute("ALTER TABLE admins ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0")
+    if "totp_recovery_codes" not in admin_cols:
+        cur.execute("ALTER TABLE admins ADD COLUMN totp_recovery_codes TEXT")
+    if "totp_failed_attempts" not in admin_cols:
+        cur.execute("ALTER TABLE admins ADD COLUMN totp_failed_attempts INTEGER NOT NULL DEFAULT 0")
+    if "totp_locked_until" not in admin_cols:
+        cur.execute("ALTER TABLE admins ADD COLUMN totp_locked_until TEXT")
+    if is_recovery_lockout_migration:
+        cur.execute(
+            """
+            UPDATE admins
+            SET security_answer_hash = NULL,
+                recovery_failed_attempts = 0,
+                recovery_locked_until = NULL,
+                recovery_updated_at = NULL
+            WHERE security_answer_hash = ?
+            """,
+            ("1c6c0a7f01c9bf04faf4e2dc460874875094608f3632bdd6ea0ee11222c83186",),
+        )
 
     # repair records
     cur.execute(
@@ -398,9 +429,21 @@ def ensure_tables():
             business_type TEXT NOT NULL,
             payload_json TEXT,
             created_record_id INTEGER,
+            idempotency_key TEXT,
             submitted_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (link_id) REFERENCES public_entry_links(id) ON DELETE SET NULL
         )
+        """
+    )
+    cur.execute("PRAGMA table_info(public_entry_submissions)")
+    public_submission_cols = {row[1] for row in cur.fetchall()}
+    if "idempotency_key" not in public_submission_cols:
+        cur.execute("ALTER TABLE public_entry_submissions ADD COLUMN idempotency_key TEXT")
+    cur.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_public_entry_submission_idempotency
+        ON public_entry_submissions(link_id, idempotency_key)
+        WHERE idempotency_key IS NOT NULL
         """
     )
 

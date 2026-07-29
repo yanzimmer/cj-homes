@@ -114,6 +114,21 @@
                       <el-icon><Key /></el-icon>
                       <span>修改密码</span>
                     </el-dropdown-item>
+                    <el-dropdown-item @click="openRecoveryDialog">
+                      <el-icon><Lock /></el-icon>
+                      <span>{{ recoveryConfigured ? '更新安全口令' : '设置安全口令' }}</span>
+                    </el-dropdown-item>
+                    <el-dropdown-item @click="openTotpDialog">
+                      <el-icon><Cellphone /></el-icon>
+                      <span>两步验证</span>
+                      <el-tag
+                        v-if="totpEnabled"
+                        class="totp-menu-status"
+                        size="small"
+                        type="success"
+                        effect="plain"
+                      >已启用</el-tag>
+                    </el-dropdown-item>
                     <el-dropdown-item @click="handleLogout">
                       <el-icon><SwitchButton /></el-icon>
                       <span>退出登录</span>
@@ -213,6 +228,190 @@
         </span>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="recoveryDialogVisible"
+      :title="recoveryConfigured ? '更新安全口令' : '设置安全口令'"
+      width="min(92vw, 440px)"
+    >
+      <el-alert
+        v-if="!recoveryConfigured"
+        title="设置后才能在登录页使用忘记密码功能"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="recovery-alert"
+      />
+      <el-form
+        ref="recoveryFormRef"
+        :model="recoveryForm"
+        :rules="recoveryRules"
+        label-position="top"
+      >
+        <el-form-item label="当前登录密码" prop="currentPassword">
+          <el-input
+            v-model="recoveryForm.currentPassword"
+            type="password"
+            show-password
+            autocomplete="current-password"
+            placeholder="用于确认是本人操作"
+          />
+        </el-form-item>
+        <el-form-item label="新的安全口令" prop="securityAnswer">
+          <el-input
+            v-model="recoveryForm.securityAnswer"
+            type="password"
+            show-password
+            autocomplete="new-password"
+            placeholder="至少 6 个字符，请勿与登录密码相同"
+          />
+        </el-form-item>
+        <el-form-item label="确认安全口令" prop="confirmAnswer">
+          <el-input
+            v-model="recoveryForm.confirmAnswer"
+            type="password"
+            show-password
+            autocomplete="new-password"
+            placeholder="再次输入安全口令"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="recoveryDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingRecovery" @click="submitRecoverySettings">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="totpDialogVisible"
+      title="两步验证"
+      width="min(94vw, 520px)"
+      :close-on-click-modal="!recoveryCodes.length"
+      :close-on-press-escape="!recoveryCodes.length"
+      :show-close="!recoveryCodes.length"
+      @closed="resetTotpDialog"
+    >
+      <div v-loading="totpLoading" class="totp-dialog-body">
+        <template v-if="recoveryCodes.length">
+          <el-alert
+            title="恢复码只显示这一次"
+            description="每个恢复码只能使用一次。请妥善保存，旧恢复码已经失效。"
+            type="warning"
+            :closable="false"
+            show-icon
+          />
+          <div class="totp-recovery-head">
+            <strong>恢复码</strong>
+            <el-button :icon="DocumentCopy" @click="copyRecoveryCodes">复制全部</el-button>
+          </div>
+          <div class="totp-recovery-grid">
+            <code v-for="code in recoveryCodes" :key="code">{{ code }}</code>
+          </div>
+          <el-checkbox v-model="recoveryCodesSaved">我已妥善保存这些恢复码</el-checkbox>
+        </template>
+
+        <template v-else-if="!totpLoading && !totpEnabled">
+          <template v-if="!totpSecret">
+            <el-alert
+              title="使用身份验证器保护登录"
+              description="支持 Google Authenticator、Microsoft Authenticator、1Password 等应用。"
+              type="info"
+              :closable="false"
+              show-icon
+            />
+            <el-form label-position="top" class="totp-form">
+              <el-form-item label="当前登录密码">
+                <el-input
+                  v-model="totpForm.currentPassword"
+                  type="password"
+                  show-password
+                  autocomplete="current-password"
+                  placeholder="用于确认是本人操作"
+                  @keyup.enter="startTotpSetup"
+                />
+              </el-form-item>
+            </el-form>
+          </template>
+
+          <template v-else>
+            <div class="totp-setup-layout">
+              <img class="totp-qr" :src="totpQrDataUrl" alt="身份验证器绑定二维码" />
+              <div class="totp-setup-fields">
+                <strong>扫描二维码</strong>
+                <span class="totp-muted">无法扫码时可手工输入密钥</span>
+                <div class="totp-secret-row">
+                  <code>{{ totpSecret }}</code>
+                  <el-button circle text :icon="DocumentCopy" title="复制密钥" @click="copyTotpSecret" />
+                </div>
+                <el-input
+                  v-model="totpForm.code"
+                  inputmode="numeric"
+                  maxlength="6"
+                  autocomplete="one-time-code"
+                  placeholder="输入 6 位动态验证码"
+                  @keyup.enter="enableTotp"
+                />
+              </div>
+            </div>
+          </template>
+        </template>
+
+        <template v-else-if="!totpLoading">
+          <div class="totp-status-row">
+            <div>
+              <strong>身份验证器已启用</strong>
+              <div class="totp-muted">剩余 {{ totpRecoveryCodesRemaining }} 个恢复码</div>
+            </div>
+            <el-tag type="success" effect="plain">已启用</el-tag>
+          </div>
+          <el-form label-position="top" class="totp-form">
+            <el-form-item label="当前登录密码">
+              <el-input
+                v-model="totpForm.currentPassword"
+                type="password"
+                show-password
+                autocomplete="current-password"
+                placeholder="用于确认是本人操作"
+              />
+            </el-form-item>
+            <el-form-item label="动态验证码或恢复码">
+              <el-input
+                v-model="totpForm.code"
+                autocomplete="one-time-code"
+                placeholder="输入身份验证器动态码或恢复码"
+              />
+            </el-form-item>
+          </el-form>
+          <div class="totp-danger-actions">
+            <el-button :loading="totpSaving" @click="regenerateRecoveryCodes">重新生成恢复码</el-button>
+            <el-button type="danger" plain :loading="totpSaving" @click="disableTotp">停用两步验证</el-button>
+          </div>
+        </template>
+      </div>
+      <template #footer>
+        <template v-if="recoveryCodes.length">
+          <el-button type="primary" :disabled="!recoveryCodesSaved" @click="totpDialogVisible = false">
+            已保存，关闭
+          </el-button>
+        </template>
+        <template v-else-if="!totpEnabled">
+          <el-button @click="totpDialogVisible = false">取消</el-button>
+          <el-button
+            v-if="!totpSecret"
+            type="primary"
+            :loading="totpSaving"
+            @click="startTotpSetup"
+          >生成绑定二维码</el-button>
+          <el-button
+            v-else
+            type="primary"
+            :loading="totpSaving"
+            @click="enableTotp"
+          >确认并启用</el-button>
+        </template>
+        <el-button v-else @click="totpDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -222,6 +421,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { authApi, metaApi } from '../api/index.js'
+import QRCode from 'qrcode'
 import {
   House, 
   User, 
@@ -234,6 +434,9 @@ import {
   Tools, 
   ArrowLeft, 
   Key, 
+  Lock,
+  Cellphone,
+  DocumentCopy,
   HomeFilled, 
   Timer, 
   Document,
@@ -247,6 +450,7 @@ import ThemeModeSwitch from '../components/ThemeModeSwitch.vue'
 import { DISPLAY_MODE_EVENT, getPreferredDisplayMode } from '../utils/displayMode'
 import { applyTheme, getPreferredTheme } from '../utils/theme'
 import { formatVersionText, frontendVersionInfo } from '../utils/versionInfo'
+import { getStoredToken } from '../utils/authStorage'
 
 const router = useRouter()
 const route = useRoute()
@@ -258,6 +462,22 @@ const mobileMenuVisible = ref(false)
 const user = computed(() => authStore.user)
 const activeMenu = computed(() => route.path)
 const changePasswordDialogVisible = ref(false)
+const recoveryDialogVisible = ref(false)
+const recoveryConfigured = ref(false)
+const savingRecovery = ref(false)
+const totpDialogVisible = ref(false)
+const totpLoading = ref(false)
+const totpSaving = ref(false)
+const totpEnabled = ref(false)
+const totpRecoveryCodesRemaining = ref(0)
+const totpSecret = ref('')
+const totpQrDataUrl = ref('')
+const recoveryCodes = ref([])
+const recoveryCodesSaved = ref(false)
+const totpForm = ref({
+  currentPassword: '',
+  code: '',
+})
 const sessionEvents = ref([])
 const unreadSessionEventCount = ref(0)
 const latestSessionEventId = ref(0)
@@ -355,6 +575,267 @@ const passwordRules = {
     { required: true, message: '请再次输入新密码', trigger: 'blur' },
     { validator: validateConfirmPassword, trigger: 'blur' }
   ]
+}
+
+const recoveryFormRef = ref(null)
+const recoveryForm = ref({
+  currentPassword: '',
+  securityAnswer: '',
+  confirmAnswer: '',
+})
+
+const validateRecoveryConfirmation = (rule, value, callback) => {
+  if (value !== recoveryForm.value.securityAnswer) {
+    callback(new Error('两次输入的安全口令不一致'))
+  } else {
+    callback()
+  }
+}
+
+const recoveryRules = {
+  currentPassword: [
+    { required: true, message: '请输入当前登录密码', trigger: 'blur' },
+  ],
+  securityAnswer: [
+    { required: true, message: '请输入安全口令', trigger: 'blur' },
+    { min: 6, message: '安全口令长度不能少于 6 个字符', trigger: 'blur' },
+  ],
+  confirmAnswer: [
+    { required: true, message: '请再次输入安全口令', trigger: 'blur' },
+    { validator: validateRecoveryConfirmation, trigger: 'blur' },
+  ],
+}
+
+const openRecoveryDialog = () => {
+  recoveryForm.value = {
+    currentPassword: '',
+    securityAnswer: '',
+    confirmAnswer: '',
+  }
+  recoveryDialogVisible.value = true
+}
+
+const submitRecoverySettings = async () => {
+  if (!recoveryFormRef.value || savingRecovery.value) return
+  await recoveryFormRef.value.validate(async (valid) => {
+    if (!valid) return
+    savingRecovery.value = true
+    try {
+      await authApi.updateRecoverySettings({
+        current_password: recoveryForm.value.currentPassword,
+        security_answer: recoveryForm.value.securityAnswer,
+      })
+      recoveryConfigured.value = true
+      recoveryDialogVisible.value = false
+      ElMessage.success('安全口令已保存')
+    } catch (error) {
+      ElMessage.error(error?.response?.data?.error || '安全口令保存失败')
+    } finally {
+      savingRecovery.value = false
+    }
+  })
+}
+
+const checkRecoverySettings = async () => {
+  try {
+    const response = await authApi.getRecoverySettings()
+    recoveryConfigured.value = response?.data?.configured === true
+    if (recoveryConfigured.value) return
+
+    const promptKey = `recovery-setup-prompted:${user.value?.username || 'admin'}`
+    if (sessionStorage.getItem(promptKey)) return
+    sessionStorage.setItem(promptKey, '1')
+    try {
+      await ElMessageBox.confirm(
+        '当前账号尚未设置安全口令，设置后才能在忘记密码时验证身份。',
+        '完善账号安全',
+        {
+          confirmButtonText: '现在设置',
+          cancelButtonText: '稍后',
+          type: 'warning',
+        },
+      )
+      openRecoveryDialog()
+    } catch (_) {}
+  } catch (_) {
+    // 登录状态错误由全局响应拦截器统一处理。
+  }
+}
+
+const fetchTotpSettings = async () => {
+  const response = await authApi.getTotpSettings()
+  totpEnabled.value = response?.data?.enabled === true
+  totpRecoveryCodesRemaining.value = Number(response?.data?.recovery_codes_remaining || 0)
+}
+
+const resetTotpDialog = () => {
+  totpSecret.value = ''
+  totpQrDataUrl.value = ''
+  recoveryCodes.value = []
+  recoveryCodesSaved.value = false
+  totpForm.value = { currentPassword: '', code: '' }
+}
+
+const openTotpDialog = async () => {
+  resetTotpDialog()
+  totpDialogVisible.value = true
+  totpLoading.value = true
+  try {
+    await fetchTotpSettings()
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '两步验证状态读取失败')
+    totpDialogVisible.value = false
+  } finally {
+    totpLoading.value = false
+  }
+}
+
+const copyText = async (value, successMessage) => {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value)
+    } else {
+      const textArea = document.createElement('textarea')
+      textArea.value = value
+      textArea.style.position = 'fixed'
+      textArea.style.opacity = '0'
+      document.body.appendChild(textArea)
+      textArea.select()
+      const copied = document.execCommand('copy')
+      textArea.remove()
+      if (!copied) throw new Error('copy failed')
+    }
+    ElMessage.success(successMessage)
+  } catch (_) {
+    ElMessage.error('复制失败，请手工选择复制')
+  }
+}
+
+const copyTotpSecret = () => copyText(totpSecret.value, '绑定密钥已复制')
+const copyRecoveryCodes = () => copyText(recoveryCodes.value.join('\n'), '恢复码已复制')
+
+const startTotpSetup = async () => {
+  if (!totpForm.value.currentPassword || totpSaving.value) {
+    if (!totpForm.value.currentPassword) ElMessage.warning('请输入当前登录密码')
+    return
+  }
+  totpSaving.value = true
+  try {
+    const response = await authApi.setupTotp({
+      current_password: totpForm.value.currentPassword,
+    })
+    totpSecret.value = response?.data?.secret || ''
+    totpQrDataUrl.value = await QRCode.toDataURL(response?.data?.otpauth_uri || '', {
+      width: 220,
+      margin: 1,
+      errorCorrectionLevel: 'M',
+    })
+    totpForm.value.code = ''
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '绑定二维码生成失败')
+  } finally {
+    totpSaving.value = false
+  }
+}
+
+const enableTotp = async () => {
+  if (!totpForm.value.code || totpSaving.value) {
+    if (!totpForm.value.code) ElMessage.warning('请输入 6 位动态验证码')
+    return
+  }
+  totpSaving.value = true
+  try {
+    const response = await authApi.enableTotp({
+      current_password: totpForm.value.currentPassword,
+      code: totpForm.value.code,
+    })
+    totpEnabled.value = true
+    recoveryCodes.value = Array.isArray(response?.data?.recovery_codes)
+      ? response.data.recovery_codes
+      : []
+    totpRecoveryCodesRemaining.value = recoveryCodes.value.length
+    recoveryCodesSaved.value = false
+    totpSecret.value = ''
+    totpQrDataUrl.value = ''
+    totpForm.value = { currentPassword: '', code: '' }
+    ElMessage.success('两步验证已启用')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '两步验证启用失败')
+  } finally {
+    totpSaving.value = false
+  }
+}
+
+const validateTotpManagementForm = () => {
+  if (!totpForm.value.currentPassword) {
+    ElMessage.warning('请输入当前登录密码')
+    return false
+  }
+  if (!totpForm.value.code) {
+    ElMessage.warning('请输入动态验证码或恢复码')
+    return false
+  }
+  return true
+}
+
+const regenerateRecoveryCodes = async () => {
+  if (!validateTotpManagementForm() || totpSaving.value) return
+  try {
+    await ElMessageBox.confirm(
+      '重新生成后，现有恢复码会立即失效。',
+      '重新生成恢复码',
+      { confirmButtonText: '继续生成', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch (_) {
+    return
+  }
+  totpSaving.value = true
+  try {
+    const response = await authApi.regenerateTotpRecoveryCodes({
+      current_password: totpForm.value.currentPassword,
+      code: totpForm.value.code,
+    })
+    recoveryCodes.value = Array.isArray(response?.data?.recovery_codes)
+      ? response.data.recovery_codes
+      : []
+    totpRecoveryCodesRemaining.value = recoveryCodes.value.length
+    recoveryCodesSaved.value = false
+    totpForm.value = { currentPassword: '', code: '' }
+    ElMessage.success('恢复码已重新生成')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '恢复码生成失败')
+  } finally {
+    totpSaving.value = false
+  }
+}
+
+const disableTotp = async () => {
+  if (!validateTotpManagementForm() || totpSaving.value) return
+  try {
+    await ElMessageBox.confirm(
+      '停用后，登录将不再验证身份验证器动态码。',
+      '停用两步验证',
+      { confirmButtonText: '确认停用', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch (_) {
+    return
+  }
+  totpSaving.value = true
+  try {
+    await authApi.disableTotp({
+      current_password: totpForm.value.currentPassword,
+      code: totpForm.value.code,
+    })
+    totpEnabled.value = false
+    totpRecoveryCodesRemaining.value = 0
+    totpForm.value = { currentPassword: '', code: '' }
+    totpDialogVisible.value = false
+    ElMessage.success('两步验证已停用')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '两步验证停用失败')
+  } finally {
+    totpSaving.value = false
+  }
 }
 
 const openChangePasswordDialog = () => {
@@ -526,7 +1007,7 @@ let lastPing = 0
 const MIN_PING_INTERVAL_MS = 120000 // 2分钟最小心跳间隔，避免过于频繁
 const pingOnActivity = () => {
   const now = Date.now()
-  const token = localStorage.getItem('token')
+  const token = getStoredToken()
   if (!token) return
   if (now - lastPing < MIN_PING_INTERVAL_MS) return
   lastPing = now
@@ -542,6 +1023,8 @@ onMounted(() => {
   window.addEventListener('scroll', activityHandler, { passive: true })
   window.addEventListener('touchstart', activityHandler, { passive: true })
   fetchVersionInfo()
+  checkRecoverySettings()
+  fetchTotpSettings().catch(() => {})
   fetchSessionEvents({ incremental: false, notify: false })
   startSessionEventPolling()
 })
@@ -565,6 +1048,110 @@ onBeforeUnmount(() => {
   background: var(--bg-color);
   padding: 8px;
   box-sizing: border-box;
+}
+
+.recovery-alert {
+  margin-bottom: 16px;
+}
+
+.totp-menu-status {
+  margin-left: auto;
+}
+
+.totp-dialog-body {
+  min-height: 170px;
+}
+
+.totp-form {
+  margin-top: 18px;
+}
+
+.totp-setup-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  align-items: center;
+  gap: 22px;
+}
+
+.totp-qr {
+  display: block;
+  width: 220px;
+  height: 220px;
+  border: 1px solid var(--surface-border);
+}
+
+.totp-setup-fields {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.totp-muted {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.totp-secret-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+}
+
+.totp-secret-row code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.totp-status-row,
+.totp-recovery-head,
+.totp-danger-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.totp-recovery-head {
+  margin: 20px 0 12px;
+}
+
+.totp-recovery-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin-bottom: 18px;
+  padding: 14px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+}
+
+.totp-recovery-grid code {
+  text-align: center;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 560px) {
+  .totp-setup-layout {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+  }
+
+  .totp-setup-fields {
+    width: 100%;
+  }
+
+  .totp-danger-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 .main-layout {

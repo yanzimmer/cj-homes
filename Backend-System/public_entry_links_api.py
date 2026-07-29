@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import secrets
 import sqlite3
 from datetime import datetime
@@ -8,13 +9,25 @@ from flask import Blueprint, jsonify, request
 
 from auth_api import token_required
 from common import BASE_DIR, connect
-from inventory_sync_service import dump_inventory_usages, list_warehouse_stock_options, validate_inventory_usages
-from procurement_api import _dump_procurement_images, _to_float, ensure_procurement_schema
+from inventory_sync_service import (
+    apply_inventory_usage,
+    dump_inventory_usages,
+    list_warehouse_stock_options,
+    validate_inventory_usages,
+)
+from procurement_api import (
+    _create_procurement_records,
+    _generate_procurement_ai_draft,
+    _parse_procurement_ai_request,
+    ensure_procurement_schema,
+)
 from repair_records_api import (
     _dump_repair_images,
+    _generate_repair_ai_draft,
     _get_primary_room_no,
     _normalize_repair_scope_type,
     _normalize_room_nos_text,
+    _parse_repair_ai_request,
     _resolve_repair_building,
     ensure_repair_records_schema,
 )
@@ -52,9 +65,21 @@ def ensure_public_entry_schema():
             business_type TEXT NOT NULL,
             payload_json TEXT,
             created_record_id INTEGER,
+            idempotency_key TEXT,
             submitted_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (link_id) REFERENCES public_entry_links(id) ON DELETE SET NULL
         )
+        """
+    )
+    cur.execute("PRAGMA table_info(public_entry_submissions)")
+    submission_cols = {row[1] for row in cur.fetchall()}
+    if "idempotency_key" not in submission_cols:
+        cur.execute("ALTER TABLE public_entry_submissions ADD COLUMN idempotency_key TEXT")
+    cur.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_public_entry_submission_idempotency
+        ON public_entry_submissions(link_id, idempotency_key)
+        WHERE idempotency_key IS NOT NULL
         """
     )
     conn.commit()
@@ -69,50 +94,13 @@ def _now_text():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _format_report_by_option(building, room_no, name):
-    building_text = str(building or "").strip()
-    room_text = str(room_no or "").strip()
-    name_text = str(name or "").strip()
-    if not name_text:
-        return ""
-    room_part = room_text
-    if building_text and room_text:
-        normalized_room = room_text.replace("栋", "").replace("_", "-")
-        prefixes = [f"{building_text}-", f"{building_text}栋-", building_text]
-        for prefix in prefixes:
-            if normalized_room.startswith(prefix):
-                room_part = normalized_room[len(prefix):].lstrip("-")
-                break
-    if building_text and room_part:
-        return f"{building_text}-{room_part}-{name_text}"
-    if room_text:
-        return f"{room_text}-{name_text}"
-    return name_text
-
-
-def _list_public_tenant_names():
-    conn = connect()
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            """
-            SELECT DISTINCT r.building, r.room_no, t.name
-            FROM tenants t
-            LEFT JOIN rooms r ON t.room_id = r.id
-            WHERE name IS NOT NULL AND TRIM(name) <> ''
-            ORDER BY r.room_no, t.name COLLATE NOCASE
-            """
-        )
-        options = []
-        seen = set()
-        for row in cur.fetchall():
-            label = _format_report_by_option(row[0], row[1], row[2])
-            if label and label not in seen:
-                seen.add(label)
-                options.append(label)
-        return options
-    finally:
-        conn.close()
+def _normalize_idempotency_key(value):
+    key = str(value or "").strip()
+    if not key:
+        raise ValueError("缺少 Idempotency-Key 请求头")
+    if len(key) > 128 or not re.fullmatch(r"[A-Za-z0-9._:-]+", key):
+        raise ValueError("Idempotency-Key 格式不正确")
+    return key
 
 
 def _get_link_with_count(business_type):
@@ -145,40 +133,20 @@ def _get_link_with_count(business_type):
     }
 
 
-def _insert_submission_log(link_id, business_type, payload, record_id):
-    conn = connect()
+def _dump_submission_payload(payload):
+    return json.dumps(payload or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _insert_submission_log(conn, link_id, business_type, payload_json, record_id, idempotency_key):
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO public_entry_submissions (link_id, business_type, payload_json, created_record_id)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO public_entry_submissions (
+            link_id, business_type, payload_json, created_record_id, idempotency_key
+        ) VALUES (?, ?, ?, ?, ?)
         """,
-        (link_id, business_type, json.dumps(payload or {}, ensure_ascii=False), record_id),
+        (link_id, business_type, payload_json, record_id, idempotency_key),
     )
-    conn.commit()
-    conn.close()
-
-
-def _list_public_room_options():
-    conn = connect()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT building, room_no
-        FROM rooms
-        ORDER BY building ASC, room_no ASC
-        """
-    )
-    rows = cur.fetchall()
-    conn.close()
-    return [
-        {
-            "building": str(row[0] or "").strip(),
-            "room_no": str(row[1] or "").strip(),
-        }
-        for row in rows
-        if str(row[0] or "").strip() and str(row[1] or "").strip()
-    ]
 
 
 def _ensure_public_entry_upload_dir():
@@ -200,26 +168,21 @@ def _save_public_entry_image(business_type, upload_file):
     return f"/static/uploads/public_entries/{business_type}/{filename}"
 
 
-def _create_repair_from_public(data):
-    ensure_repair_records_schema()
-    conn = connect()
+def _create_repair_from_public(conn, data):
     cur = conn.cursor()
     scope_type = _normalize_repair_scope_type(data.get("scope_type"))
     room_nos_text = _normalize_room_nos_text(data.get("room_nos"), data.get("room_no"))
     room_no = _get_primary_room_no(scope_type, data.get("room_no"), room_nos_text)
     building = _resolve_repair_building(cur, room_no, data.get("building"))
     if scope_type == "单个房间" and not room_no:
-        conn.close()
         raise ValueError("单个房间维修必须填写房间号")
     if scope_type == "多个房间" and not room_nos_text:
-        conn.close()
         raise ValueError("多个房间维修必须填写房间号")
 
     repair_type = str(data.get("repair_type") or "").strip()
     description = str(data.get("description") or "").strip()
     report_by = str(data.get("report_by") or "").strip()
     if not repair_type or not description or not report_by:
-        conn.close()
         raise ValueError("请填写维修类型、问题描述和报修人")
 
     report_date = str(data.get("report_date") or "").strip() or datetime.now().strftime("%Y-%m-%d")
@@ -227,13 +190,13 @@ def _create_repair_from_public(data):
     amount = data.get("amount")
     try:
         amount = None if amount in (None, "") else float(amount)
-    except Exception:
-        conn.close()
-        raise ValueError("金额格式不正确")
+    except Exception as exc:
+        raise ValueError("金额格式不正确") from exc
     images = [str(v).strip() for v in (data.get("images") or []) if str(v).strip()]
     payment_images = [str(v).strip() for v in (data.get("payment_images") or []) if str(v).strip()]
     payment_person = str(data.get("payment_person") or "").strip()
     inventory_usages = validate_inventory_usages(conn, data.get("inventory_usages") or [])
+    apply_inventory_usage(conn, inventory_usages)
 
     cur.execute(
         """
@@ -278,61 +241,15 @@ def _create_repair_from_public(data):
             """,
             (payload, payload, record_id),
         )
-    conn.commit()
-    conn.close()
     return record_id
 
 
-def _create_procurement_from_public(data):
-    ensure_procurement_schema()
-    procurement_date = str(data.get("procurement_date") or "").strip()
-    item_name = str(data.get("item_name") or "").strip()
-    if not procurement_date or not item_name:
-        raise ValueError("请填写时间和采购物品")
-    quantity = _to_float(data.get("quantity"), 0)
-    if quantity <= 0:
-        raise ValueError("数量必须大于 0")
-    unit_price = _to_float(data.get("unit_price"), 0)
-    total_amount = _to_float(data.get("total_amount"), 0)
-    if unit_price <= 0 and quantity > 0 and total_amount > 0:
-        unit_price = total_amount / quantity
-    if total_amount <= 0 and quantity > 0 and unit_price > 0:
-        total_amount = quantity * unit_price
-    images = [str(v).strip() for v in (data.get("images") or []) if str(v).strip()]
-
-    conn = connect()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO procurements (
-            procurement_date, item_name, specification, quantity, unit_price, unit,
-            total_amount, remarks, procurement_images
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]')
-        """,
-        (
-            procurement_date,
-            item_name,
-            str(data.get("specification") or "").strip(),
-            quantity,
-            unit_price,
-            str(data.get("unit") or "").strip(),
-            total_amount,
-            str(data.get("remarks") or "").strip(),
-        )
-    )
-    record_id = cur.lastrowid
-    if images:
-        cur.execute(
-            "UPDATE procurements SET procurement_images = ? WHERE id = ?",
-            (_dump_procurement_images(images), record_id),
-        )
-    conn.commit()
-    conn.close()
-    return record_id
+def _create_procurement_from_public(conn, data):
+    created_ids = _create_procurement_records(conn, data)
+    return created_ids[0]
 
 
-def _create_warehouse_from_public(data):
-    ensure_warehouse_schema()
+def _create_warehouse_from_public(conn, data):
     item_name = str(data.get("item_name") or "").strip()
     if not item_name:
         raise ValueError("请填写物品")
@@ -344,7 +261,6 @@ def _create_warehouse_from_public(data):
         raise ValueError("数量不能小于 0")
     images = [str(v).strip() for v in (data.get("images") or []) if str(v).strip()]
 
-    conn = connect()
     cur = conn.cursor()
     cur.execute(
         """
@@ -368,18 +284,25 @@ def _create_warehouse_from_public(data):
             "UPDATE warehouse_items SET image = ? WHERE id = ?",
             (_dump_warehouse_images(images), record_id),
         )
-    conn.commit()
-    conn.close()
     return record_id
 
 
-def _create_record_by_business(business_type, data):
+def _ensure_business_schema(business_type):
     if business_type == "repair":
-        return _create_repair_from_public(data)
+        ensure_repair_records_schema()
+    elif business_type == "procurement":
+        ensure_procurement_schema()
+    elif business_type == "warehouse":
+        ensure_warehouse_schema()
+
+
+def _create_record_by_business(conn, business_type, data):
+    if business_type == "repair":
+        return _create_repair_from_public(conn, data)
     if business_type == "procurement":
-        return _create_procurement_from_public(data)
+        return _create_procurement_from_public(conn, data)
     if business_type == "warehouse":
-        return _create_warehouse_from_public(data)
+        return _create_warehouse_from_public(conn, data)
     raise ValueError("不支持的业务类型")
 
 
@@ -523,8 +446,6 @@ def api_get_public_entry_form(business_type, token):
     }
     if business_type == "repair":
         payload["inventory_options"] = list_warehouse_stock_options()
-        payload["room_options"] = _list_public_room_options()
-        payload["tenant_names"] = _list_public_tenant_names()
     return jsonify(payload)
 
 
@@ -560,23 +481,19 @@ def api_upload_public_entry_image(business_type, token):
         return jsonify({"error": str(e) or "图片上传失败"}), 500
 
 
-@public_entry_bp.route("/public-entry/<business_type>/<token>/submit", methods=["POST"])
-def api_submit_public_entry_form(business_type, token):
-    business_type = str(business_type or "").strip().lower()
-    if not _business_exists(business_type):
-        return jsonify({"error": "不支持的业务类型"}), 400
+@public_entry_bp.route("/public-entry/procurement/<token>/ai-draft", methods=["POST"])
+def api_create_public_procurement_ai_draft(token):
     ensure_public_entry_schema()
-    data = request.json or {}
     conn = connect()
     cur = conn.cursor()
     cur.execute(
         """
         SELECT id, status
         FROM public_entry_links
-        WHERE business_type = ? AND token = ?
+        WHERE business_type = 'procurement' AND token = ?
         LIMIT 1
         """,
-        (business_type, token),
+        (token,),
     )
     link = cur.fetchone()
     conn.close()
@@ -586,12 +503,120 @@ def api_submit_public_entry_form(business_type, token):
         return jsonify({"error": "填写链接已失效"}), 400
 
     try:
-        record_id = _create_record_by_business(business_type, data)
-        _insert_submission_log(link[0], business_type, data, record_id)
-        return jsonify({"message": f"{BUSINESS_LABELS[business_type]}已提交", "id": record_id})
+        user_text, images = _parse_procurement_ai_request(request)
+        return jsonify(_generate_procurement_ai_draft(user_text, images))
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e) or "AI 输入失败"}), 502
+
+
+@public_entry_bp.route("/public-entry/repair/<token>/ai-draft", methods=["POST"])
+def api_create_public_repair_ai_draft(token):
+    ensure_public_entry_schema()
+    conn = connect()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, status
+        FROM public_entry_links
+        WHERE business_type = 'repair' AND token = ?
+        LIMIT 1
+        """,
+        (token,),
+    )
+    link = cur.fetchone()
+    conn.close()
+    if not link:
+        return jsonify({"error": "填写链接不存在"}), 404
+    if link[1] != "active":
+        return jsonify({"error": "填写链接已失效"}), 400
+
+    try:
+        user_text, images = _parse_repair_ai_request(request)
+        return jsonify(_generate_repair_ai_draft(user_text, images))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e) or "AI 输入失败"}), 502
+
+
+@public_entry_bp.route("/public-entry/<business_type>/<token>/submit", methods=["POST"])
+def api_submit_public_entry_form(business_type, token):
+    business_type = str(business_type or "").strip().lower()
+    if not _business_exists(business_type):
+        return jsonify({"error": "不支持的业务类型"}), 400
+    ensure_public_entry_schema()
+    data = request.json or {}
+    try:
+        idempotency_key = _normalize_idempotency_key(request.headers.get("Idempotency-Key"))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    payload_json = _dump_submission_payload(data)
+    _ensure_business_schema(business_type)
+
+    conn = connect()
+    cur = conn.cursor()
+    try:
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute(
+            """
+            SELECT id, status
+            FROM public_entry_links
+            WHERE business_type = ? AND token = ?
+            LIMIT 1
+            """,
+            (business_type, token),
+        )
+        link = cur.fetchone()
+        if not link:
+            conn.rollback()
+            return jsonify({"error": "填写链接不存在"}), 404
+        if link[1] != "active":
+            conn.rollback()
+            return jsonify({"error": "填写链接已失效"}), 400
+
+        cur.execute(
+            """
+            SELECT payload_json, created_record_id
+            FROM public_entry_submissions
+            WHERE link_id = ? AND idempotency_key = ?
+            LIMIT 1
+            """,
+            (link[0], idempotency_key),
+        )
+        existing = cur.fetchone()
+        if existing:
+            conn.commit()
+            if str(existing[0] or "") != payload_json:
+                return jsonify({"error": "同一 Idempotency-Key 不能用于不同提交内容"}), 409
+            return jsonify(
+                {
+                    "message": f"{BUSINESS_LABELS[business_type]}已提交",
+                    "id": existing[1],
+                    "duplicate": True,
+                }
+            )
+
+        record_id = _create_record_by_business(conn, business_type, data)
+        _insert_submission_log(
+            conn,
+            link[0],
+            business_type,
+            payload_json,
+            record_id,
+            idempotency_key,
+        )
+        conn.commit()
+        return jsonify({"message": f"{BUSINESS_LABELS[business_type]}已提交", "id": record_id})
+    except ValueError as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 400
     except sqlite3.Error as e:
+        conn.rollback()
         return jsonify({"error": str(e)}), 500
     except Exception as e:
+        conn.rollback()
         return jsonify({"error": str(e) or "提交失败"}), 500
+    finally:
+        conn.close()

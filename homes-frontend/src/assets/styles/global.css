@@ -121,6 +121,45 @@ html.mobile-mode body {
   border-top: 1px solid var(--surface-border);
 }
 
+/* Element Plus dropdowns are teleported outside scoped components. */
+.el-dropdown__popper.el-popper {
+  --el-bg-color-overlay: var(--card-bg);
+  --el-text-color-regular: var(--text-regular);
+  --el-border-color-light: var(--surface-border);
+  --el-fill-color-light: var(--surface-muted);
+  --el-color-primary-light-9: color-mix(in srgb, var(--el-color-primary) 12%, var(--card-bg));
+  background: var(--card-bg);
+  border-color: var(--surface-border);
+  box-shadow: var(--card-shadow);
+  transition:
+    background-color var(--theme-transition-duration) ease,
+    border-color var(--theme-transition-duration) ease;
+}
+
+.el-dropdown__popper .el-dropdown-menu {
+  background: var(--card-bg);
+}
+
+.el-dropdown__popper .el-dropdown-menu__item {
+  color: var(--text-regular);
+}
+
+.el-dropdown__popper .el-dropdown-menu__item:not(.is-disabled):focus,
+.el-dropdown__popper .el-dropdown-menu__item:not(.is-disabled):hover {
+  color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 12%, var(--card-bg));
+}
+
+.el-dropdown__popper .el-dropdown-menu__item--divided::before {
+  background: var(--card-bg);
+  border-top-color: var(--surface-border);
+}
+
+.el-dropdown__popper.el-popper .el-popper__arrow::before {
+  background: var(--card-bg);
+  border-color: var(--surface-border);
+}
+
 .page-container .el-button:not(.is-link):not(.is-text):not(.is-circle),
 .public-page .el-button:not(.is-link):not(.is-text):not(.is-circle),
 .el-dialog .el-button:not(.is-link):not(.is-text):not(.is-circle) {

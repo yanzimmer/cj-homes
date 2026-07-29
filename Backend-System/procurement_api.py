@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify
+from auth_api import token_required
 from common import connect, parse_fields_arg, parse_pagination_args, project_fields
 from inventory_sync_service import ensure_inventory_sync_schema, sync_procurement_create, sync_procurement_delete, sync_procurement_update
 from ai_client import call_configured_ai, get_active_ai_model
@@ -183,6 +184,51 @@ def _call_ollama_generate(prompt, images):
     )
 
 
+def _parse_procurement_ai_request(request_object):
+    user_text = ''
+    images = []
+
+    if request_object.content_type and request_object.content_type.startswith('multipart/form-data'):
+        user_text = request_object.form.get('text') or ''
+        for file in request_object.files.getlist('images'):
+            if not file or not file.filename:
+                continue
+            if not str(file.mimetype or '').startswith('image/'):
+                raise ValueError('仅支持图片文件')
+            data = file.read()
+            if len(data) > 8 * 1024 * 1024:
+                raise ValueError('单张图片请控制在 8MB 以内')
+            images.append(base64.b64encode(data).decode('ascii'))
+    else:
+        data = request_object.get_json(silent=True) or {}
+        user_text = data.get('text') or ''
+        raw_images = data.get('images') or []
+        if isinstance(raw_images, list):
+            for item in raw_images[:4]:
+                value = str(item or '').strip()
+                if value.startswith('data:image/') and ',' in value:
+                    value = value.split(',', 1)[1]
+                if value:
+                    images.append(value)
+
+    if not _clean_text(user_text) and not images:
+        raise ValueError('请提供文字或图片')
+    if len(images) > 4:
+        raise ValueError('最多支持 4 张图片')
+    return user_text, images
+
+
+def _generate_procurement_ai_draft(user_text, images):
+    prompt = _build_procurement_ai_prompt(user_text, len(images))
+    result = _call_ollama_generate(prompt, images)
+    response_text = result.get('response') or ''
+    parsed = _extract_json_object(response_text)
+    return {
+        'draft': _normalize_ai_procurement_payload(parsed),
+        'model': result.get('model') or get_active_ai_model(),
+    }
+
+
 def ensure_procurement_schema():
     conn = connect()
     cur = conn.cursor()
@@ -277,8 +323,157 @@ def _extract_procurement_images_from_payload(data):
     raw = data.get('procurement_images')
     if isinstance(raw, list):
         return _parse_procurement_images(json.dumps(raw, ensure_ascii=False))
+    raw = data.get('images')
+    if isinstance(raw, list):
+        return _parse_procurement_images(json.dumps(raw, ensure_ascii=False))
     raw_single = data.get('procurement_image')
     return _parse_procurement_images(raw_single)
+
+
+def _create_procurement_records(conn, data):
+    if not isinstance(data, dict):
+        raise ValueError('请求数据格式不正确')
+
+    items = data.get('items')
+    procurement_images = _extract_procurement_images_from_payload(data)
+    purchase_channel = _normalize_purchase_channel(data.get('purchase_channel'))
+    cur = conn.cursor()
+
+    if isinstance(items, list) and len(items) > 0:
+        procurement_date = str(data.get('procurement_date') or '').strip()
+        if not procurement_date:
+            raise ValueError('Missing required field: procurement_date')
+
+        normalized_items = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_name = str(item.get('item_name') or '').strip()
+            quantity = _to_float(item.get('quantity'), 0)
+            unit = str(item.get('unit') or '').strip()
+            unit_price = _to_float(item.get('unit_price'), 0)
+            if not item_name or quantity <= 0 or not unit:
+                raise ValueError('多物品采购单里的每个物品都必须填写采购物品、数量和单位')
+            normalized_items.append(
+                {
+                    'item_name': item_name,
+                    'specification': str(item.get('specification') or '').strip(),
+                    'quantity': quantity,
+                    'unit': unit,
+                    'unit_price': unit_price,
+                }
+            )
+        if not normalized_items:
+            raise ValueError('items 不能为空')
+
+        total_amount = _to_float(data.get('total_amount'), 0)
+        if total_amount <= 0:
+            total_amount = round(
+                sum(item['quantity'] * item['unit_price'] for item in normalized_items),
+                2,
+            )
+        if total_amount <= 0:
+            raise ValueError('Missing required field: total_amount')
+
+        batch_no = _next_batch_no(conn, procurement_date, purchase_channel)
+        created_ids = []
+        has_any_unit_price = any(item['unit_price'] > 0 for item in normalized_items)
+        allocated_total = 0.0
+        for index, item in enumerate(normalized_items):
+            if has_any_unit_price:
+                unit_price = item['unit_price']
+                line_total = round(item['quantity'] * unit_price, 2)
+            else:
+                split_total = round(total_amount / len(normalized_items), 2)
+                line_total = split_total if index < len(normalized_items) - 1 else round(total_amount - allocated_total, 2)
+                unit_price = round(line_total / item['quantity'], 2)
+                allocated_total += line_total
+            cur.execute(
+                """
+                INSERT INTO procurements (
+                    procurement_date, item_name, specification, quantity, unit_price, unit,
+                    total_amount, payment_person, purchase_channel, purchase_batch_no, remarks, procurement_images
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    procurement_date,
+                    item['item_name'],
+                    item['specification'],
+                    item['quantity'],
+                    unit_price,
+                    item['unit'],
+                    line_total,
+                    str(data.get('payment_person') or '').strip(),
+                    purchase_channel,
+                    batch_no,
+                    str(data.get('remarks') or '').strip(),
+                    _dump_procurement_images(procurement_images),
+                ),
+            )
+            procurement_id = cur.lastrowid
+            created_ids.append(procurement_id)
+            sync_procurement_create(
+                conn,
+                procurement_id,
+                procurement_date,
+                item['item_name'],
+                item['specification'],
+                item['quantity'],
+                unit_price,
+                item['unit'],
+            )
+        return created_ids
+
+    required_fields = ['procurement_date', 'item_name', 'quantity']
+    for field in required_fields:
+        if data.get(field) in (None, ''):
+            raise ValueError(f'Missing required field: {field}')
+
+    quantity = _to_float(data.get('quantity'), 0)
+    if quantity <= 0:
+        raise ValueError('数量必须大于 0')
+    unit_price = _to_float(data.get('unit_price'), 0)
+    total_amount = _to_float(data.get('total_amount'), 0)
+    if unit_price <= 0 and total_amount > 0:
+        unit_price = total_amount / quantity
+    if total_amount <= 0 and unit_price > 0:
+        total_amount = quantity * unit_price
+    batch_no = _next_batch_no(conn, data['procurement_date'], purchase_channel)
+
+    cur.execute(
+        """
+        INSERT INTO procurements (
+            procurement_date, item_name, specification, quantity, unit_price, unit,
+            total_amount, payment_person, purchase_channel, purchase_batch_no, remarks, procurement_images
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            data['procurement_date'],
+            str(data['item_name']).strip(),
+            str(data.get('specification') or '').strip(),
+            quantity,
+            unit_price,
+            str(data.get('unit') or '').strip(),
+            total_amount,
+            str(data.get('payment_person') or '').strip(),
+            purchase_channel,
+            batch_no,
+            str(data.get('remarks') or '').strip(),
+            _dump_procurement_images(procurement_images),
+        ),
+    )
+    procurement_id = cur.lastrowid
+    sync_procurement_create(
+        conn,
+        procurement_id,
+        data['procurement_date'],
+        str(data['item_name']).strip(),
+        str(data.get('specification') or '').strip(),
+        quantity,
+        unit_price,
+        str(data.get('unit') or '').strip(),
+    )
+    return [procurement_id]
 
 
 def _procurement_row_to_dict(row):
@@ -334,54 +529,20 @@ def _group_procurements(procurements):
 
 
 @procurement_bp.route('/api/procurements/ai-draft', methods=['POST'])
-def create_procurement_ai_draft():
-    user_text = ''
-    images = []
-
-    if request.content_type and request.content_type.startswith('multipart/form-data'):
-        user_text = request.form.get('text') or ''
-        for file in request.files.getlist('images'):
-            if not file or not file.filename:
-                continue
-            if not str(file.mimetype or '').startswith('image/'):
-                return jsonify({'error': '仅支持图片文件'}), 400
-            data = file.read()
-            if len(data) > 8 * 1024 * 1024:
-                return jsonify({'error': '单张图片请控制在 8MB 以内'}), 400
-            images.append(base64.b64encode(data).decode('ascii'))
-    else:
-        data = request.json or {}
-        user_text = data.get('text') or ''
-        raw_images = data.get('images') or []
-        if isinstance(raw_images, list):
-            for item in raw_images[:4]:
-                value = str(item or '').strip()
-                if value.startswith('data:image/') and ',' in value:
-                    value = value.split(',', 1)[1]
-                if value:
-                    images.append(value)
-
-    if not _clean_text(user_text) and not images:
-        return jsonify({'error': '请提供文字或图片'}), 400
-    if len(images) > 4:
-        return jsonify({'error': '最多支持 4 张图片'}), 400
-
-    prompt = _build_procurement_ai_prompt(user_text, len(images))
+@token_required
+def create_procurement_ai_draft(current_user):
     try:
-        result = _call_ollama_generate(prompt, images)
-        response_text = result.get('response') or ''
-        parsed = _extract_json_object(response_text)
-        draft = _normalize_ai_procurement_payload(parsed)
-        return jsonify({
-            'draft': draft,
-            'model': result.get('model') or get_active_ai_model(),
-        })
+        user_text, images = _parse_procurement_ai_request(request)
+        return jsonify(_generate_procurement_ai_draft(user_text, images))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
         return jsonify({'error': str(e)}), 502
 
 
 @procurement_bp.route('/api/procurements', methods=['GET'])
-def list_procurements():
+@token_required
+def list_procurements(current_user):
     """List procurements with search and pagination."""
     page, page_size, _ = parse_pagination_args(
         request.args,
@@ -459,158 +620,38 @@ def list_procurements():
     finally:
         conn.close()
 
+
 @procurement_bp.route('/api/procurements', methods=['POST'])
-def create_procurement():
+@token_required
+def create_procurement(current_user):
     """Create a new procurement record."""
-    data = request.json
-    items = data.get('items') if isinstance(data, dict) else None
-    procurement_images = _extract_procurement_images_from_payload(data)
-
+    data = request.json or {}
     conn = connect()
-    cur = conn.cursor()
-    
     try:
-        purchase_channel = _normalize_purchase_channel(data.get('purchase_channel'))
-        if isinstance(items, list) and len(items) > 0:
-            procurement_date = data.get('procurement_date')
-            if not procurement_date:
-                return jsonify({'error': 'Missing required field: procurement_date'}), 400
-            total_amount = _to_float(data.get('total_amount'), 0)
-            batch_no = _next_batch_no(conn, procurement_date, purchase_channel)
-
-            normalized_items = []
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                item_name = str(item.get('item_name') or '').strip()
-                quantity = _to_float(item.get('quantity'), 0)
-                unit = str(item.get('unit') or '').strip()
-                unit_price = _to_float(item.get('unit_price'), 0)
-                if not item_name or quantity <= 0 or not unit:
-                    return jsonify({'error': '多物品采购单里的每个物品都必须填写采购物品、数量和单位'}), 400
-                normalized_items.append(
-                    {
-                        'item_name': item_name,
-                        'specification': str(item.get('specification') or '').strip(),
-                        'quantity': quantity,
-                        'unit': unit,
-                        'unit_price': unit_price,
-                    }
-                )
-            if not normalized_items:
-                return jsonify({'error': 'items 不能为空'}), 400
-
-            if total_amount <= 0:
-                total_amount = round(
-                    sum(_to_float(item.get('quantity'), 0) * _to_float(item.get('unit_price'), 0) for item in normalized_items),
-                    2
-                )
-            if total_amount <= 0:
-                return jsonify({'error': 'Missing required field: total_amount'}), 400
-
-            created_ids = []
-            has_any_unit_price = any(item['unit_price'] > 0 for item in normalized_items)
-            allocated_total = 0.0
-            for index, item in enumerate(normalized_items):
-                if has_any_unit_price:
-                    unit_price = item['unit_price']
-                    line_total = round(item['quantity'] * unit_price, 2)
-                else:
-                    split_total = round(total_amount / len(normalized_items), 2)
-                    line_total = split_total if index < len(normalized_items) - 1 else round(total_amount - allocated_total, 2)
-                    unit_price = round(line_total / item['quantity'], 2) if item['quantity'] > 0 else 0
-                    allocated_total += line_total
-                cur.execute(
-                    """
-                    INSERT INTO procurements (
-                        procurement_date, item_name, specification, quantity, unit_price, unit, total_amount, payment_person, purchase_channel, purchase_batch_no, remarks, procurement_images
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        procurement_date,
-                        item['item_name'],
-                        item['specification'],
-                        item['quantity'],
-                        unit_price,
-                        item['unit'],
-                        line_total,
-                        data.get('payment_person', ''),
-                        purchase_channel,
-                        batch_no,
-                        data.get('remarks', ''),
-                        _dump_procurement_images(procurement_images),
-                    )
-                )
-                procurement_id = cur.lastrowid
-                created_ids.append(procurement_id)
-                sync_procurement_create(
-                    conn,
-                    procurement_id,
-                    procurement_date,
-                    item['item_name'],
-                    item['specification'],
-                    item['quantity'],
-                    unit_price,
-                    item['unit'],
-                )
-            conn.commit()
-            return jsonify({'message': 'Procurement created successfully', 'ids': created_ids, 'count': len(created_ids)}), 201
-        else:
-            required_fields = ['procurement_date', 'item_name', 'quantity']
-            for field in required_fields:
-                if field not in data:
-                    return jsonify({'error': f'Missing required field: {field}'}), 400
-
-            quantity = _to_float(data.get('quantity'), 0)
-            unit_price = _to_float(data.get('unit_price'), 0)
-            total_amount = _to_float(data.get('total_amount'), 0)
-            if unit_price <= 0 and quantity > 0 and total_amount > 0:
-                unit_price = total_amount / quantity
-            if total_amount <= 0 and quantity > 0 and unit_price > 0:
-                total_amount = quantity * unit_price
-            batch_no = _next_batch_no(conn, data['procurement_date'], purchase_channel)
-
-            cur.execute(
-                """
-                INSERT INTO procurements (
-                    procurement_date, item_name, specification, quantity, unit_price, unit, total_amount, payment_person, purchase_channel, purchase_batch_no, remarks, procurement_images
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    data['procurement_date'],
-                    data['item_name'],
-                    data.get('specification', ''),
-                    quantity,
-                    unit_price,
-                    data.get('unit', ''),
-                    total_amount,
-                    data.get('payment_person', ''),
-                    purchase_channel,
-                    batch_no,
-                    data.get('remarks', ''),
-                    _dump_procurement_images(procurement_images),
-                )
-            )
-            procurement_id = cur.lastrowid
-            sync_procurement_create(
-                conn,
-                procurement_id,
-                data['procurement_date'],
-                data['item_name'],
-                data.get('specification', ''),
-                quantity,
-                unit_price,
-                data.get('unit', ''),
-            )
-            conn.commit()
-            return jsonify({'message': 'Procurement created successfully', 'id': procurement_id}), 201
+        created_ids = _create_procurement_records(conn, data)
+        conn.commit()
+        if isinstance(data.get('items'), list) and data.get('items'):
+            return jsonify(
+                {
+                    'message': 'Procurement created successfully',
+                    'ids': created_ids,
+                    'count': len(created_ids),
+                }
+            ), 201
+        return jsonify({'message': 'Procurement created successfully', 'id': created_ids[0]}), 201
+    except ValueError as e:
+        conn.rollback()
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
+        conn.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
         conn.close()
 
+
 @procurement_bp.route('/api/procurements/<int:id>', methods=['PUT'])
-def update_procurement(id):
+@token_required
+def update_procurement(current_user, id):
     """Update an existing procurement record."""
     data = request.json
     
@@ -693,7 +734,8 @@ def update_procurement(id):
 
 
 @procurement_bp.route('/api/procurements/<int:id>/image', methods=['POST'])
-def upload_procurement_image(id):
+@token_required
+def upload_procurement_image(current_user, id):
     if 'file' not in request.files:
         return jsonify({'error': '请上传图片文件（字段名 file）'}), 400
     file = request.files['file']
@@ -742,7 +784,8 @@ def upload_procurement_image(id):
 
 
 @procurement_bp.route('/api/procurements/<int:id>/images', methods=['PUT'])
-def update_procurement_images(id):
+@token_required
+def update_procurement_images(current_user, id):
     data = request.json if isinstance(request.json, dict) else {}
     procurement_images = _extract_procurement_images_from_payload(data)
 
@@ -776,7 +819,8 @@ def update_procurement_images(id):
         conn.close()
 
 @procurement_bp.route('/api/procurements/<int:id>', methods=['DELETE'])
-def delete_procurement(id):
+@token_required
+def delete_procurement(current_user, id):
     """Delete a procurement record."""
     conn = connect()
     cur = conn.cursor()

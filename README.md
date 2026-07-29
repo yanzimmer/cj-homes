@@ -69,8 +69,23 @@ python start_backend.py
 
 说明：`start_backend.py` 会自动读取 `homes-frontend/package.json` 中的版本号，并在启动后端时自动带上 `BACKEND_APP_VERSION`。如果你有特殊需要，也可以手动传入 `BACKEND_APP_VERSION=1.0.1 python start_backend.py` 覆盖。
 
+首次登录后台后，请从右上角管理员菜单进入“设置安全口令”。登录页的“忘记密码”功能只有在管理员自行设置安全口令后才可使用；连续验证失败 5 次会锁定 15 分钟。
+
+需要身份验证器登录时，从右上角管理员菜单进入“两步验证”，验证当前密码后使用 Google Authenticator、Microsoft Authenticator 或 1Password 扫描二维码。启用后请立即保存一次性恢复码。
+
+如果忘记了登录密码和安全口令，可在服务器终端运行：
+
+```bash
+python Backend-System/reset_admin_password.py --username admin
+```
+
+命令会交互式读取新密码，并注销该账号的全部旧会话。
+
+如果身份验证器和恢复码也同时丢失，可在命令后增加 `--disable-totp`，重置密码的同时停用两步验证。
+
 ## 补充说明
 
 - 前端默认是管理后台形态，包含登录鉴权与业务页面。
 - 后端提供 REST API，并负责数据库初始化、上传处理、通知配置等能力。
 - 项目里还包含 OCR / AI 相关配置入口，适合继续扩展自动识别或智能辅助能力。
+- 服务器部署与镜像替换流程见 [部署到服务器.md](部署到服务器.md)。

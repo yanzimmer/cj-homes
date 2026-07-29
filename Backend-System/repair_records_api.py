@@ -460,24 +460,23 @@ def _repair_record_to_dict(row):
     }
 
 
-@repair_bp.route("/repair-records/ai-draft", methods=["POST"])
-def api_create_repair_ai_draft():
+def _parse_repair_ai_request(req):
     user_text = ""
     images = []
 
-    if request.content_type and request.content_type.startswith("multipart/form-data"):
-        user_text = request.form.get("text") or ""
-        for file in request.files.getlist("images"):
+    if req.content_type and req.content_type.startswith("multipart/form-data"):
+        user_text = req.form.get("text") or ""
+        for file in req.files.getlist("images"):
             if not file or not file.filename:
                 continue
             if not str(file.mimetype or "").startswith("image/"):
-                return jsonify({"error": "仅支持图片文件"}), 400
+                raise ValueError("仅支持图片文件")
             data = file.read()
             if len(data) > 8 * 1024 * 1024:
-                return jsonify({"error": "单张图片请控制在 8MB 以内"}), 400
+                raise ValueError("单张图片请控制在 8MB 以内")
             images.append(base64.b64encode(data).decode("ascii"))
     else:
-        data = request.json or {}
+        data = req.json or {}
         user_text = data.get("text") or ""
         raw_images = data.get("images") or []
         if isinstance(raw_images, list):
@@ -489,20 +488,31 @@ def api_create_repair_ai_draft():
                     images.append(value)
 
     if not _clean_text(user_text) and not images:
-        return jsonify({"error": "请提供文字或图片"}), 400
+        raise ValueError("请提供文字或图片")
     if len(images) > 4:
-        return jsonify({"error": "最多支持 4 张图片"}), 400
+        raise ValueError("最多支持 4 张图片")
+    return user_text, images
 
+
+def _generate_repair_ai_draft(user_text, images):
     prompt = _build_repair_ai_prompt(user_text, len(images))
+    result = _call_ollama_generate(prompt, images)
+    response_text = result.get("response") or ""
+    parsed = _extract_json_object(response_text)
+    return {
+        "draft": _normalize_ai_repair_payload(parsed),
+        "model": result.get("model") or get_active_ai_model(),
+    }
+
+
+@repair_bp.route("/repair-records/ai-draft", methods=["POST"])
+@token_required
+def api_create_repair_ai_draft(current_user):
     try:
-        result = _call_ollama_generate(prompt, images)
-        response_text = result.get("response") or ""
-        parsed = _extract_json_object(response_text)
-        draft = _normalize_ai_repair_payload(parsed)
-        return jsonify({
-            "draft": draft,
-            "model": result.get("model") or get_active_ai_model(),
-        })
+        user_text, images = _parse_repair_ai_request(request)
+        return jsonify(_generate_repair_ai_draft(user_text, images))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 

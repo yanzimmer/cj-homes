@@ -21,6 +21,9 @@ env/
 .env
 .venv
 *.db
+*.db-wal
+*.db-shm
+*.db.bak_*
 *.sqlite3
 .DS_Store
 .idea/

@@ -1,6 +1,7 @@
 import axios from 'axios'
 import router from '../router'
 import { ElMessage } from 'element-plus'
+import { clearAuthStorage, getStoredToken } from '../utils/authStorage'
 
 // API 基础地址：优先读取环境变量，回退到本地默认地址
 const API_URL = import.meta.env.VITE_API_BASE_URL || '/api'
@@ -22,16 +23,10 @@ const SESSION_ERROR_CODES = new Set([
   'AUTH_SESSION_REPLACED'
 ])
 
-const clearAuthStorage = () => {
-  localStorage.removeItem('token')
-  localStorage.removeItem('user')
-  localStorage.removeItem('session_id')
-}
-
 // 请求拦截器添加token
 apiClient.interceptors.request.use(
   config => {
-    const token = localStorage.getItem('token')
+    const token = getStoredToken()
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }

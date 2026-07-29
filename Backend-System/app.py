@@ -12,7 +12,7 @@ from flasgger import Swagger
 from common import BASE_DIR, SECRET_KEY, JWT_EXPIRATION_DELTA, connect
 from contract_templates_api import templates_bp, ensure_contract_templates_schema
 from contracts_api import contracts_bp, ensure_contracts_schema
-from auth_api import auth_bp
+from auth_api import auth_bp, ensure_totp_schema
 from dashboard_api import dashboard_bp
 from notify_api import notify_bp
 from rooms_api import rooms_bp, ensure_rooms_schema
@@ -41,7 +41,7 @@ CORS(
         r"/api/*": {
             "origins": "*",
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"],
+            "allow_headers": ["Content-Type", "Authorization", "Idempotency-Key"],
             # 鏆撮湶鍒锋柊浠ょ墝鐩稿叧鍝嶅簲澶达紝渚夸簬鍓嶇璇诲彇
             "expose_headers": ["Content-Type", "X-Refreshed-Token", "X-Token-Expires"],
         }
@@ -57,7 +57,7 @@ app.config['JWT_EXPIRATION_DELTA'] = JWT_EXPIRATION_DELTA
 app.config['SWAGGER'] = {
     'title': 'Homes Rental Management API',
     'uiversion': 3,
-    'version': '1.1.3',
+    'version': '1.2.0',
     'description': 'API documentation for Homes Rental Management System',
     'securityDefinitions': {
         'Bearer': {
@@ -77,7 +77,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 log_paths = configure_logging(app)
 app.logger.info(f"后端文件日志目录: {log_paths['log_dir']}")
 APP_STARTED_AT = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-BACKEND_APP_VERSION = os.getenv("BACKEND_APP_VERSION", "1.1.3")
+BACKEND_APP_VERSION = os.getenv("BACKEND_APP_VERSION", "1.2.0")
 REPO_ROOT = os.path.dirname(BASE_DIR)
 
 
@@ -119,6 +119,7 @@ SENSITIVE_LOG_KEYS = {
     "api_key",
     "answer",
     "authorization",
+    "code",
     "id_card_image",
     "image",
     "new_password",
@@ -127,6 +128,7 @@ SENSITIVE_LOG_KEYS = {
     "security_answer",
     "secret",
     "token",
+    "totp_code",
 }
 
 
@@ -524,8 +526,6 @@ def mark_request_start():
 # 鍒濆鍖栨壘鍥炲瘑鐮佹ā鍧楋紙濡傚瓨鍦ㄥ垯杩涜鍒濆鍖栵級
 try:
     fp.ensure_schema()
-    # 璁剧疆涓€涓粯璁ょ殑鎭㈠淇℃伅锛岄伩鍏嶉娆′娇鐢ㄦ椂娌℃湁閰嶇疆
-    fp.set_recovery_info('admin', security_answer='15286304124')
 except Exception as e:
     app.logger.warning(f"鍒濆鍖栨壘鍥炲瘑鐮佹ā鍧楀け璐? {e}")
 app.register_blueprint(upload_bp)
@@ -545,6 +545,7 @@ try:
 except Exception as e:
     app.logger.warning(f"娉ㄥ唽鍚堝悓妗ｆ妯″潡澶辫触: {e}")
 
+ensure_totp_schema()
 app.register_blueprint(auth_bp)
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(notify_bp)

@@ -27,57 +27,25 @@
             </el-select>
           </el-form-item>
           <el-form-item v-if="form.scope_type !== '单个房间'" label="楼栋" prop="building">
-            <el-select
+            <el-input
               v-model="form.building"
-              placeholder="请选择涉及楼栋"
-              multiple
-              filterable
-              allow-create
-              default-first-option
+              placeholder="请输入涉及楼栋，多个楼栋用逗号分隔"
               clearable
-            >
-              <el-option
-                v-for="item in repairBuildingOptions"
-                :key="item"
-                :label="item"
-                :value="item"
-              />
-            </el-select>
+            />
           </el-form-item>
           <el-form-item v-else label="楼栋" prop="building">
-            <el-select
+            <el-input
               v-model="form.building"
-              placeholder="请选择或手动输入楼栋"
-              filterable
-              allow-create
-              default-first-option
+              placeholder="请输入楼栋"
               clearable
-              @change="handleRepairBuildingChange"
-            >
-              <el-option
-                v-for="item in repairBuildingOptions"
-                :key="item"
-                :label="item"
-                :value="item"
-              />
-            </el-select>
+            />
           </el-form-item>
           <el-form-item v-if="form.scope_type === '单个房间'" label="房间号" prop="room_no">
-            <el-select
+            <el-input
               v-model="form.room_no"
-              placeholder="请选择或手动输入房间号"
-              filterable
-              allow-create
-              default-first-option
+              placeholder="请输入房间号"
               clearable
-            >
-              <el-option
-                v-for="item in filteredRepairRoomOptions"
-                :key="`${item.building}-${item.room_no}`"
-                :label="item.room_no"
-                :value="item.room_no"
-              />
-            </el-select>
+            />
           </el-form-item>
           <el-form-item v-else-if="form.scope_type === '多个房间'" label="多个房间号" prop="room_nos">
             <el-input v-model="form.room_nos" type="textarea" :rows="2" placeholder="请输入多个房间号，例如：B-502，B-503" />
@@ -110,21 +78,11 @@
           </el-form-item>
           <el-form-item label="报修日期" prop="report_date"><el-date-picker v-model="form.report_date" type="date" value-format="YYYY-MM-DD" /></el-form-item>
           <el-form-item label="报修人" prop="report_by">
-            <el-select
+            <el-input
               v-model="form.report_by"
-              placeholder="请选择租户名或手动输入"
-              filterable
-              allow-create
-              default-first-option
+              placeholder="请输入报修人"
               clearable
-            >
-              <el-option
-                v-for="name in tenantNameOptions"
-                :key="name"
-                :label="name"
-                :value="name"
-              />
-            </el-select>
+            />
           </el-form-item>
           <el-form-item label="状态" prop="status">
             <el-select v-model="form.status" placeholder="请选择状态">
@@ -366,7 +324,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { publicBusinessEntryApi, procurementApi, repairRecordsApi } from '../api'
+import { publicBusinessEntryApi } from '../api'
 import ThemeModeSwitch from '../components/ThemeModeSwitch.vue'
 import { applyTheme, getPreferredTheme } from '../utils/theme'
 
@@ -397,6 +355,7 @@ const aiTextPlaceholder = computed(() => {
 
 const loading = ref(true)
 const submitting = ref(false)
+const submissionKey = ref('')
 const error = ref('')
 const formRef = ref(null)
 const imageInputRef = ref(null)
@@ -406,8 +365,6 @@ const uploadProgress = ref(0)
 const paymentUploading = ref(false)
 const paymentUploadProgress = ref(0)
 const inventoryOptions = ref([])
-const repairRoomOptions = ref([])
-const tenantNameOptions = ref([])
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/api\/?$/, '')
 const MAX_PUBLIC_IMAGES = 30
 const REPAIR_SCOPE_OPTIONS = ['单个房间', '多个房间', '公共区域', '整层', '整栋', '楼栋']
@@ -419,20 +376,12 @@ const aiDialog = reactive({
   dragActive: false,
 })
 
-const parsePublicBuildingModel = (value, scopeType) => {
-  if (scopeType !== '单个房间') {
-    if (Array.isArray(value)) return value.map(v => String(v || '').trim()).filter(Boolean)
-    return String(value || '').split(/[，,、;\s]+/).map(v => v.trim()).filter(Boolean)
-  }
-  if (Array.isArray(value)) return String(value[0] || '').trim()
+const parsePublicBuildingModel = (value) => {
+  if (Array.isArray(value)) return value.map(v => String(v || '').trim()).filter(Boolean).join('，')
   return String(value || '').trim()
 }
-const serializePublicBuildingModel = (value, scopeType) => {
-  if (scopeType !== '单个房间') {
-    const items = Array.isArray(value) ? value : parsePublicBuildingModel(value, scopeType)
-    return items.map(v => String(v || '').trim()).filter(Boolean).join('，')
-  }
-  return Array.isArray(value) ? String(value[0] || '').trim() : String(value || '').trim()
+const serializePublicBuildingModel = (value) => {
+  return parsePublicBuildingModel(value)
 }
 
 const form = reactive({
@@ -468,11 +417,11 @@ const form = reactive({
 
 const validatePublicRepairBuilding = (_rule, value, callback) => {
   if (form.scope_type === '单个房间') {
-    if (!String(value || '').trim()) return callback(new Error('请输入或选择楼栋'))
+    if (!String(value || '').trim()) return callback(new Error('请输入楼栋'))
   }
   if (form.scope_type !== '单个房间') {
-    const items = Array.isArray(value) ? value.filter(Boolean) : []
-    if (!items.length) return callback(new Error('请选择楼栋'))
+    const items = String(value || '').split(/[，,、;\s]+/).map(v => v.trim()).filter(Boolean)
+    if (!items.length) return callback(new Error('请输入楼栋'))
   }
   callback()
 }
@@ -512,19 +461,11 @@ const rulesMap = {
 }
 
 const rules = computed(() => rulesMap[businessType] || {})
-const repairBuildingOptions = computed(() => {
-  return [...new Set((repairRoomOptions.value || []).map(item => item.building).filter(Boolean))]
-})
-const filteredRepairRoomOptions = computed(() => {
-  if (!form.building) return []
-  return (repairRoomOptions.value || []).filter(item => item.building === form.building)
-})
-
 const payloadByBusiness = () => {
   if (businessType === 'repair') {
     return {
       scope_type: form.scope_type,
-      building: serializePublicBuildingModel(form.building, form.scope_type),
+      building: serializePublicBuildingModel(form.building),
       room_no: form.room_no,
       room_nos: form.room_nos,
       repair_type: form.repair_type,
@@ -837,7 +778,7 @@ const applyProcurementAiDraftToForm = (draft = {}) => {
 const applyRepairAiDraftToForm = (draft = {}) => {
   const scopeType = String(draft.scope_type || '单个房间')
   form.scope_type = REPAIR_SCOPE_OPTIONS.includes(scopeType) ? scopeType : '单个房间'
-  form.building = parsePublicBuildingModel(draft.building || '', form.scope_type)
+  form.building = parsePublicBuildingModel(draft.building || '')
   form.room_no = String(draft.room_no || '')
   form.room_nos = String(draft.room_nos || '')
   form.repair_type = String(draft.repair_type || '其他')
@@ -866,8 +807,8 @@ const submitAiDraft = async () => {
       formData.append('images', item.file)
     })
     const response = businessType === 'repair'
-      ? await repairRecordsApi.createAiDraft(formData)
-      : await procurementApi.createAiDraft(formData)
+      ? await publicBusinessEntryApi.createRepairAiDraft(token, formData)
+      : await publicBusinessEntryApi.createProcurementAiDraft(token, formData)
     if (businessType === 'repair') {
       applyRepairAiDraftToForm(response?.data?.draft || {})
     } else {
@@ -882,12 +823,8 @@ const submitAiDraft = async () => {
   }
 }
 
-const handleRepairBuildingChange = () => {
-  if (form.scope_type === '单个房间') form.room_no = ''
-}
-
 const handlePublicRepairScopeChange = () => {
-  form.building = parsePublicBuildingModel(form.building, form.scope_type)
+  form.building = parsePublicBuildingModel(form.building)
   if (form.scope_type === '单个房间') {
     form.room_nos = ''
   } else if (form.scope_type === '多个房间') {
@@ -904,8 +841,6 @@ const fetchFormInfo = async () => {
   try {
     const response = await publicBusinessEntryApi.getForm(businessType, token)
     inventoryOptions.value = response?.data?.inventory_options || []
-    repairRoomOptions.value = response?.data?.room_options || []
-    tenantNameOptions.value = response?.data?.tenant_names || []
   } catch (err) {
     error.value = err?.response?.data?.error || '填写链接无效或已失效'
   } finally {
@@ -951,9 +886,14 @@ const submitForm = async () => {
     if (!valid) return
     submitting.value = true
     try {
-      await publicBusinessEntryApi.submit(businessType, token, payloadByBusiness())
+      if (!submissionKey.value) {
+        submissionKey.value = globalThis.crypto?.randomUUID?.()
+          || `${Date.now()}-${Math.random().toString(36).slice(2)}`
+      }
+      await publicBusinessEntryApi.submit(businessType, token, payloadByBusiness(), submissionKey.value)
       ElMessage.success('提交成功')
       resetForm()
+      submissionKey.value = ''
     } catch (err) {
       ElMessage.error(err?.response?.data?.error || '提交失败')
     } finally {

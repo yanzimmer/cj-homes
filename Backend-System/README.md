@@ -51,6 +51,10 @@ python Backend-System/init-scripts/init_notification_config.py
 
 - 默认管理员：`admin / 123456`（创建后请尽快修改密码）
 - 如已存在数据，`--seed-demo-data` 会自动跳过插入演示数据
+- 首次登录后，请从右上角管理员菜单设置安全口令。连续 5 次验证失败会锁定找回功能 15 分钟。
+- 可从同一菜单启用“两步验证”，支持标准 TOTP 身份验证器；启用后应立即保存一次性恢复码。
+- 同时忘记密码和安全口令时，可在项目根目录运行 `python Backend-System/reset_admin_password.py --username admin`，按提示重置密码并注销旧会话。
+- 如果身份验证器和恢复码也同时丢失，可增加 `--disable-totp` 参数，重置密码并停用两步验证。
 
 ## 启动服务（不使用 Docker）
 

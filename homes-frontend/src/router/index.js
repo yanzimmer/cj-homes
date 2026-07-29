@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { getStoredToken } from '../utils/authStorage'
 
 const routes = [
   {
@@ -121,7 +122,7 @@ const router = createRouter({
 
 // 路由守卫
 router.beforeEach((to, from, next) => {
-  const token = localStorage.getItem('token')
+  const token = getStoredToken()
   
   if (to.matched.some(record => record.meta.requiresAuth)) {
     if (!token) {

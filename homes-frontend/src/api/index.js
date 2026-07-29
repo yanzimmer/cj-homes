@@ -1,6 +1,7 @@
 import axios from 'axios'
 import router from '../router'
 import { ElMessage } from 'element-plus'
+import { clearAuthStorage, getStoredToken, updateStoredToken } from '../utils/authStorage'
 
 // API 基础地址：优先读取环境变量，回退到本地默认地址
 const API_URL = import.meta.env.VITE_API_BASE_URL || '/api'
@@ -22,16 +23,10 @@ const SESSION_ERROR_CODES = new Set([
   'AUTH_SESSION_REPLACED'
 ])
 
-const clearAuthStorage = () => {
-  localStorage.removeItem('token')
-  localStorage.removeItem('user')
-  localStorage.removeItem('session_id')
-}
-
 // 璇锋眰鎷︽埅鍣ㄦ坊鍔爐oken
 apiClient.interceptors.request.use(
   config => {
-    const token = localStorage.getItem('token')
+    const token = getStoredToken()
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
@@ -44,9 +39,7 @@ apiClient.interceptors.response.use(
   response => {
     try {
       const newToken = response?.headers?.['x-refreshed-token'] || response?.headers?.['X-Refreshed-Token']
-      if (newToken) {
-        localStorage.setItem('token', newToken)
-      }
+      updateStoredToken(newToken)
     } catch (_) {}
     return response
   },
@@ -219,6 +212,13 @@ export const authApi = {
   login: (credentials) => apiClient.post('/login', credentials),
   logout: () => apiClient.post('/logout'),
   verifyToken: () => apiClient.get('/verify-token', { skipLoading: true }),
+  getRecoverySettings: () => apiClient.get('/recovery-settings'),
+  updateRecoverySettings: (payload) => apiClient.put('/recovery-settings', payload),
+  getTotpSettings: () => apiClient.get('/totp/settings'),
+  setupTotp: (payload) => apiClient.post('/totp/setup', payload),
+  enableTotp: (payload) => apiClient.post('/totp/enable', payload),
+  disableTotp: (payload) => apiClient.post('/totp/disable', payload),
+  regenerateTotpRecoveryCodes: (payload) => apiClient.post('/totp/recovery-codes', payload),
   getSessionSettings: () => apiClient.get('/session-settings'),
   updateSessionSettings: (payload) => apiClient.put('/session-settings', payload),
   listSessions: (params = {}) => apiClient.get('/sessions', { params }),
@@ -388,6 +388,14 @@ export const publicRentCollectionApi = {
 
 export const publicBusinessEntryApi = {
   getForm: (businessType, token) => apiClient.get(`/public-entry/${businessType}/${token}`),
+  createRepairAiDraft: (token, payload) => apiClient.post(`/public-entry/repair/${token}/ai-draft`, payload, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 180000,
+  }),
+  createProcurementAiDraft: (token, payload) => apiClient.post(`/public-entry/procurement/${token}/ai-draft`, payload, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 180000,
+  }),
   uploadImage: (businessType, token, file, onProgress) => {
     const formData = new FormData()
     formData.append('file', file)
@@ -399,6 +407,10 @@ export const publicBusinessEntryApi = {
       },
     })
   },
-  submit: (businessType, token, payload) => apiClient.post(`/public-entry/${businessType}/${token}/submit`, payload),
+  submit: (businessType, token, payload, idempotencyKey) => apiClient.post(
+    `/public-entry/${businessType}/${token}/submit`,
+    payload,
+    { headers: { 'Idempotency-Key': idempotencyKey } },
+  ),
 }
 export default apiClient
