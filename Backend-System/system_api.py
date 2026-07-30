@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import sqlite3
 import zipfile
 import io
@@ -16,7 +17,7 @@ from threading import Lock, Thread
 from datetime import datetime
 from flask import Blueprint, request, jsonify, send_file, current_app
 from auth_api import token_required
-from common import connect, DB_NAME, BASE_DIR
+from common import connect, DB_NAME, BASE_DIR, get_app_version
 from room_feature_config import get_room_feature_options, save_room_feature_options
 from utility_account_config import get_utility_account_options, save_utility_account_options
 from ocr_settings import build_ocr_status, load_ocr_settings, save_ocr_settings
@@ -68,6 +69,7 @@ _snapshot_task_status = {
 }
 
 EXCLUDED_SQLITE_TABLES = {"sqlite_sequence"}
+SNAPSHOT_FORMAT_VERSION = 2
 ENV_EXPORT_DIRS = [
     PROJECT_ROOT,
     BASE_DIR,
@@ -924,6 +926,54 @@ def _progress_reporter(callback, phase, progress, message):
         callback(phase, progress, message)
 
 
+def _parse_app_version(value):
+    text = str(value or '').strip()
+    match = re.match(r'^[vV]?(\d+(?:\.\d+){0,3})', text)
+    if not match:
+        return None
+    parts = [int(part) for part in match.group(1).split('.')]
+    return tuple((parts + [0, 0, 0, 0])[:4])
+
+
+def _snapshot_database_metadata(db_data):
+    if not isinstance(db_data, dict):
+        return {}
+    metadata = db_data.get('metadata')
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _validate_snapshot_version(db_data):
+    metadata = _snapshot_database_metadata(db_data)
+    raw_format_version = metadata.get('snapshot_format_version')
+    if raw_format_version not in (None, ''):
+        try:
+            snapshot_format_version = int(raw_format_version)
+        except (TypeError, ValueError):
+            raise ValueError(f'快照格式版本无法识别: {raw_format_version}')
+        if snapshot_format_version > SNAPSHOT_FORMAT_VERSION:
+            raise ValueError(
+                f'该快照使用更高的格式版本 {snapshot_format_version}，'
+                f'当前系统仅支持到格式版本 {SNAPSHOT_FORMAT_VERSION}'
+            )
+
+    snapshot_version = str(metadata.get('app_version') or '').strip()
+    if not snapshot_version:
+        return
+
+    parsed_snapshot = _parse_app_version(snapshot_version)
+    current_version = get_app_version()
+    parsed_current = _parse_app_version(current_version)
+    if parsed_snapshot is None:
+        raise ValueError(f'快照的系统版本格式无法识别: {snapshot_version}')
+    if parsed_current is None:
+        raise RuntimeError(f'当前系统版本格式无法识别: {current_version}')
+    if parsed_snapshot > parsed_current:
+        display_snapshot_version = snapshot_version.lstrip('vV')
+        raise ValueError(
+            f'该快照来自更高版本 v{display_snapshot_version}，当前系统 v{current_version} 不支持降级恢复'
+        )
+
+
 def _collect_relative_files(base_dir):
     results = []
     if not os.path.isdir(base_dir):
@@ -990,6 +1040,8 @@ def _read_snapshot_meta(snapshot_id):
         'created_at': '',
         'source_name': '',
         'snapshot_type': 'manual',
+        'app_version': '',
+        'snapshot_format_version': 1,
         'size_bytes': 0,
         'size_text': '',
         'file_name': os.path.basename(zip_path),
@@ -1003,6 +1055,18 @@ def _read_snapshot_meta(snapshot_id):
                 payload['created_at'] = str(data.get('created_at') or '').strip()
                 payload['source_name'] = str(data.get('source_name') or '').strip()
                 payload['snapshot_type'] = str(data.get('snapshot_type') or '').strip() or payload['snapshot_type']
+                payload['app_version'] = str(data.get('app_version') or '').strip()
+                payload['snapshot_format_version'] = int(data.get('snapshot_format_version') or 1)
+        except Exception:
+            pass
+
+    if not payload['app_version']:
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                with zf.open('database.json') as db_file:
+                    metadata = _snapshot_database_metadata(json.load(db_file))
+            payload['app_version'] = str(metadata.get('app_version') or '').strip()
+            payload['snapshot_format_version'] = int(metadata.get('snapshot_format_version') or 1)
         except Exception:
             pass
 
@@ -1116,6 +1180,8 @@ def _write_snapshot_metadata(snapshot_id, created_at, source_name, snapshot_type
             'created_at': created_at,
             'source_name': str(source_name or '').strip(),
             'snapshot_type': str(snapshot_type or 'manual').strip(),
+            'app_version': get_app_version(),
+            'snapshot_format_version': SNAPSHOT_FORMAT_VERSION,
         }, f, ensure_ascii=False, indent=2)
 
 
@@ -1135,6 +1201,8 @@ def _create_snapshot_archive(source_name='', snapshot_type='manual', progress_ca
             'created_at': created_at,
             'source_name': str(source_name or '').strip(),
             'snapshot_type': str(snapshot_type or 'manual').strip(),
+            'app_version': get_app_version(),
+            'snapshot_format_version': SNAPSHOT_FORMAT_VERSION,
             'size_bytes': 0,
             'size_text': '0 B',
             'file_name': os.path.basename(target_zip_path),
@@ -1315,6 +1383,7 @@ def _prepare_import_staging(zip_path, progress_callback=None):
                 raise ValueError('备份文件缺少 database.json，无法恢复数据库')
             with zf.open('database.json') as db_file:
                 db_data = json.load(db_file)
+            _validate_snapshot_version(db_data)
 
             config_stage_dir = os.path.join(staging_root, 'config')
             uploads_stage_dir = os.path.join(staging_root, 'uploads')
@@ -1364,23 +1433,29 @@ def _apply_staged_import(staging, progress_callback=None):
         uploads_snapshot_exists = _snapshot_directory(UPLOADS_DIR, uploads_snapshot_dir)
         env_snapshot_manifest = _snapshot_env_files(env_snapshot_dir)
 
-        _progress_reporter(progress_callback, 'restore_db', 58, '正在恢复数据库')
+        _progress_reporter(progress_callback, 'restore_db', 52, '正在恢复数据库')
         success, msg = _restore_db_from_dict(staging['db_data'])
         if not success:
             raise RuntimeError(f'数据库恢复失败: {msg}')
 
-        _progress_reporter(progress_callback, 'restore_config', 72, '正在恢复配置文件')
+        _progress_reporter(progress_callback, 'restore_config', 64, '正在恢复配置文件')
         _clear_directory(CONFIG_DIR)
         _copy_directory_contents(staging['config_dir'], CONFIG_DIR)
 
-        _progress_reporter(progress_callback, 'restore_uploads', 86, '正在恢复上传文件')
+        _progress_reporter(progress_callback, 'restore_uploads', 74, '正在恢复上传文件')
         _clear_directory(UPLOADS_DIR)
         _copy_directory_contents(staging['uploads_dir'], UPLOADS_DIR)
 
-        _progress_reporter(progress_callback, 'restore_env', 96, '正在恢复环境配置')
+        _progress_reporter(progress_callback, 'restore_env', 82, '正在恢复环境配置')
         _restore_env_files_from_staging(staging['env_dir'], staging['env_manifest'])
+
+        _progress_reporter(progress_callback, 'migrating', 90, '正在升级数据库结构并迁移旧数据')
+        _run_post_restore_schema_migrations()
+
+        _progress_reporter(progress_callback, 'validating', 97, '正在校验恢复后的数据完整性')
+        _validate_restored_database(staging['db_data'])
         _progress_reporter(progress_callback, 'completed', 100, '系统状态恢复完成')
-    except Exception:
+    except Exception as restore_error:
         rollback_errors = []
         if db_snapshot_ready:
             try:
@@ -1406,7 +1481,7 @@ def _apply_staged_import(staging, progress_callback=None):
 
         if rollback_errors:
             raise RuntimeError('导入失败，且回滚不完整：' + '；'.join(rollback_errors))
-        raise
+        raise RuntimeError(f'{restore_error}；已自动恢复操作前状态') from restore_error
     finally:
         shutil.rmtree(rollback_root, ignore_errors=True)
 
@@ -1442,7 +1517,9 @@ def _dump_db_to_dict():
         return {
             "metadata": {
                 "timestamp": datetime.now().isoformat(),
-                "version": "1.0"
+                "version": get_app_version(),
+                "app_version": get_app_version(),
+                "snapshot_format_version": SNAPSHOT_FORMAT_VERSION
             },
             "schemas": schemas,
             "table_order": table_order,
@@ -1520,6 +1597,140 @@ def _restore_db_from_dict(data, force=True):
     finally:
         cursor.execute("PRAGMA foreign_keys = ON")
         conn.close()
+
+
+def _run_post_restore_schema_migrations():
+    import forgot_password as recovery
+    from auth_api import ensure_totp_schema
+    from contract_templates_api import ensure_contract_templates_schema
+    from contracts_api import ensure_contracts_schema
+    from inventory_sync_service import ensure_inventory_sync_schema
+    from notification_service import ensure_notification_delivery_schema
+    from ocr_settings import ensure_ocr_usage_schema
+    from procurement_api import ensure_procurement_schema
+    from public_entry_links_api import ensure_public_entry_schema
+    from rent_collection_api import ensure_rent_collection_schema
+    from rent_ledger_api import ensure_rent_ledger_schema
+    from repair_records_api import ensure_repair_records_schema
+    from rooms_api import ensure_rooms_schema
+    from self_checkin_api import ensure_self_checkin_schema
+    from session_manager import ensure_session_schema
+    from tenant_stays_service import ensure_tenant_stays_schema
+    from utility_bills_api import ensure_utility_bills_schema
+    from warehouse_api import ensure_warehouse_schema
+
+    migrations = (
+        recovery.ensure_schema,
+        ensure_contract_templates_schema,
+        ensure_contracts_schema,
+        ensure_totp_schema,
+        ensure_session_schema,
+        ensure_rooms_schema,
+        ensure_self_checkin_schema,
+        ensure_tenant_stays_schema,
+        ensure_rent_collection_schema,
+        ensure_repair_records_schema,
+        ensure_inventory_sync_schema,
+        ensure_procurement_schema,
+        ensure_utility_bills_schema,
+        ensure_rent_ledger_schema,
+        ensure_public_entry_schema,
+        ensure_warehouse_schema,
+        ensure_ocr_usage_schema,
+        ensure_notification_delivery_schema,
+    )
+    for migrate in migrations:
+        migrate()
+
+
+def _table_columns(cursor, table):
+    return {row[1] for row in cursor.execute(f'PRAGMA table_info("{table}")').fetchall()}
+
+
+def _validate_restored_database(db_data):
+    source_tables = db_data.get('tables', {}) if isinstance(db_data, dict) else {}
+    conn = connect()
+    cursor = conn.cursor()
+    errors = []
+    try:
+        existing_tables = {
+            row[0]
+            for row in cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            ).fetchall()
+        }
+
+        for table, rows in source_tables.items():
+            if table in EXCLUDED_SQLITE_TABLES or not isinstance(rows, list):
+                continue
+            if table not in existing_tables:
+                errors.append(f'缺少备份表 {table}')
+                continue
+            restored_count = int(cursor.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0] or 0)
+            if restored_count < len(rows):
+                errors.append(f'{table} 数据不完整（备份 {len(rows)} 条，恢复 {restored_count} 条）')
+
+        if 'tenants' in existing_tables and 'tenant_stays' in existing_tables:
+            missing_stays = cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM tenants t
+                WHERE NOT EXISTS (SELECT 1 FROM tenant_stays s WHERE s.tenant_id = t.id)
+                """
+            ).fetchone()[0]
+            if missing_stays:
+                errors.append(f'{missing_stays} 个租户没有对应的入住记录')
+
+            duplicate_active = cursor.execute(
+                """
+                SELECT COUNT(*) FROM (
+                    SELECT tenant_id
+                    FROM tenant_stays
+                    WHERE status = '在住'
+                    GROUP BY tenant_id
+                    HAVING COUNT(*) > 1
+                )
+                """
+            ).fetchone()[0]
+            if duplicate_active:
+                errors.append(f'{duplicate_active} 个租户存在多条在住记录')
+
+        relation_checks = (
+            ('contracts', 'tenant_id', 'stay_id', '合同'),
+            ('tenant_moves', 'tenant_id', 'stay_id', '搬迁记录'),
+            ('rent_ledger_entries', 'tenant_id', 'stay_id', '收租台账'),
+            ('self_checkin_submissions', 'approved_tenant_id', 'approved_stay_id', '自助入住审批'),
+        )
+        for table, tenant_column, stay_column, label in relation_checks:
+            if table not in existing_tables or 'tenant_stays' not in existing_tables:
+                continue
+            columns = _table_columns(cursor, table)
+            if tenant_column not in columns or stay_column not in columns:
+                errors.append(f'{label}缺少入住记录关联字段')
+                continue
+            invalid_count = cursor.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM "{table}" source
+                LEFT JOIN tenant_stays stay ON stay.id = source."{stay_column}"
+                WHERE source."{tenant_column}" IS NOT NULL
+                  AND (source."{stay_column}" IS NULL
+                       OR stay.id IS NULL
+                       OR stay.tenant_id <> source."{tenant_column}")
+                """
+            ).fetchone()[0]
+            if invalid_count:
+                errors.append(f'{invalid_count} 条{label}未正确关联入住记录')
+
+        foreign_key_errors = cursor.execute('PRAGMA foreign_key_check').fetchall()
+        if foreign_key_errors:
+            first = foreign_key_errors[0]
+            errors.append(f'发现 {len(foreign_key_errors)} 条外键错误，首条位于 {first[0]} 表')
+    finally:
+        conn.close()
+
+    if errors:
+        raise RuntimeError('恢复后数据校验失败：' + '；'.join(errors[:8]))
 
 
 def _run_create_snapshot_job(task_id, source_name, snapshot_type):

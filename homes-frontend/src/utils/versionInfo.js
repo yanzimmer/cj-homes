@@ -1,6 +1,15 @@
-const APP_RELEASE_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.3.0'
+const APP_RELEASE_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.3.1'
 
 const releaseHistory = [
+  {
+    version: '1.3.1',
+    releasedAt: '2026-07-30',
+    notes: [
+      '加强系统快照恢复流程：恢复后立即执行全部数据库结构迁移和关键数据校验，失败时自动回滚恢复前状态。',
+      '系统快照新增真实应用版本与格式版本信息，阻止高版本快照恢复到低版本程序，同时继续兼容没有版本信息的旧快照。',
+      '快照列表显示创建版本，回滚确认时明确提示数据库、上传文件、通知配置和登录密钥都会恢复到快照时状态。',
+    ],
+  },
   {
     version: '1.3.0',
     releasedAt: '2026-07-30',

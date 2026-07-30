@@ -231,7 +231,7 @@
                     <div v-if="latestSnapshot" class="rollback-meta">
                       <div>最新快照：{{ latestSnapshot.created_at || '未知时间' }}</div>
                       <div>来源：{{ snapshotTypeLabel(latestSnapshot) }} · {{ latestSnapshot.source_name || '未命名快照' }}</div>
-                      <div>大小：{{ latestSnapshot.size_text || '未知' }}</div>
+                      <div>版本：{{ snapshotVersionLabel(latestSnapshot) }} · 大小：{{ latestSnapshot.size_text || '未知' }}</div>
                     </div>
 
                     <div v-if="snapshotTaskStatus.status !== 'idle'" class="snapshot-task-box">
@@ -262,7 +262,7 @@
                               <el-tag size="small" :type="snapshotTypeTagType(latestSnapshot)" effect="plain">{{ snapshotTypeLabel(latestSnapshot) }}</el-tag>
                               <span class="snapshot-title-text">{{ latestSnapshot.source_name || '未命名快照' }}</span>
                             </span>
-                            <span class="snapshot-row-subtitle">{{ latestSnapshot.created_at || '未知时间' }} · {{ latestSnapshot.size_text || '未知大小' }}</span>
+                            <span class="snapshot-row-subtitle">{{ latestSnapshot.created_at || '未知时间' }} · {{ snapshotVersionLabel(latestSnapshot) }} · {{ latestSnapshot.size_text || '未知大小' }}</span>
                           </span>
                           <span class="snapshot-row-tools">
                             <el-button link type="danger" :disabled="isSnapshotTaskRunning || importing" @click.stop="handleDeleteSnapshot(latestSnapshot)">删除</el-button>
@@ -292,7 +292,7 @@
                                   <el-tag size="small" :type="snapshotTypeTagType(item)" effect="plain">{{ snapshotTypeLabel(item) }}</el-tag>
                                   <span class="snapshot-title-text">{{ item.source_name || '未命名快照' }}</span>
                                 </span>
-                                <span class="snapshot-row-subtitle">{{ item.created_at || '未知时间' }} · {{ item.size_text || '未知大小' }}</span>
+                                <span class="snapshot-row-subtitle">{{ item.created_at || '未知时间' }} · {{ snapshotVersionLabel(item) }} · {{ item.size_text || '未知大小' }}</span>
                               </span>
                               <span class="snapshot-row-tools">
                                 <el-button link type="danger" :disabled="isSnapshotTaskRunning || importing" @click.stop="handleDeleteSnapshot(item)">删除</el-button>
@@ -320,7 +320,7 @@
                                   <el-tag size="small" :type="snapshotTypeTagType(item)" effect="plain">{{ snapshotTypeLabel(item) }}</el-tag>
                                   <span class="snapshot-title-text">{{ item.source_name || '未命名快照' }}</span>
                                 </span>
-                                <span class="snapshot-row-subtitle">{{ item.created_at || '未知时间' }} · {{ item.size_text || '未知大小' }}</span>
+                                <span class="snapshot-row-subtitle">{{ item.created_at || '未知时间' }} · {{ snapshotVersionLabel(item) }} · {{ item.size_text || '未知大小' }}</span>
                               </span>
                               <span class="snapshot-row-tools">
                                 <el-button link type="danger" :disabled="isSnapshotTaskRunning || importing" @click.stop="handleDeleteSnapshot(item)">删除</el-button>
@@ -348,7 +348,7 @@
                                   <el-tag size="small" :type="snapshotTypeTagType(item)" effect="plain">{{ snapshotTypeLabel(item) }}</el-tag>
                                   <span class="snapshot-title-text">{{ item.source_name || '未命名快照' }}</span>
                                 </span>
-                                <span class="snapshot-row-subtitle">{{ item.created_at || '未知时间' }} · {{ item.size_text || '未知大小' }}</span>
+                                <span class="snapshot-row-subtitle">{{ item.created_at || '未知时间' }} · {{ snapshotVersionLabel(item) }} · {{ item.size_text || '未知大小' }}</span>
                               </span>
                               <span class="snapshot-row-tools">
                                 <el-button link type="danger" :disabled="isSnapshotTaskRunning || importing" @click.stop="handleDeleteSnapshot(item)">删除</el-button>
@@ -1412,6 +1412,10 @@ const snapshotTypeLabel = (snapshot) => {
   if (type === 'legacy') return '旧版迁移快照'
   return '手动快照'
 }
+const snapshotVersionLabel = (snapshot) => {
+  const version = String(snapshot?.app_version || '').trim().replace(/^v/i, '')
+  return version ? `v${version}` : '旧版快照'
+}
 const snapshotTypeTagType = (snapshot) => {
   const type = String(snapshot?.snapshot_type || '').trim()
   if (type === 'import_auto') return 'warning'
@@ -2183,7 +2187,7 @@ const handleRollbackImport = () => {
   }
 
   ElMessageBox.confirm(
-    `此操作将把系统恢复到所选快照“${selectedSnapshot.value.source_name || selectedSnapshot.value.created_at || selectedSnapshot.value.id}”对应的状态，当前数据会被覆盖。是否确认回滚？`,
+    `此操作将恢复“${selectedSnapshot.value.source_name || selectedSnapshot.value.created_at || selectedSnapshot.value.id}”（${snapshotVersionLabel(selectedSnapshot.value)}）。当前数据库、上传文件、通知配置和登录密钥都会被快照内容覆盖，恢复后系统会自动迁移并校验数据。是否确认回滚？`,
     '确认回滚快照',
     {
       confirmButtonText: '确认回滚',

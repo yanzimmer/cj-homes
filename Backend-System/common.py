@@ -5,11 +5,17 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+DEFAULT_APP_VERSION = "1.3.1"
+
 # Base directory for resolving paths
 BASE_DIR = os.path.dirname(__file__)
 
 # Shared database path (moved into sql folder)
 DB_NAME = os.path.join(BASE_DIR, "sql", "hotel.db")
+
+
+def get_app_version():
+    return str(os.getenv("BACKEND_APP_VERSION", DEFAULT_APP_VERSION)).strip() or DEFAULT_APP_VERSION
 
 
 def connect():

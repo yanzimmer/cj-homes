@@ -9,7 +9,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flasgger import Swagger
 
-from common import BASE_DIR, SECRET_KEY, JWT_EXPIRATION_DELTA, connect
+from common import BASE_DIR, SECRET_KEY, JWT_EXPIRATION_DELTA, connect, get_app_version
 from contract_templates_api import templates_bp, ensure_contract_templates_schema
 from contracts_api import contracts_bp, ensure_contracts_schema
 from tenant_stays_service import ensure_tenant_stays_schema
@@ -58,7 +58,7 @@ app.config['JWT_EXPIRATION_DELTA'] = JWT_EXPIRATION_DELTA
 app.config['SWAGGER'] = {
     'title': 'Homes Rental Management API',
     'uiversion': 3,
-    'version': '1.3.0',
+    'version': get_app_version(),
     'description': 'API documentation for Homes Rental Management System',
     'securityDefinitions': {
         'Bearer': {
@@ -78,7 +78,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 log_paths = configure_logging(app)
 app.logger.info(f"后端文件日志目录: {log_paths['log_dir']}")
 APP_STARTED_AT = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-BACKEND_APP_VERSION = os.getenv("BACKEND_APP_VERSION", "1.3.0")
+BACKEND_APP_VERSION = get_app_version()
 REPO_ROOT = os.path.dirname(BASE_DIR)
 
 
