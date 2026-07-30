@@ -9,6 +9,7 @@ from flask import Blueprint, request, jsonify
 from auth_api import token_required
 from common import connect, parse_fields_arg, parse_pagination_args, paginate_list, project_fields
 from room_feature_config import get_room_feature_options
+from tenant_stays_service import checkout_current_stay
 
 
 rooms_bp = Blueprint('rooms', __name__, url_prefix='/api')
@@ -300,17 +301,19 @@ def api_list_rooms(current_user):
         {"COALESCE(r.electricity_meter_img, '')" if has_electricity_meter_img else "''"} AS electricity_meter_img,
         CASE
             WHEN EXISTS (
-                SELECT 1 FROM tenants t
-                WHERE t.room_id = r.id
-                  AND t.status = '在住'
-                  AND DATE('now','localtime') BETWEEN t.check_in_date AND t.check_out_date
+                SELECT 1 FROM tenant_stays s
+                WHERE s.room_id = r.id
+                  AND s.status = '在住'
+                  AND DATE('now','localtime') >= DATE(s.check_in_date)
+                  AND DATE('now','localtime') <= DATE(s.planned_check_out_date)
             ) THEN '已入住'
             ELSE '空闲'
         END AS current_status,
-        (SELECT COUNT(*) FROM tenants t
-         WHERE t.room_id = r.id
-           AND t.status = '在住'
-           AND DATE('now','localtime') BETWEEN t.check_in_date AND t.check_out_date) AS tenant_count,
+        (SELECT COUNT(*) FROM tenant_stays s
+         WHERE s.room_id = r.id
+           AND s.status = '在住'
+           AND DATE('now','localtime') >= DATE(s.check_in_date)
+           AND DATE('now','localtime') <= DATE(s.planned_check_out_date)) AS tenant_count,
         {"CASE WHEN COALESCE(r.water_meter_imgs, '') <> '[]' OR COALESCE(r.water_meter_img, '') <> '' THEN 1 ELSE 0 END" if has_water_meter_imgs or has_water_meter_img else "0"} AS has_water_meter_img,
         {"CASE WHEN COALESCE(r.electricity_meter_img, '') <> '' THEN 1 ELSE 0 END" if has_electricity_meter_img else "0"} AS has_electricity_meter_img
     FROM rooms r
@@ -590,10 +593,14 @@ def api_get_room_tenants(current_user, room_no):
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT id, name, id_card, phone, gender, check_in_date, check_out_date, status
-        FROM tenants
-        WHERE room_id = ?
-        ORDER BY CASE WHEN status = '在住' THEN 0 ELSE 1 END, check_in_date DESC, id DESC
+        SELECT t.id, t.name, t.id_card, t.phone, t.gender,
+               s.check_in_date,
+               COALESCE(NULLIF(s.actual_check_out_date, ''), s.planned_check_out_date),
+               s.status, s.id
+        FROM tenant_stays s
+        JOIN tenants t ON t.id = s.tenant_id
+        WHERE s.room_id = ?
+        ORDER BY CASE WHEN s.status = '在住' THEN 0 ELSE 1 END, s.check_in_date DESC, s.id DESC
         """,
         (room_id,),
     )
@@ -611,6 +618,7 @@ def api_get_room_tenants(current_user, room_no):
             'check_in_date': tenant[5],
             'check_out_date': tenant[6],
             'status': tenant[7],
+            'stay_id': tenant[8],
         })
 
     return jsonify({'tenants': tenants})
@@ -666,7 +674,15 @@ def api_checkout_room(current_user, room_no):
     room_id = room[0]
     room_no = room[1]
     cursor = conn.cursor()
-    cursor.execute("SELECT id, name FROM tenants WHERE room_id = ? AND status = '在住'", (room_id,))
+    cursor.execute(
+        """
+        SELECT t.id, t.name
+        FROM tenant_stays s
+        JOIN tenants t ON t.id = s.tenant_id
+        WHERE s.room_id = ? AND s.status = '在住'
+        """,
+        (room_id,),
+    )
     tenants = cursor.fetchall()
     if not tenants:
         conn.close()
@@ -676,7 +692,7 @@ def api_checkout_room(current_user, room_no):
     tenant_names = []
     for tenant in tenants:
         tenant_id, tenant_name = tenant
-        cursor.execute("UPDATE tenants SET status = '已退租' WHERE id = ?", (tenant_id,))
+        checkout_current_stay(conn, tenant_id, today)
         tenant_names.append(tenant_name)
 
     cursor.execute(
@@ -684,10 +700,8 @@ def api_checkout_room(current_user, room_no):
     UPDATE rooms
         SET status = CASE
             WHEN EXISTS (
-                SELECT 1 FROM tenants t
-                WHERE t.room_id = rooms.id
-                  AND t.status = '在住'
-                  AND DATE('now','localtime') BETWEEN t.check_in_date AND t.check_out_date
+                SELECT 1 FROM tenant_stays s
+                WHERE s.room_id = rooms.id AND s.status = '在住'
             ) THEN '已入住'
             ELSE '空闲'
         END
@@ -940,10 +954,8 @@ def api_delete_room(current_user, room_id):
     # 仅当房间不存在在住租户时允许删除
     cursor.execute(
         """
-        SELECT COUNT(*) FROM tenants
-        WHERE room_id = ?
-          AND status = '在住'
-          AND DATE('now','localtime') BETWEEN check_in_date AND check_out_date
+        SELECT COUNT(*) FROM tenant_stays
+        WHERE room_id = ? AND status = '在住'
         """,
         (room_id,),
     )
@@ -953,7 +965,7 @@ def api_delete_room(current_user, room_id):
         return jsonify({'error': f'房间 {room_no} 有 {active_count} 位在住租户，请先办理退租后再删除'}), 400
 
     # 额外检查其他关联数据：即使没有在住租户，仍可能有退租租户、搬迁记录或维修记录导致外键约束失败
-    cursor.execute("SELECT COUNT(*) FROM tenants WHERE room_id = ?", (room_id,))
+    cursor.execute("SELECT COUNT(*) FROM tenant_stays WHERE room_id = ?", (room_id,))
     total_tenants = cursor.fetchone()[0]
     cursor.execute(
         "SELECT COUNT(*) FROM tenant_moves WHERE old_room_id = ? OR new_room_id = ?",

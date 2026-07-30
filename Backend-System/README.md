@@ -122,7 +122,8 @@ curl -s -X POST http://localhost:5000/api/login \
 ## 常见问题
 
 - 数据库锁冲突（database is locked）：避免并发启动多个进程初始化数据库；生产使用 `gunicorn --preload`；项目已启用 WAL 与 busy_timeout 以降低冲突。
-- 修改密钥与令牌有效期：编辑 `Backend-System/common.py` 中 `SECRET_KEY` 与 `JWT_EXPIRATION_DELTA`。
+- 修改登录令牌密钥：执行 `openssl rand -hex 32`，把结果写入 `Backend-System/.env` 的 `SECRET_KEY`；修改后需要重启后端，现有登录状态会失效。
+- 修改令牌有效期：通过环境变量 `JWT_EXPIRATION_DELTA` 设置分钟数。
 - 更改监听端口：
   - 开发模式改 `app.py` 中 `port=5000`；
   - 生产模式 `gunicorn -b 0.0.0.0:<端口>` 或 Waitress `serve(..., port=<端口>)`。

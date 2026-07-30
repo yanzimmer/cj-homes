@@ -265,7 +265,148 @@
           </el-card>
         </el-tab-pane>
 
-        <!-- Tab 4: 租户通知详情 -->
+        <!-- Tab 4: Bark 推送 -->
+        <el-tab-pane name="bark_service" label="Bark 推送">
+          <template #label>
+            <span class="custom-tabs-label">
+              <el-icon><Bell /></el-icon>
+              <span>Bark 推送</span>
+            </span>
+          </template>
+
+          <el-card shadow="never" class="section-card">
+            <template #header>
+              <div class="card-header">
+                <span>Bark 推送设置</span>
+                <el-switch
+                  v-model="config.bark_config.enabled"
+                  active-text="已启用"
+                  inactive-text="已停用"
+                />
+              </div>
+            </template>
+
+            <el-row :gutter="24">
+              <el-col :xs="24" :sm="8">
+                <el-form-item label="自动推送">
+                  <el-switch
+                    v-model="config.bark_config.auto_send_enabled"
+                    active-text="已启用"
+                    inactive-text="已停用"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="8">
+                <el-form-item label="每日发送时间">
+                  <el-time-select
+                    v-model="config.bark_config.send_time"
+                    start="00:00"
+                    step="00:30"
+                    end="23:30"
+                    placeholder="选择时间"
+                    style="width: 100%"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="8">
+                <el-form-item label="自动提醒场景">
+                  <div class="bark-scene-options">
+                    <el-checkbox v-model="config.bark_config.lease_expiry_enabled">租期到期</el-checkbox>
+                    <el-checkbox v-model="config.bark_config.rent_reminder_enabled">待收房租</el-checkbox>
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="通知标题">
+                  <el-input v-model="config.bark_config.title" maxlength="100" placeholder="从江房屋登记系统" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="通知分组">
+                  <el-input v-model="config.bark_config.group" maxlength="100" placeholder="房屋提醒" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="提示音">
+                  <el-input v-model="config.bark_config.sound" maxlength="100" placeholder="留空使用 Bark 默认提示音" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="图标地址">
+                  <el-input v-model="config.bark_config.icon" maxlength="500" placeholder="可选，填写 HTTPS 图片地址" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+
+            <div class="bark-run-action">
+              <el-button
+                type="primary"
+                plain
+                :loading="runningBarkNotifications"
+                @click="runDueBarkNotifications"
+              >
+                <el-icon><Bell /></el-icon> 立即检查并发送
+              </el-button>
+            </div>
+          </el-card>
+
+          <el-card shadow="never" class="section-card">
+            <template #header>
+              <div class="card-header bark-list-header">
+                <span>推送地址</span>
+                <el-button type="primary" size="small" @click="addBarkEndpoint">
+                  <el-icon><Plus /></el-icon> 添加地址
+                </el-button>
+              </div>
+            </template>
+
+            <el-empty
+              v-if="config.bark_config.endpoints.length === 0"
+              description="还没有 Bark 推送地址"
+              :image-size="90"
+            />
+
+            <div v-else class="bark-endpoint-list">
+              <div
+                v-for="(endpoint, index) in config.bark_config.endpoints"
+                :key="endpoint.id"
+                class="bark-endpoint-row"
+              >
+                <div class="bark-endpoint-index">{{ index + 1 }}</div>
+                <div class="bark-endpoint-fields">
+                  <el-form-item label="备注">
+                    <el-input v-model="endpoint.remark" maxlength="80" placeholder="例如：房东手机" />
+                  </el-form-item>
+                  <el-form-item label="Bark 地址">
+                    <el-input
+                      v-model="endpoint.bark_url"
+                      type="password"
+                      show-password
+                      autocomplete="off"
+                      placeholder="https://你的-Bark-服务/设备密钥"
+                    />
+                  </el-form-item>
+                </div>
+                <div class="bark-endpoint-actions">
+                  <el-switch v-model="endpoint.enabled" active-text="启用" inactive-text="停用" />
+                  <el-button
+                    type="primary"
+                    plain
+                    :loading="testingBarkIds.has(endpoint.id)"
+                    @click="testBarkEndpoint(endpoint)"
+                  >
+                    <el-icon><Connection /></el-icon> 测试
+                  </el-button>
+                  <el-button type="danger" plain aria-label="删除 Bark 地址" @click="removeBarkEndpoint(index)">
+                    <el-icon><Delete /></el-icon>
+                  </el-button>
+                </div>
+              </div>
+            </div>
+          </el-card>
+        </el-tab-pane>
+
+        <!-- Tab 5: 租户通知详情 -->
         <el-tab-pane name="tenant_notify" label="租户通知">
           <template #label>
             <span class="custom-tabs-label">
@@ -344,7 +485,7 @@
           </template>
         </el-tab-pane>
 
-        <!-- Tab 5: 房东通知详情 -->
+        <!-- Tab 6: 房东通知详情 -->
         <el-tab-pane name="landlord_notify" label="房东通知">
           <template #label>
             <span class="custom-tabs-label">
@@ -423,7 +564,7 @@
           </template>
         </el-tab-pane>
 
-        <!-- Tab 6: 房东列表 -->
+        <!-- Tab 7: 房东列表 -->
         <el-tab-pane name="landlord_list" label="房东列表">
           <template #label>
             <span class="custom-tabs-label">
@@ -501,6 +642,7 @@ import {
   Plus,
   Setting,
   Connection,
+  Bell,
   UserFilled,
   List,
   Delete
@@ -516,6 +658,8 @@ const testingTenantSms = ref(false)
 const testingLandlordSms = ref(false)
 const testingLandlordEmail = ref(false)
 const testingTenantEmail = ref(false)
+const testingBarkIds = ref(new Set())
+const runningBarkNotifications = ref(false)
 const tenantSmsTextareaRef = ref(null)
 const landlordSmsTextareaRef = ref(null)
 const error = ref('')
@@ -525,6 +669,7 @@ const mobileTabs = [
   { name: 'basic', label: '基础设置' },
   { name: 'email_service', label: '邮件服务' },
   { name: 'sms_service', label: '短信服务' },
+  { name: 'bark_service', label: 'Bark 推送' },
   { name: 'tenant_notify', label: '租户通知' },
   { name: 'landlord_notify', label: '房东通知' },
   { name: 'landlord_list', label: '房东列表' }
@@ -580,6 +725,18 @@ const config = reactive({
     landlord_template_id: '',
     tenant_template_text: '',
     landlord_template_text: ''
+  },
+  bark_config: {
+    enabled: true,
+    auto_send_enabled: true,
+    send_time: '09:00',
+    lease_expiry_enabled: true,
+    rent_reminder_enabled: true,
+    title: '从江房屋登记系统',
+    group: '房屋提醒',
+    sound: '',
+    icon: '',
+    endpoints: []
   },
   tenant_email_config: {
     sender: '',
@@ -646,6 +803,101 @@ const removeLandlord = (index) => {
   config.landlords.splice(index, 1)
 }
 
+const createBarkEndpointId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID().replaceAll('-', '')
+  }
+  return `bark-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+const addBarkEndpoint = () => {
+  config.bark_config.endpoints.push({
+    id: createBarkEndpointId(),
+    remark: '',
+    bark_url: '',
+    enabled: true
+  })
+}
+
+const removeBarkEndpoint = (index) => {
+  config.bark_config.endpoints.splice(index, 1)
+}
+
+const validateBarkEndpoints = () => {
+  const normalizedUrls = []
+  for (const endpoint of config.bark_config.endpoints) {
+    const barkUrl = String(endpoint.bark_url || '').trim().replace(/\/$/, '')
+    if (!barkUrl) return '请填写完整的 Bark 推送地址'
+    try {
+      const parsed = new URL(barkUrl)
+      if (!['http:', 'https:'].includes(parsed.protocol) || parsed.search || parsed.hash) {
+        return 'Bark 地址必须是有效的 HTTP 或 HTTPS 地址，且不能包含查询参数'
+      }
+    } catch {
+      return 'Bark 地址格式不正确'
+    }
+    normalizedUrls.push(barkUrl)
+  }
+  if (new Set(normalizedUrls).size !== normalizedUrls.length) return 'Bark 推送地址不能重复'
+  return ''
+}
+
+const testBarkEndpoint = async (endpoint) => {
+  const barkUrl = String(endpoint.bark_url || '').trim()
+  if (!barkUrl) {
+    ElMessage.warning('请先填写 Bark 推送地址')
+    return
+  }
+
+  testingBarkIds.value = new Set([...testingBarkIds.value, endpoint.id])
+  try {
+    const { data } = await notifyApi.testBark({
+      endpoint: { ...endpoint, bark_url: barkUrl, enabled: true },
+      bark_config: {
+        title: config.bark_config.title,
+        group: config.bark_config.group,
+        sound: config.bark_config.sound,
+        icon: config.bark_config.icon
+      },
+      content: `Bark 通知测试成功${endpoint.remark ? `：${endpoint.remark}` : ''}`
+    })
+    if (!data?.success) throw new Error(data?.results?.[0]?.error || '推送失败')
+    ElMessage.success(`测试通知已发送${endpoint.remark ? `：${endpoint.remark}` : ''}`)
+  } catch (err) {
+    const message = err.response?.data?.error || err.response?.data?.results?.[0]?.error || err.message
+    ElMessage.error(`Bark 测试失败: ${message}`)
+  } finally {
+    const next = new Set(testingBarkIds.value)
+    next.delete(endpoint.id)
+    testingBarkIds.value = next
+  }
+}
+
+const runDueBarkNotifications = async () => {
+  runningBarkNotifications.value = true
+  try {
+    const { data } = await notifyApi.runDueNotifications()
+    if (data?.status === 'skipped') {
+      ElMessage.warning(data.reason || '没有可发送的提醒')
+      return
+    }
+    const sent = Number(data?.sent || 0)
+    const failed = Number(data?.failed || 0)
+    const claimed = Number(data?.claimed_events || 0)
+    if (failed > 0) {
+      ElMessage.warning(`检查完成：成功 ${sent} 批，失败 ${failed} 批`)
+    } else if (claimed > 0) {
+      ElMessage.success(`检查完成：已发送 ${sent} 批，共处理 ${claimed} 条提醒`)
+    } else {
+      ElMessage.info('检查完成，当前没有新的到期或待收提醒')
+    }
+  } catch (err) {
+    ElMessage.error(`自动通知检查失败: ${err.response?.data?.error || err.message}`)
+  } finally {
+    runningBarkNotifications.value = false
+  }
+}
+
 // 获取配置
 const fetchConfig = async () => {
   loading.value = true
@@ -700,6 +952,13 @@ const fetchConfig = async () => {
       if (data.sms_config) {
         Object.assign(config.sms_config, data.sms_config)
       }
+
+      if (data.bark_config) {
+        Object.assign(config.bark_config, data.bark_config)
+        config.bark_config.endpoints = Array.isArray(data.bark_config.endpoints)
+          ? data.bark_config.endpoints.map((endpoint) => ({ ...endpoint }))
+          : []
+      }
       
       // Tenant Email
       if (data.tenant_email_config) {
@@ -733,6 +992,12 @@ const saveConfig = async () => {
   await configForm.value.validate(async (valid) => {
     if (!valid) {
       ElMessage.error('请检查表单填写是否正确')
+      return
+    }
+    const barkValidationError = validateBarkEndpoints()
+    if (barkValidationError) {
+      activeTab.value = 'bark_service'
+      ElMessage.error(barkValidationError)
       return
     }
     
@@ -1002,6 +1267,70 @@ onBeforeUnmount(() => {
   background: var(--surface-muted);
 }
 
+.bark-endpoint-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bark-scene-options {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.bark-run-action {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.bark-endpoint-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.bark-endpoint-index {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.bark-endpoint-fields {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.35fr) minmax(260px, 1fr);
+  gap: 12px;
+  min-width: 0;
+}
+
+.bark-endpoint-fields :deep(.el-form-item) {
+  margin-bottom: 0;
+}
+
+.bark-endpoint-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bark-endpoint-actions :deep(.el-button) {
+  margin-left: 0;
+}
+
 .header-action-btn {
   margin-left: 0 !important;
 }
@@ -1261,6 +1590,31 @@ onBeforeUnmount(() => {
     align-items: flex-start;
     flex-direction: column;
     gap: 10px;
+  }
+
+  .bark-list-header {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .bark-endpoint-row {
+    grid-template-columns: 28px minmax(0, 1fr);
+    align-items: start;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .bark-endpoint-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bark-endpoint-actions {
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+  }
+
+  .bark-endpoint-actions :deep(.el-button) {
+    flex: 1 1 auto;
   }
 }
 </style>

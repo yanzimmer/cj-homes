@@ -70,16 +70,22 @@ def main():
     print(f"局域网访问: http://{local_ip}:{backend_port}")
     print("=" * 56)
 
-    process = subprocess.Popen([python_exe, "app.py"], cwd=backend_dir, env=backend_env, shell=False)
+    processes = [
+        subprocess.Popen([python_exe, "app.py"], cwd=backend_dir, env=backend_env, shell=False),
+        subprocess.Popen([python_exe, "notification_worker.py"], cwd=backend_dir, env=backend_env, shell=False),
+    ]
     try:
         while True:
             time.sleep(1)
-            if process.poll() is not None:
-                raise RuntimeError(f"后端进程已退出，退出码: {process.returncode}")
+            for process in processes:
+                if process.poll() is not None:
+                    raise RuntimeError(f"后端子进程已退出，退出码: {process.returncode}")
     except KeyboardInterrupt:
         pass
     finally:
-        if process.poll() is None:
+        for process in processes:
+            if process.poll() is not None:
+                continue
             if sys.platform == "win32":
                 subprocess.call(
                     ["taskkill", "/F", "/T", "/PID", str(process.pid)],

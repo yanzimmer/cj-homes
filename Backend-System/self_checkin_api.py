@@ -12,6 +12,7 @@ from common import connect
 from ai_client import get_active_ai_model
 from local_ai_settings import load_ai_settings
 from ocr_settings import build_ocr_status, record_ocr_usage
+from tenant_stays_service import create_tenant_stay, get_current_stay, sync_legacy_tenant_from_stay
 from tenants_api import (
     _build_tenant_ai_prompt,
     _call_ollama_generate,
@@ -120,6 +121,10 @@ def ensure_self_checkin_schema():
             """
         )
         cur.execute("DROP TABLE self_checkin_submissions_old")
+    cur.execute("PRAGMA table_info(self_checkin_submissions)")
+    submission_columns = {col[1] for col in cur.fetchall()}
+    if "approved_stay_id" not in submission_columns:
+        cur.execute("ALTER TABLE self_checkin_submissions ADD COLUMN approved_stay_id INTEGER")
     conn.commit()
     conn.close()
 
@@ -437,10 +442,10 @@ def api_approve_self_checkin_submission(current_user, submission_id):
                     phone, emergency_contact_name, emergency_contact_phone,
                     check_in_date, check_out_date, room_id, remarks, status
                 FROM tenants
-                WHERE id = ? AND room_id = ?
+                WHERE id = ?
                 LIMIT 1
                 """,
-                (target_tenant_id, submission["room_id"]),
+                (target_tenant_id,),
             )
             target_tenant = cur.fetchone()
             if not target_tenant:
@@ -527,21 +532,58 @@ def api_approve_self_checkin_submission(current_user, submission_id):
             )
             tenant_id = cur.lastrowid
             success_message = "入住提交已确认入库"
+        current_stay = get_current_stay(conn, tenant_id)
+        if current_stay:
+            if int(current_stay["room_id"] or 0) != int(submission["room_id"]):
+                conn.rollback()
+                conn.close()
+                return jsonify({"error": "该租户当前仍在其他房间入住，请先办理退租"}), 400
+            stay_id = int(current_stay["id"])
+            cur.execute(
+                """
+                UPDATE tenant_stays
+                SET check_in_date = COALESCE(NULLIF(?, ''), check_in_date),
+                    planned_check_out_date = COALESCE(NULLIF(?, ''), planned_check_out_date),
+                    remarks = CASE WHEN COALESCE(TRIM(?), '') = '' THEN remarks ELSE ? END,
+                    updated_at = datetime('now','localtime')
+                WHERE id = ?
+                """,
+                (
+                    submission["check_in_date"] or "",
+                    submission["check_out_date"] or "",
+                    submission["remarks"] or "",
+                    submission["remarks"] or "",
+                    stay_id,
+                ),
+            )
+            sync_legacy_tenant_from_stay(conn, tenant_id, stay_id)
+        else:
+            stay_id = create_tenant_stay(
+                conn,
+                tenant_id,
+                submission["room_id"],
+                submission["check_in_date"] or _today_text(),
+                submission["check_out_date"] or _today_text(),
+                submission["remarks"] or "",
+            )
+            if approve_mode == "merge":
+                success_message = "入住提交已作为再次入住记录入库"
         cur.execute(
             """
             UPDATE self_checkin_submissions
             SET status = 'approved',
                 approved_at = ?,
-                approved_tenant_id = ?
+                approved_tenant_id = ?,
+                approved_stay_id = ?
             WHERE id = ?
             """,
-            (_now_text(), tenant_id, submission_id),
+            (_now_text(), tenant_id, stay_id, submission_id),
         )
         _refresh_tenant_statuses(conn)
         _refresh_room_statuses(conn)
         conn.commit()
         conn.close()
-        return jsonify({"message": success_message, "tenant_id": tenant_id, "mode": approve_mode})
+        return jsonify({"message": success_message, "tenant_id": tenant_id, "stay_id": stay_id, "mode": approve_mode})
     except sqlite3.Error as e:
         conn.rollback()
         conn.close()

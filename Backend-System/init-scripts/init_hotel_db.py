@@ -10,6 +10,7 @@ from datetime import date
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from common import DB_NAME, connect
 from inventory_sync_service import dump_inventory_usages, ensure_inventory_sync_schema, sync_procurement_create
+from tenant_stays_service import ensure_tenant_stays_schema
 
 
 def sha256(text: str) -> str:
@@ -461,6 +462,7 @@ def ensure_tables():
 
     conn.commit()
     conn.close()
+    ensure_tenant_stays_schema()
 
 
 def seed_demo_data():
@@ -1065,6 +1067,7 @@ def seed_demo_data():
 
     conn.commit()
     conn.close()
+    ensure_tenant_stays_schema()
     print("✅ 已插入演示数据：房间、租户、合同、搬迁、水电费、收租台账、维修、采购、库存、公开链接、自助入住和合同模板")
     return True
 

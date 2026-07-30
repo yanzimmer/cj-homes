@@ -3,9 +3,30 @@ from flask import Blueprint, request, jsonify
 
 from auth_api import token_required
 from common import connect
+from tenant_stays_service import get_current_stay, sync_legacy_tenant_from_stay
 
 
 moves_bp = Blueprint('moves', __name__, url_prefix='/api')
+
+
+def _move_current_stay(conn, tenant_id, to_room_id, reason=''):
+    stay = get_current_stay(conn, tenant_id)
+    if not stay:
+        raise ValueError(f'租户ID {tenant_id} 不存在或不是在住状态')
+    from_room_id = stay['room_id']
+    conn.execute(
+        "UPDATE tenant_stays SET room_id = ?, updated_at = datetime('now','localtime') WHERE id = ?",
+        (to_room_id, int(stay['id'])),
+    )
+    sync_legacy_tenant_from_stay(conn, tenant_id, int(stay['id']))
+    conn.execute(
+        """
+        INSERT INTO tenant_moves (tenant_id, stay_id, old_room_id, new_room_id, move_date, remarks)
+        VALUES (?, ?, ?, ?, DATE('now','localtime'), ?)
+        """,
+        (tenant_id, int(stay['id']), from_room_id, to_room_id, reason),
+    )
+    return int(stay['id']), from_room_id
 
 
 @moves_bp.route('/moves', methods=['GET'])
@@ -143,8 +164,9 @@ def api_move_tenant(current_user):
             """
             SELECT t.id, t.name, r.id, r.room_no
             FROM tenants t
-            JOIN rooms r ON t.room_id=r.id
-            WHERE t.id=? AND t.status='在住'
+            JOIN tenant_stays s ON s.tenant_id = t.id AND s.status = '在住'
+            JOIN rooms r ON s.room_id=r.id
+            WHERE t.id=?
             """,
             (tenant_id,),
         )
@@ -157,15 +179,7 @@ def api_move_tenant(current_user):
         tenant_id, tenant_name, from_room_id, from_room_no = tenant
 
         try:
-            cursor.execute("UPDATE tenants SET room_id=? WHERE id=?", (to_room_id, tenant_id))
-
-            cursor.execute(
-                """
-                INSERT INTO tenant_moves (tenant_id, old_room_id, new_room_id, move_date, remarks)
-                VALUES (?, ?, ?, DATE('now'), ?)
-                """,
-                (tenant_id, from_room_id, to_room_id, reason),
-            )
+            _move_current_stay(conn, tenant_id, to_room_id, reason)
 
             moved_tenants.append(
                 {
@@ -193,7 +207,12 @@ def api_move_tenant(current_user):
         from_room_id = from_room_result[0]
 
         cursor.execute(
-            "SELECT id, name FROM tenants WHERE room_id=? AND status='在住'",
+            """
+            SELECT t.id, t.name
+            FROM tenants t
+            JOIN tenant_stays s ON s.tenant_id = t.id AND s.status = '在住'
+            WHERE s.room_id = ?
+            """,
             (from_room_id,),
         )
         tenants = cursor.fetchall()
@@ -203,18 +222,7 @@ def api_move_tenant(current_user):
 
         for tenant_id, tenant_name in tenants:
             try:
-                cursor.execute(
-                    "UPDATE tenants SET room_id=? WHERE id=?",
-                    (to_room_id, tenant_id),
-                )
-
-                cursor.execute(
-                    """
-                    INSERT INTO tenant_moves (tenant_id, old_room_id, new_room_id, move_date, remarks)
-                    VALUES (?, ?, ?, DATE('now'), ?)
-                    """,
-                    (tenant_id, from_room_id, to_room_id, reason),
-                )
+                _move_current_stay(conn, tenant_id, to_room_id, reason)
 
                 moved_tenants.append(
                     {
@@ -236,10 +244,8 @@ def api_move_tenant(current_user):
         UPDATE rooms
         SET status = CASE
             WHEN EXISTS (
-                SELECT 1 FROM tenants t
-                WHERE t.room_id = rooms.id
-                  AND t.status = '在住'
-                  AND DATE('now') BETWEEN t.check_in_date AND t.check_out_date
+                SELECT 1 FROM tenant_stays s
+                WHERE s.room_id = rooms.id AND s.status = '在住'
             ) THEN '已入住'
             ELSE '空闲'
         END
@@ -310,7 +316,12 @@ def api_move_room(current_user):
     to_room_id = to_room[0]
 
     cursor.execute(
-        "SELECT id, name FROM tenants WHERE room_id=? AND status='在住'",
+        """
+        SELECT t.id, t.name
+        FROM tenants t
+        JOIN tenant_stays s ON s.tenant_id = t.id AND s.status = '在住'
+        WHERE s.room_id = ?
+        """,
         (from_room_id,),
     )
     tenants = cursor.fetchall()
@@ -321,15 +332,7 @@ def api_move_room(current_user):
     moved_tenants = []
 
     for tenant_id, tenant_name in tenants:
-        cursor.execute("UPDATE tenants SET room_id=? WHERE id=?", (to_room_id, tenant_id))
-
-        cursor.execute(
-            """
-            INSERT INTO tenant_moves (tenant_id, from_room_id, to_room_id, move_date)
-            VALUES (?, ?, ?, DATE('now'))
-            """,
-            (tenant_id, from_room_id, to_room_id),
-        )
+        _move_current_stay(conn, tenant_id, to_room_id)
 
         moved_tenants.append({'tenant_id': tenant_id, 'tenant_name': tenant_name})
 
@@ -338,10 +341,8 @@ def api_move_room(current_user):
         UPDATE rooms
         SET status = CASE
             WHEN EXISTS (
-                SELECT 1 FROM tenants t
-                WHERE t.room_id = rooms.id
-                  AND t.status = '在住'
-                  AND DATE('now') BETWEEN t.check_in_date AND t.check_out_date
+                SELECT 1 FROM tenant_stays s
+                WHERE s.room_id = rooms.id AND s.status = '在住'
             ) THEN '已入住'
             ELSE '空闲'
         END

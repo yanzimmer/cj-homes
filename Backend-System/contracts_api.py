@@ -16,6 +16,7 @@ def ensure_contracts_schema():
         CREATE TABLE IF NOT EXISTS contracts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             tenant_id INTEGER,
+            stay_id INTEGER,
             room_id INTEGER,
             template_id INTEGER,
             tenant_name TEXT,
@@ -41,6 +42,7 @@ def ensure_contracts_schema():
             cur.execute(f"ALTER TABLE contracts ADD COLUMN {name} {type_def}")
     add_col("room_id", "INTEGER")
     add_col("tenant_id", "INTEGER")
+    add_col("stay_id", "INTEGER")
     add_col("template_id", "INTEGER")
     add_col("tenant_name", "TEXT")
     add_col("id_card", "TEXT")
@@ -56,6 +58,26 @@ def ensure_contracts_schema():
 
 
 contracts_bp = Blueprint("contracts", __name__, url_prefix="/api/contracts")
+
+
+def _resolve_stay_id(cur, tenant_id, room_id=None, start_date=None):
+    if tenant_id is None:
+        return None
+    cur.execute(
+        """
+        SELECT id
+        FROM tenant_stays
+        WHERE tenant_id = ?
+          AND (? IS NULL OR room_id = ?)
+          AND (? IS NULL OR ? = '' OR DATE(?) >= DATE(check_in_date))
+        ORDER BY CASE WHEN status = '在住' THEN 0 ELSE 1 END,
+                 check_in_date DESC, id DESC
+        LIMIT 1
+        """,
+        (tenant_id, room_id, room_id, start_date, start_date, start_date),
+    )
+    row = cur.fetchone()
+    return int(row[0]) if row else None
 
 
 @contracts_bp.before_request
@@ -236,14 +258,16 @@ def create_contract():
             "message": "缺少必填字段或无法解析，请先在租户/房间中补齐信息",
             "missing": missing
         }), 400
+    stay_id = _resolve_stay_id(cur, tenant_id, room_id, start_date)
     cur.execute(
         """
         INSERT INTO contracts (
-            tenant_id, room_id, template_id, tenant_name, id_card, room_no, start_date, end_date, rent, rendered_html, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            tenant_id, stay_id, room_id, template_id, tenant_name, id_card, room_no, start_date, end_date, rent, rendered_html, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         """,
         (
             tenant_id,
+            stay_id,
             room_id,
             template_id,
             tenant_name,
@@ -522,14 +546,16 @@ def update_contract(contract_id: int):
         }), 400
 
     # 更新合同
+    stay_id = _resolve_stay_id(cur, tenant_id, room_id, start_date)
     cur.execute(
         """
         UPDATE contracts
-        SET tenant_id = ?, room_id = ?, template_id = ?, tenant_name = ?, id_card = ?, room_no = ?, start_date = ?, end_date = ?, rent = ?, rendered_html = ?, updated_at = datetime('now')
+        SET tenant_id = ?, stay_id = ?, room_id = ?, template_id = ?, tenant_name = ?, id_card = ?, room_no = ?, start_date = ?, end_date = ?, rent = ?, rendered_html = ?, updated_at = datetime('now')
         WHERE id = ?
         """,
         (
             tenant_id,
+            stay_id,
             room_id,
             template_id,
             tenant_name,

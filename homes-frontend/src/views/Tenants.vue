@@ -69,14 +69,6 @@
           :loading="batchCheckoutLoading"
           @click="handleBatchCheckout"
         >退租</el-button>
-        <el-button
-          v-if="!mobileMode"
-          class="toolbar-btn"
-          type="danger"
-          :disabled="selectedTenants.length === 0"
-          :loading="batchDeleting"
-          @click="handleBatchDelete"
-        >删除</el-button>
         <el-dropdown v-if="!mobileMode" trigger="click" @command="handleExportCommand">
           <el-button class="toolbar-btn" type="success">
             导出 <el-icon style="margin-left:4px"><Filter /></el-icon>
@@ -120,20 +112,9 @@
           {{ tenantRowStart + $index + 1 }}
         </template>
       </el-table-column>
-      <el-table-column prop="name" label="姓名" width="88" sortable="custom"></el-table-column>
-      <el-table-column prop="gender" label="性别" width="64" sortable="custom"></el-table-column>
-      <el-table-column prop="nation" label="民族" width="70" sortable="custom"></el-table-column>
-      <el-table-column prop="birth_date" label="出生日期" width="110" sortable="custom"></el-table-column>
-      <el-table-column prop="id_card" label="公民身份证号" width="168" sortable="custom"></el-table-column>
-      <el-table-column prop="address" label="住址" min-width="160" sortable="custom" show-overflow-tooltip></el-table-column>
-      <el-table-column prop="phone" label="联系电话" width="120" sortable="custom"></el-table-column>
-      <el-table-column prop="emergency_contact_name" label="紧急联系人" width="104" sortable="custom"></el-table-column>
-      <el-table-column prop="emergency_contact_phone" label="紧急电话" width="120" sortable="custom"></el-table-column>
-      <el-table-column prop="building" label="楼栋" width="72" sortable="custom"></el-table-column>
-      <el-table-column prop="room_no" label="房间号" width="92" sortable="custom"></el-table-column>
-      <el-table-column prop="status" label="状态" width="82" sortable="custom">
+      <el-table-column prop="status" label="状态" width="110" sortable="custom">
         <template #header>
-          <div style="display: flex; align-items: center;">
+          <div style="display: flex; align-items: center; white-space: nowrap;">
             <span>状态</span>
             <el-dropdown trigger="click" @command="handleStatusFilter">
               <el-button style="margin-left: 5px; padding: 2px 5px;" size="small">
@@ -155,6 +136,17 @@
           </el-tag>
         </template>
       </el-table-column>
+      <el-table-column prop="room_no" label="房间号" width="92" sortable="custom"></el-table-column>
+      <el-table-column prop="name" label="姓名" width="88" sortable="custom"></el-table-column>
+      <el-table-column prop="gender" label="性别" width="64" sortable="custom"></el-table-column>
+      <el-table-column prop="nation" label="民族" width="70" sortable="custom"></el-table-column>
+      <el-table-column prop="birth_date" label="出生日期" width="110" sortable="custom"></el-table-column>
+      <el-table-column prop="id_card" label="公民身份证号" width="168" sortable="custom"></el-table-column>
+      <el-table-column prop="address" label="住址" min-width="160" sortable="custom" show-overflow-tooltip></el-table-column>
+      <el-table-column prop="phone" label="联系电话" width="120" sortable="custom"></el-table-column>
+      <el-table-column prop="emergency_contact_name" label="紧急联系人" width="104" sortable="custom"></el-table-column>
+      <el-table-column prop="emergency_contact_phone" label="紧急电话" width="120" sortable="custom"></el-table-column>
+      <el-table-column prop="building" label="楼栋" width="72" sortable="custom"></el-table-column>
       <el-table-column prop="check_in_date" label="入住日期" width="110" sortable="custom"></el-table-column>
       <el-table-column prop="check_out_date" label="退房日期" width="110" sortable="custom"></el-table-column>
       <el-table-column prop="remarks" label="备注" min-width="120" show-overflow-tooltip></el-table-column>
@@ -176,11 +168,14 @@
                   >
                     退租
                   </el-dropdown-item>
+                  <el-dropdown-item @click="showTenantDetails(scope.row)">
+                    入住历史
+                  </el-dropdown-item>
                   <el-dropdown-item
-                    :disabled="scope.row.status === '在住'"
-                    @click="handleDelete(scope.row)"
+                    v-if="scope.row.status === '已退租'"
+                    @click="openRecheckinDialog(scope.row)"
                   >
-                    删除
+                    再次入住
                   </el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -244,6 +239,13 @@
                 :disabled="tenant.status === '已退租'"
                 @click="handleCheckout(tenant)"
               >退租</el-button>
+              <el-button
+                v-if="tenant.status === '已退租'"
+                size="small"
+                type="success"
+                link
+                @click="openRecheckinDialog(tenant)"
+              >再次入住</el-button>
             </div>
           </div>
         </div>
@@ -300,7 +302,7 @@
             </div>
           </div>
           <div class="room-badge" v-if="currentTenant.room_no">
-            <div class="label">当前房间</div>
+            <div class="label">{{ currentTenant.status === '在住' ? '当前房间' : '最近房间' }}</div>
             <div class="value">{{ currentTenant.building }}栋 {{ currentTenant.room_no }}</div>
           </div>
         </div>
@@ -316,6 +318,20 @@
               <div class="tenant-mobile-item"><span>联系电话</span><strong>{{ currentTenant.phone || '-' }}</strong></div>
               <div class="tenant-mobile-item"><span>身份证号</span><strong>{{ currentTenant.id_card || '-' }}</strong></div>
               <div class="tenant-mobile-item tenant-mobile-item--full"><span>户籍地址</span><strong>{{ currentTenant.address || '-' }}</strong></div>
+            </div>
+          </section>
+
+          <section class="tenant-mobile-section">
+            <h4>入住历史</h4>
+            <div v-loading="staysLoading" class="tenant-stay-list">
+              <div v-if="tenantStays.length === 0" class="tenant-mobile-empty">暂无入住记录</div>
+              <article v-for="stay in tenantStays" :key="stay.id" class="tenant-stay-item">
+                <div>
+                  <strong>{{ stay.building ? `${stay.building}栋 ` : '' }}{{ stay.room_no || '未分配房间' }}</strong>
+                  <span>{{ stay.check_in_date }} 至 {{ stay.actual_check_out_date || stay.planned_check_out_date || '未定' }}</span>
+                </div>
+                <el-tag size="small" :type="stay.status === '在住' ? 'success' : 'info'">{{ stay.status }}</el-tag>
+              </article>
             </div>
           </section>
 
@@ -377,6 +393,28 @@
             </el-descriptions>
           </el-tab-pane>
 
+          <el-tab-pane :label="`入住历史 (${tenantStays.length})`" name="stays">
+            <el-table v-loading="staysLoading" :data="tenantStays" size="small" empty-text="暂无入住记录">
+              <el-table-column prop="building" label="楼栋" width="80" />
+              <el-table-column prop="room_no" label="房间" width="100" />
+              <el-table-column prop="check_in_date" label="入住日期" width="112" />
+              <el-table-column label="计划退房" width="112">
+                <template #default="scope">{{ scope.row.planned_check_out_date || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="实际退房" width="112">
+                <template #default="scope">{{ scope.row.actual_check_out_date || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="租金" min-width="100">
+                <template #default="scope">{{ scope.row.rent_amount }} 元/{{ scope.row.rent_unit }}</template>
+              </el-table-column>
+              <el-table-column prop="status" label="状态" width="82">
+                <template #default="scope">
+                  <el-tag size="small" :type="scope.row.status === '在住' ? 'success' : 'info'">{{ scope.row.status }}</el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+
           <el-tab-pane label="关联维修" name="repairs" v-if="currentTenant.room_no">
             <div v-loading="repairsLoading">
               <el-table :data="tenantRepairs" style="width: 100%" size="small" empty-text="该房间暂无维修记录">
@@ -395,6 +433,11 @@
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="detailsDialogVisible = false">关闭</el-button>
+          <el-button
+            v-if="currentTenant.status === '已退租'"
+            type="success"
+            @click="detailsDialogVisible = false; openRecheckinDialog(currentTenant)"
+          >再次入住</el-button>
           <el-button type="primary" @click="openEditDialog(currentTenant); detailsDialogVisible = false">编辑信息</el-button>
         </span>
       </template>
@@ -548,6 +591,54 @@
         </span>
       </template>
     </el-drawer>
+
+    <el-dialog
+      v-model="recheckinDialogVisible"
+      :title="`${recheckinTenant.name || '租户'}再次入住`"
+      :width="mobileMode ? '94%' : '520px'"
+      class="tenant-recheckin-dialog"
+    >
+      <el-form ref="recheckinFormRef" :model="recheckinForm" :rules="recheckinRules" label-position="top">
+        <el-form-item label="楼栋" prop="building">
+          <el-select v-model="recheckinForm.building" placeholder="请选择楼栋" filterable style="width: 100%">
+            <el-option v-for="building in buildingOptions" :key="building" :label="`${building}栋`" :value="building" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="房间" prop="room_no">
+          <el-select v-model="recheckinForm.room_no" :disabled="!recheckinForm.building" placeholder="请选择房间" filterable style="width: 100%">
+            <el-option
+              v-for="room in recheckinRoomOptions"
+              :key="room.id"
+              :label="`${room.room_no} · ${formatRoomRent(room)}`"
+              :value="room.room_no"
+              :disabled="Number(room.price || 0) <= 0"
+            />
+          </el-select>
+        </el-form-item>
+        <div class="recheckin-date-grid">
+          <el-form-item label="入住日期" prop="check_in_date">
+            <el-date-picker v-model="recheckinForm.check_in_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="计划退房日期" prop="check_out_date">
+            <el-date-picker v-model="recheckinForm.check_out_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
+          </el-form-item>
+        </div>
+        <el-form-item label="租期预设">
+          <div class="lease-preset-row">
+            <el-button v-for="option in leasePresetOptions" :key="option.months" plain @click="applyRecheckinLeasePreset(option.months)">
+              {{ option.label }}
+            </el-button>
+          </div>
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="recheckinForm.remarks" type="textarea" :rows="3" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="recheckinDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="recheckinSubmitting" @click="submitRecheckin">确认入住</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       title="AI 输入租户"
@@ -768,10 +859,9 @@ const paginatedTenants = computed(() => {
   return filteredTenants.value.slice(start, end)
 })
 
-// 删除相关状态
+// 表格选择状态（用于批量退租）
 const tenantsTableRef = ref(null)
 const selectedTenants = ref([])
-const batchDeleting = ref(false)
 
 // 处理页面大小变化
 const handleSizeChange = (size) => {
@@ -879,11 +969,41 @@ const activeDetailTab = ref('basic')
 const currentTenant = ref({})
 const tenantRepairs = ref([])
 const repairsLoading = ref(false)
+const tenantStays = ref([])
+const staysLoading = ref(false)
+
+const recheckinDialogVisible = ref(false)
+const recheckinSubmitting = ref(false)
+const recheckinFormRef = ref(null)
+const recheckinTenant = ref({})
+const recheckinForm = reactive({
+  building: '',
+  room_no: '',
+  check_in_date: '',
+  check_out_date: '',
+  remarks: '',
+})
+const recheckinRules = {
+  building: [{ required: true, message: '请选择楼栋', trigger: 'change' }],
+  room_no: [{ required: true, message: '请选择房间', trigger: 'change' }],
+  check_in_date: [{ required: true, message: '请选择入住日期', trigger: 'change' }],
+  check_out_date: [{ required: true, message: '请选择计划退房日期', trigger: 'change' }],
+}
 
 const showTenantDetails = async (tenant) => {
   currentTenant.value = { ...tenant }
   activeDetailTab.value = 'basic'
   detailsDialogVisible.value = true
+  staysLoading.value = true
+  try {
+    const response = await tenantsApi.listTenantStays(tenant.id)
+    tenantStays.value = response?.data?.stays || []
+  } catch (error) {
+    tenantStays.value = []
+    ElMessage.error(error?.response?.data?.error || '入住历史读取失败')
+  } finally {
+    staysLoading.value = false
+  }
   
   // 如果有房间号，获取该房间的维修记录作为参考
   if (tenant.room_no) {
@@ -938,6 +1058,40 @@ const confirmCheckout = async () => {
   } finally {
     checkoutLoading.value = false
   }
+}
+
+const openRecheckinDialog = async (tenant) => {
+  recheckinTenant.value = { ...tenant }
+  recheckinForm.building = ''
+  recheckinForm.room_no = ''
+  recheckinForm.check_in_date = formatDate(new Date())
+  recheckinForm.check_out_date = ''
+  recheckinForm.remarks = ''
+  await fetchAvailableRooms()
+  recheckinDialogVisible.value = true
+  nextTick(() => recheckinFormRef.value?.clearValidate?.())
+}
+
+const submitRecheckin = async () => {
+  if (!recheckinFormRef.value || recheckinSubmitting.value) return
+  await recheckinFormRef.value.validate(async (valid) => {
+    if (!valid) return
+    if (String(recheckinForm.check_out_date) < String(recheckinForm.check_in_date)) {
+      ElMessage.warning('计划退房日期不能早于入住日期')
+      return
+    }
+    recheckinSubmitting.value = true
+    try {
+      const response = await tenantsApi.createTenantStay(recheckinTenant.value.id, { ...recheckinForm })
+      ElMessage.success(response?.data?.message || '再次入住成功')
+      recheckinDialogVisible.value = false
+      await fetchTenants()
+    } catch (error) {
+      ElMessage.error(error?.response?.data?.error || '再次入住失败')
+    } finally {
+      recheckinSubmitting.value = false
+    }
+  })
 }
 
 const tenantForm = reactive({
@@ -1014,6 +1168,14 @@ const buildingOptions = computed(() => {
 
 const roomOptionsForForm = computed(() => {
   const building = normalizeBuildingCode(tenantForm.building)
+  if (!building) return []
+  return availableRooms.value
+    .filter(room => normalizeBuildingCode(room.building) === building)
+    .sort((a, b) => String(a.room_no || '').localeCompare(String(b.room_no || ''), undefined, { numeric: true }))
+})
+
+const recheckinRoomOptions = computed(() => {
+  const building = normalizeBuildingCode(recheckinForm.building)
   if (!building) return []
   return availableRooms.value
     .filter(room => normalizeBuildingCode(room.building) === building)
@@ -1137,14 +1299,11 @@ const parseDateValue = (value) => {
 const addMonthsKeepingDay = (value, months) => {
   const baseDate = parseDateValue(value)
   if (!baseDate) return ''
-  const target = new Date(baseDate.getTime())
-  for (let i = 0; i < Math.max(Number(months || 0), 0); i += 1) {
-    const originalDay = target.getDate()
-    target.setDate(1)
-    target.setMonth(target.getMonth() + 1)
-    const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate()
-    target.setDate(Math.min(originalDay, lastDay))
-  }
+  const monthOffset = Math.max(Number(months || 0), 0)
+  const originalDay = baseDate.getDate()
+  const target = new Date(baseDate.getFullYear(), baseDate.getMonth() + monthOffset, 1)
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate()
+  target.setDate(Math.min(originalDay, lastDay))
   return formatDate(target)
 }
 
@@ -1163,6 +1322,12 @@ const applyLeasePreset = (months) => {
   nextTick(() => {
     tenantFormRef.value?.clearValidate?.(['check_in_date', 'check_out_date'])
   })
+}
+
+const applyRecheckinLeasePreset = (months) => {
+  const baseDate = formatDate(recheckinForm.check_in_date || new Date())
+  recheckinForm.check_in_date = baseDate
+  recheckinForm.check_out_date = addMonthsKeepingDay(baseDate, months)
 }
 
 // 生命周期
@@ -1256,7 +1421,7 @@ const handleSearchClear = () => {
 const fetchTenants = async () => {
   loading.value = true
   try {
-    const response = await tenantsApi.listTenants({ fields: 'id,name,gender,nation,birth_date,id_card,address,phone,emergency_contact_name,emergency_contact_phone,check_in_date,check_out_date,room_no,building,remarks,status' })
+    const response = await tenantsApi.listTenants({ fields: 'id,name,gender,nation,birth_date,id_card,address,phone,emergency_contact_name,emergency_contact_phone,check_in_date,check_out_date,room_no,building,remarks,status,current_stay_id,stay_count' })
     // 确保tenants.value是一个数组
     tenants.value = (response.data.tenants || []).map((tenant, index) => ({
       ...tenant,
@@ -1277,9 +1442,7 @@ const fetchAvailableRooms = async () => {
     // 确保response.data.rooms是一个数组
     const roomsData = response.data.rooms || []
     console.log('房间数据:', roomsData)
-    availableRooms.value = isEdit.value 
-      ? roomsData.filter(room => room.status === '空闲' || room.room_no === tenantForm.room_no)
-      : roomsData
+    availableRooms.value = roomsData
   } catch (error) {
     console.error('获取可用房间失败', error)
   }
@@ -1335,6 +1498,10 @@ watch(() => tenantForm.building, () => {
   if (!isEdit.value) {
     tenantForm.room_no = ''
   }
+})
+
+watch(() => recheckinForm.building, () => {
+  recheckinForm.room_no = ''
 })
 
 watch(() => tenantForm.id_card, (value) => {
@@ -1537,6 +1704,14 @@ const handleSubmit = async () => {
         dialogVisible.value = false
         fetchTenants()
       } catch (error) {
+        const errorData = error?.response?.data || {}
+        if (!isEdit.value && errorData.code === 'TENANT_ALREADY_EXISTS' && errorData.can_recheckin) {
+          const existingTenant = tenants.value.find(item => Number(item.id) === Number(errorData.tenant_id))
+          dialogVisible.value = false
+          await openRecheckinDialog(existingTenant || { id: errorData.tenant_id, name: formData.name })
+          ElMessage.info('已找到该人员档案，请填写本次入住信息')
+          return
+        }
         const message = error?.response?.data?.error || error?.message || (isEdit.value ? '更新租户失败' : '添加租户失败')
         ElMessage.error(message)
         console.error(error)
@@ -1545,80 +1720,6 @@ const handleSubmit = async () => {
       }
     }
   })
-}
-
-const handleDelete = (tenant) => {
-  if (tenant?.status === '在住') {
-    ElMessage.warning('在租状态不可删除，请先办理退租')
-    return
-  }
-  ElMessageBox.confirm('确定要删除这个租户吗？', '警告', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
-    type: 'warning'
-  }).then(async () => {
-    try {
-      await tenantsApi.deleteTenant(tenant)
-      ElMessage.success('租户删除成功')
-      fetchTenants()
-    } catch (error) {
-      const msg = error?.response?.data?.error || error?.message || '删除租户失败'
-      ElMessage.error(msg)
-      console.error(error)
-    }
-  }).catch(() => {})
-}
-
-// 删除选中的租户（仅“已退租”）
-const handleBatchDelete = async () => {
-  if (!selectedTenants.value.length) return
-  const count = selectedTenants.value.length
-  const names = selectedTenants.value.map(t => t.name).join('、')
-  try {
-    await ElMessageBox.confirm(
-      `确认删除以下 ${count} 名租户吗？\n${names}\n该操作不可撤销。`,
-      '删除确认',
-      {
-        confirmButtonText: '确认删除',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
-
-    batchDeleting.value = true
-    const successes = []
-    const failures = []
-    // 顺序执行，避免 SQLite 并发写导致 database is locked
-    for (const t of selectedTenants.value) {
-      if (String(t.status || '').trim() === '在住') {
-        failures.push({ tenant: t, msg: '在住状态不可删除，请先办理退租' })
-        continue
-      }
-      try {
-        await tenantsApi.deleteTenant(t)
-        successes.push(t)
-      } catch (err) {
-        const msg = err?.response?.data?.error || err?.message || '未知错误'
-        failures.push({ tenant: t, msg })
-      }
-    }
-
-    if (successes.length) ElMessage.success(`删除成功：${successes.length} 个`)
-    if (failures.length) {
-      const detail = failures.map(f => `${f.tenant.name}(${f.tenant.id_card})：${f.msg}`).join('；')
-      ElMessage.error(`删除失败：${failures.length} 个。原因：${detail}`)
-    }
-
-    await fetchTenants()
-    tenantsTableRef.value?.clearSelection()
-    selectedTenants.value = []
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error('删除失败：' + (error?.message || '未知错误'))
-    }
-  } finally {
-    batchDeleting.value = false
-  }
 }
 
 // 辅助函数
@@ -2157,6 +2258,46 @@ html.mobile-mode .tenant-checkout-dialog .el-dialog__footer {
   text-align: center;
   color: var(--text-secondary);
   font-size: 13px;
+}
+
+.tenant-stay-list {
+  display: grid;
+  gap: 8px;
+}
+
+.tenant-stay-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
+  background: var(--card-bg);
+}
+
+.tenant-stay-item > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.tenant-stay-item span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.recheckin-date-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .recheckin-date-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
 }
 
 .tenant-mobile-repair-card {

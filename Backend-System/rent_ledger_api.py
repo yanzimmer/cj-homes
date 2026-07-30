@@ -24,6 +24,7 @@ def ensure_rent_ledger_schema():
         CREATE TABLE IF NOT EXISTS rent_ledger_entries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             tenant_id INTEGER NOT NULL,
+            stay_id INTEGER,
             room_id INTEGER,
             building TEXT DEFAULT '',
             room_no TEXT DEFAULT '',
@@ -47,12 +48,14 @@ def ensure_rent_ledger_schema():
             payment_images TEXT DEFAULT '[]',
             created_at DATETIME DEFAULT (DATETIME('now')),
             updated_at DATETIME DEFAULT (DATETIME('now')),
-            UNIQUE (tenant_id, period_start)
+            UNIQUE (stay_id, period_start)
         )
         """
     )
     cursor.execute("PRAGMA table_info(rent_ledger_entries)")
     columns = {row[1] for row in cursor.fetchall()}
+    if "stay_id" not in columns:
+        cursor.execute("ALTER TABLE rent_ledger_entries ADD COLUMN stay_id INTEGER")
     if "payment_images" not in columns:
         cursor.execute("ALTER TABLE rent_ledger_entries ADD COLUMN payment_images TEXT DEFAULT '[]'")
     if "payment_person" not in columns:
@@ -78,6 +81,12 @@ def ensure_rent_ledger_schema():
         """
         CREATE INDEX IF NOT EXISTS idx_rent_ledger_room
         ON rent_ledger_entries (room_id, tenant_id)
+        """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_rent_ledger_stay
+        ON rent_ledger_entries (stay_id, period_start)
         """
     )
     conn.commit()
@@ -347,6 +356,7 @@ def _build_rebuilt_entry_payload(tenant_row, period, source_row=None):
     state = _normalize_rebuilt_entry_state(source_row, due_amount)
     return (
         int(tenant_row["tenant_id"]),
+        int(tenant_row["stay_id"]),
         tenant_row["room_id"],
         _clean_text(tenant_row["building"]),
         _clean_text(tenant_row["room_no"]),
@@ -385,6 +395,7 @@ def _row_to_entry(row):
     return {
         "id": int(row["id"]),
         "tenant_id": int(row["tenant_id"]),
+        "stay_id": int(row["stay_id"]) if row["stay_id"] is not None else None,
         "room_id": row["room_id"],
         "building": row["building"] or "",
         "room_no": row["room_no"] or "",
@@ -496,7 +507,7 @@ def _update_entry_payment_fields(
 
 def _allocate_payment_forward(conn, start_row, total_amount, payment_date, payment_person, payment_method, remarks, payment_images):
     cursor = conn.cursor()
-    tenant_id = int(start_row["tenant_id"])
+    stay_id = int(start_row["stay_id"])
     start_period = _clean_text(start_row["period_start"])
     start_period_index = int(start_row["period_index"] or 0)
     start_id = int(start_row["id"])
@@ -505,14 +516,14 @@ def _allocate_payment_forward(conn, start_row, total_amount, payment_date, payme
         """
         SELECT *
         FROM rent_ledger_entries
-        WHERE tenant_id = ?
+        WHERE stay_id = ?
           AND (
                 period_start > ?
                 OR (period_start = ? AND (period_index > ? OR (period_index = ? AND id >= ?)))
               )
         ORDER BY period_start ASC, period_index ASC, id ASC
         """,
-        (tenant_id, start_period, start_period, start_period_index, start_period_index, start_id),
+        (stay_id, start_period, start_period, start_period_index, start_period_index, start_id),
     )
     rows = cursor.fetchall()
 
@@ -558,17 +569,17 @@ def _allocate_payment_forward(conn, start_row, total_amount, payment_date, payme
     }
 
 
-def _load_tenant_ledger_rows(conn, tenant_id):
+def _load_stay_ledger_rows(conn, stay_id):
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute(
         """
         SELECT *
         FROM rent_ledger_entries
-        WHERE tenant_id = ?
+        WHERE stay_id = ?
         ORDER BY period_start ASC, period_index ASC, id ASC
         """,
-        (tenant_id,),
+        (stay_id,),
     )
     return cursor.fetchall()
 
@@ -610,9 +621,9 @@ def _build_payment_source_from_row(row, override=None):
     }
 
 
-def _rebuild_tenant_payment_allocations(conn, tenant_id, lease_start_text="", lease_end_text="", payment_source_overrides=None):
-    _ensure_tenant_ledger_years(conn, tenant_id, lease_start_text, lease_end_text)
-    rows = _load_tenant_ledger_rows(conn, tenant_id)
+def _rebuild_stay_payment_allocations(conn, stay_id, lease_start_text="", lease_end_text="", payment_source_overrides=None):
+    _ensure_stay_ledger_years(conn, stay_id, lease_start_text, lease_end_text)
+    rows = _load_stay_ledger_rows(conn, stay_id)
     override_map = payment_source_overrides or {}
     override_by_id = {}
     override_by_period_start = {}
@@ -649,12 +660,12 @@ def _rebuild_tenant_payment_allocations(conn, tenant_id, lease_start_text="", le
             remarks = '',
             payment_images = '[]',
             updated_at = DATETIME('now')
-        WHERE tenant_id = ?
+        WHERE stay_id = ?
         """,
-        (tenant_id,),
+        (stay_id,),
     )
 
-    rows = _load_tenant_ledger_rows(conn, tenant_id)
+    rows = _load_stay_ledger_rows(conn, stay_id)
     row_map = {int(row["id"]): row for row in rows}
     allocation_results = {}
 
@@ -687,19 +698,19 @@ def _collect_lease_years(lease_start_text, lease_end_text):
     return list(range(lease_start.year, end_year + 1))
 
 
-def _ensure_tenant_ledger_years(conn, tenant_id, lease_start_text="", lease_end_text=""):
+def _ensure_stay_ledger_years(conn, stay_id, lease_start_text="", lease_end_text=""):
     years = _collect_lease_years(lease_start_text, lease_end_text)
     if not years:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT check_in_date, check_out_date
-            FROM tenants
+            SELECT check_in_date, COALESCE(NULLIF(actual_check_out_date, ''), planned_check_out_date) AS check_out_date
+            FROM tenant_stays
             WHERE id = ?
             LIMIT 1
             """,
-            (tenant_id,),
+            (stay_id,),
         )
         tenant_row = cursor.fetchone()
         if tenant_row:
@@ -708,18 +719,18 @@ def _ensure_tenant_ledger_years(conn, tenant_id, lease_start_text="", lease_end_
         _rebuild_rent_ledger_year(conn, int(year))
 
 
-def _load_entry_by_tenant_period(conn, tenant_id, period_start):
+def _load_entry_by_stay_period(conn, stay_id, period_start):
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute(
         """
         SELECT *
         FROM rent_ledger_entries
-        WHERE tenant_id = ? AND period_start = ?
+        WHERE stay_id = ? AND period_start = ?
         ORDER BY id ASC
         LIMIT 1
         """,
-        (tenant_id, period_start),
+        (stay_id, period_start),
     )
     return cursor.fetchone()
 
@@ -752,10 +763,11 @@ def _build_grouped_payload(rows):
     group_map = {}
     for row in rows:
         entry = _row_to_entry(row)
-        tenant_id = entry["tenant_id"]
-        if tenant_id not in group_map:
-            group_map[tenant_id] = {
-                "tenantId": tenant_id,
+        stay_id = entry["stay_id"] or entry["tenant_id"]
+        if stay_id not in group_map:
+            group_map[stay_id] = {
+                "stayId": entry["stay_id"],
+                "tenantId": entry["tenant_id"],
                 "tenantName": entry["tenant_name"],
                 "tenantStatus": entry["tenant_status"],
                 "roomId": entry["room_id"],
@@ -777,7 +789,7 @@ def _build_grouped_payload(rows):
                     "outstandingAmount": 0,
                 },
             }
-        group = group_map[tenant_id]
+        group = group_map[stay_id]
         group["entries"].append(entry)
         group["stats"]["totalPeriods"] += 1
         if entry["status"] == "已交":
@@ -793,7 +805,7 @@ def _build_grouped_payload(rows):
     groups = list(group_map.values())
     for group in groups:
         group["entries"].sort(key=lambda item: (item["period_start"], item["period_index"], item["id"]))
-    groups.sort(key=lambda item: (item["building"], item["roomNo"], item["tenantName"], item["tenantId"]))
+    groups.sort(key=lambda item: (item["building"], item["roomNo"], item["tenantName"], item["stayId"] or 0))
     return groups
 
 
@@ -803,25 +815,27 @@ def _rebuild_rent_ledger_year(conn, target_year):
         """
         SELECT
             t.id AS tenant_id,
+            s.id AS stay_id,
             t.name AS tenant_name,
-            t.check_in_date AS lease_start,
-            t.check_out_date AS lease_end,
-            t.room_id AS room_id,
+            s.check_in_date AS lease_start,
+            COALESCE(NULLIF(s.actual_check_out_date, ''), s.planned_check_out_date) AS lease_end,
+            s.room_id AS room_id,
             r.building AS building,
             r.room_no AS room_no,
-            r.price AS rent_amount,
-            r.price_unit AS rent_unit
-        FROM tenants t
-        LEFT JOIN rooms r ON t.room_id = r.id
-        WHERE t.room_id IS NOT NULL
-          AND COALESCE(TRIM(t.check_in_date), '') <> ''
+            s.rent_amount AS rent_amount,
+            s.rent_unit AS rent_unit
+        FROM tenant_stays s
+        JOIN tenants t ON t.id = s.tenant_id
+        LEFT JOIN rooms r ON s.room_id = r.id
+        WHERE s.room_id IS NOT NULL
+          AND COALESCE(TRIM(s.check_in_date), '') <> ''
           AND r.id IS NOT NULL
-        ORDER BY r.building, r.room_no, t.name
+        ORDER BY r.building, r.room_no, t.name, s.check_in_date, s.id
         """
     )
     tenant_rows = cursor.fetchall()
-    tenant_ids = [int(row[0]) for row in tenant_rows]
-    if len(tenant_ids) == 0:
+    stay_ids = [int(row[1]) for row in tenant_rows]
+    if len(stay_ids) == 0:
         cursor.execute(
             """
             DELETE FROM rent_ledger_entries
@@ -833,34 +847,35 @@ def _rebuild_rent_ledger_year(conn, target_year):
 
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    placeholders = ",".join("?" for _ in tenant_ids)
+    placeholders = ",".join("?" for _ in stay_ids)
     cursor.execute(
         f"""
         SELECT *
         FROM rent_ledger_entries
-        WHERE tenant_id IN ({placeholders})
+        WHERE stay_id IN ({placeholders})
           AND substr(period_start, 1, 4) = ?
-        ORDER BY tenant_id, period_start, id
+        ORDER BY stay_id, period_start, id
         """,
-        (*tenant_ids, f"{target_year:04d}"),
+        (*stay_ids, f"{target_year:04d}"),
     )
 
-    existing_by_tenant = {}
+    existing_by_stay = {}
     for row in cursor.fetchall():
-        existing_by_tenant.setdefault(int(row["tenant_id"]), []).append(row)
+        existing_by_stay.setdefault(int(row["stay_id"]), []).append(row)
 
     rebuilt_rows = []
     for raw_row in tenant_rows:
         tenant_row = {
             "tenant_id": int(raw_row[0]),
-            "tenant_name": raw_row[1],
-            "lease_start": raw_row[2],
-            "lease_end": raw_row[3],
-            "room_id": raw_row[4],
-            "building": raw_row[5],
-            "room_no": raw_row[6],
-            "rent_amount": raw_row[7],
-            "rent_unit": raw_row[8],
+            "stay_id": int(raw_row[1]),
+            "tenant_name": raw_row[2],
+            "lease_start": raw_row[3],
+            "lease_end": raw_row[4],
+            "room_id": raw_row[5],
+            "building": raw_row[6],
+            "room_no": raw_row[7],
+            "rent_amount": raw_row[8],
+            "rent_unit": raw_row[9],
         }
         lease_start = _parse_date(tenant_row["lease_start"])
         lease_end = _parse_date(tenant_row["lease_end"])
@@ -877,7 +892,7 @@ def _rebuild_rent_ledger_year(conn, target_year):
         if len(periods) == 0:
             continue
 
-        existing_rows = existing_by_tenant.get(tenant_row["tenant_id"], [])
+        existing_rows = existing_by_stay.get(tenant_row["stay_id"], [])
         exact_by_start = {row["period_start"]: row for row in existing_rows}
         exact_starts = {_date_text(period["period_start"]) for period in periods}
         orphan_rows = sorted(
@@ -925,13 +940,13 @@ def _rebuild_rent_ledger_year(conn, target_year):
     cursor.executemany(
         """
         INSERT INTO rent_ledger_entries (
-            tenant_id, room_id, building, room_no, tenant_name,
+            tenant_id, stay_id, room_id, building, room_no, tenant_name,
             lease_start, lease_end, rent_amount, rent_unit,
             period_index, period_label, period_start, period_end,
             due_amount, actual_amount, allocated_amount, status, payment_date,
             payment_person, payment_method, remarks, payment_images
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         rebuilt_rows,
     )
@@ -971,9 +986,10 @@ def _build_summary(conn, year, status_filter="", tenant_status_filter=""):
     query = """
         SELECT
             e.*,
-            COALESCE(TRIM(t.status), '在住') AS tenant_status
+            COALESCE(TRIM(s.status), TRIM(t.status), '在住') AS tenant_status
         FROM rent_ledger_entries e
         LEFT JOIN tenants t ON t.id = e.tenant_id
+        LEFT JOIN tenant_stays s ON s.id = e.stay_id
         WHERE e.period_start LIKE ?
     """
     status_text = _normalize_status(status_filter) if _clean_text(status_filter) else ""
@@ -982,7 +998,7 @@ def _build_summary(conn, year, status_filter="", tenant_status_filter=""):
         params.append(status_text)
     tenant_status_text = _normalize_tenant_status(tenant_status_filter) if _clean_text(tenant_status_filter) else ""
     if tenant_status_text:
-        query += " AND COALESCE(TRIM(t.status), '在住') = ?"
+        query += " AND COALESCE(TRIM(s.status), TRIM(t.status), '在住') = ?"
         params.append(tenant_status_text)
     query += " ORDER BY e.building, e.room_no, e.tenant_name, e.period_start, e.period_index, e.id"
     cursor.execute(query, tuple(params))
@@ -1085,9 +1101,9 @@ def update_rent_ledger_entry(current_user, entry_id):
 
         if should_rebuild_payment_chain:
             period_start = _clean_text(row["period_start"])
-            allocation_results = _rebuild_tenant_payment_allocations(
+            allocation_results = _rebuild_stay_payment_allocations(
                 conn,
-                int(row["tenant_id"]),
+                int(row["stay_id"]),
                 row["lease_start"],
                 row["lease_end"],
                 payment_source_overrides={
@@ -1102,7 +1118,7 @@ def update_rent_ledger_entry(current_user, entry_id):
                     }
                 },
             )
-            updated_row = _load_entry_by_tenant_period(conn, int(row["tenant_id"]), period_start)
+            updated_row = _load_entry_by_stay_period(conn, int(row["stay_id"]), period_start)
             conn.commit()
 
             allocation_result = allocation_results.get(

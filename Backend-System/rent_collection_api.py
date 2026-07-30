@@ -201,11 +201,11 @@ def _load_active_tenants_for_room(conn, room_id):
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT id, name, check_in_date, check_out_date, status
-        FROM tenants
-        WHERE room_id = ?
-          AND COALESCE(TRIM(status), '') <> '已退租'
-        ORDER BY check_in_date ASC, id ASC
+        SELECT t.id, t.name, s.check_in_date, s.planned_check_out_date, s.status, s.id
+        FROM tenant_stays s
+        JOIN tenants t ON t.id = s.tenant_id
+        WHERE s.room_id = ? AND s.status = '在住'
+        ORDER BY s.check_in_date ASC, s.id ASC
         """,
         (room_id,),
     )
@@ -217,6 +217,7 @@ def _load_active_tenants_for_room(conn, room_id):
             "check_in_date": _clean_text(row[2]),
             "check_out_date": _clean_text(row[3]),
             "status": _clean_text(row[4]) or "在住",
+            "stay_id": int(row[5]),
         }
         for row in rows
     ]
@@ -258,17 +259,17 @@ def _load_room_entries(conn, room_id):
     return cur.fetchall()
 
 
-def _load_tenant_entries(conn, tenant_id):
+def _load_tenant_entries(conn, tenant_id, stay_id=None):
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     cur.execute(
         """
         SELECT *
         FROM rent_ledger_entries
-        WHERE tenant_id = ?
+        WHERE tenant_id = ? AND (? IS NULL OR stay_id = ?)
         ORDER BY period_start ASC, period_index ASC, id ASC
         """,
-        (tenant_id,),
+        (tenant_id, stay_id, stay_id),
     )
     return cur.fetchall()
 
@@ -281,6 +282,7 @@ def _serialize_entry(row):
     return {
         "id": int(row["id"]),
         "tenant_id": int(row["tenant_id"]),
+        "stay_id": int(row["stay_id"]) if row["stay_id"] is not None else None,
         "tenant_name": _clean_text(row["tenant_name"]),
         "period_index": int(row["period_index"] or 0),
         "period_label": _clean_text(row["period_label"]),
@@ -322,6 +324,7 @@ def _build_room_overview(conn, room_id):
             "label": f"{_room_display_label(room)} · {item['name']}",
             "check_in_date": item["check_in_date"],
             "check_out_date": item["check_out_date"],
+            "stay_id": item["stay_id"],
         }
         for item in active_tenants
     ]
@@ -445,8 +448,13 @@ def _select_periods_for_payment(conn, tenant_id, amount, requested_period_starts
         if text and text not in requested:
             requested.append(text)
 
+    stay_row = conn.execute(
+        "SELECT id FROM tenant_stays WHERE tenant_id = ? AND status = '在住' ORDER BY id DESC LIMIT 1",
+        (tenant_id,),
+    ).fetchone()
+    current_stay_id = int(stay_row[0]) if stay_row else None
     outstanding_entries = []
-    for row in _load_tenant_entries(conn, tenant_id):
+    for row in _load_tenant_entries(conn, tenant_id, current_stay_id):
         entry = _serialize_entry(row)
         if entry["outstanding_amount"] > 0:
             outstanding_entries.append(entry)

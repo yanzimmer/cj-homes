@@ -3,8 +3,10 @@
 import os
 import json
 import logging
+import uuid
 from copy import deepcopy
 from datetime import datetime
+from urllib.parse import urlsplit
 
 try:
     from dotenv import load_dotenv
@@ -18,6 +20,7 @@ logger = logging.getLogger('expiry_notification')
 
 # 配置文件路径（迁移至 config 目录）
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'config', 'notification_config.json')
+BARK_ENDPOINTS_FILE = os.path.join(os.path.dirname(__file__), 'config', 'bark_endpoints.json')
 MASKED_VALUE = "********"
 NOTIFICATION_SCENES = {"lease_expiry", "rent_reminder"}
 
@@ -47,6 +50,18 @@ DEFAULT_CONFIG = {
         "landlord_template_id": "",
         "tenant_template_text": "",
         "landlord_template_text": "",
+    },
+    "bark_config": {
+        "enabled": True,
+        "auto_send_enabled": True,
+        "send_time": "09:00",
+        "lease_expiry_enabled": True,
+        "rent_reminder_enabled": True,
+        "title": "从江房屋登记系统",
+        "group": "房屋提醒",
+        "sound": "",
+        "icon": "",
+        "endpoints": [],
     },
     "tenant_email_config": {
         "sender": "",
@@ -114,6 +129,77 @@ def _read_config_raw():
     except Exception as e:
         logger.error(f"读取配置文件失败: {str(e)}")
         return {}
+
+
+def _normalize_bark_endpoint(endpoint, index=0):
+    if not isinstance(endpoint, dict):
+        raise ValueError(f"bark_config.endpoints[{index}] 必须是对象")
+
+    bark_url = str(endpoint.get("bark_url") or "").strip().rstrip("/")
+    if not bark_url:
+        raise ValueError(f"bark_config.endpoints[{index}].bark_url 不能为空")
+    if len(bark_url) > 2048:
+        raise ValueError(f"bark_config.endpoints[{index}].bark_url 过长")
+
+    parsed = urlsplit(bark_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(f"bark_config.endpoints[{index}].bark_url 必须是有效的 HTTP 或 HTTPS 地址")
+    if parsed.query or parsed.fragment:
+        raise ValueError(f"bark_config.endpoints[{index}].bark_url 不能包含查询参数或片段")
+
+    endpoint_id = str(endpoint.get("id") or "").strip() or uuid.uuid4().hex
+    remark = str(endpoint.get("remark") or "").strip()
+    if len(endpoint_id) > 64:
+        raise ValueError(f"bark_config.endpoints[{index}].id 过长")
+    if len(remark) > 80:
+        raise ValueError(f"bark_config.endpoints[{index}].remark 不能超过 80 个字符")
+
+    return {
+        "id": endpoint_id,
+        "remark": remark,
+        "bark_url": bark_url,
+        "enabled": bool(endpoint.get("enabled", True)),
+    }
+
+
+def normalize_bark_endpoints(endpoints):
+    if not isinstance(endpoints, list):
+        raise ValueError("bark_config.endpoints 必须是列表")
+    normalized = [_normalize_bark_endpoint(item, index) for index, item in enumerate(endpoints)]
+    urls = [item["bark_url"] for item in normalized]
+    if len(urls) != len(set(urls)):
+        raise ValueError("Bark 推送地址不能重复")
+    return normalized
+
+
+def _read_bark_endpoints():
+    if not os.path.exists(BARK_ENDPOINTS_FILE):
+        return []
+    try:
+        with open(BARK_ENDPOINTS_FILE, "r", encoding="utf-8") as file:
+            payload = json.load(file)
+        return normalize_bark_endpoints(payload.get("endpoints", []))
+    except Exception as error:
+        logger.error("读取 Bark 私密配置失败: %s", error)
+        return []
+
+
+def _write_bark_endpoints(endpoints):
+    normalized = normalize_bark_endpoints(endpoints)
+    os.makedirs(os.path.dirname(BARK_ENDPOINTS_FILE), exist_ok=True)
+    temp_path = f"{BARK_ENDPOINTS_FILE}.tmp"
+    with open(temp_path, "w", encoding="utf-8") as file:
+        json.dump({"endpoints": normalized}, file, ensure_ascii=False, indent=2)
+    os.chmod(temp_path, 0o600)
+    os.replace(temp_path, BARK_ENDPOINTS_FILE)
+    return normalized
+
+
+def _attach_bark_endpoints(config):
+    merged = deepcopy(config) if isinstance(config, dict) else {}
+    bark_config = merged.setdefault("bark_config", {})
+    bark_config["endpoints"] = _read_bark_endpoints()
+    return merged
 
 
 def _deep_merge_dict(base, override):
@@ -200,7 +286,7 @@ def _apply_env_overrides(config, include_secrets=False):
 
 def get_runtime_config():
     """获取运行时配置，包含从环境变量注入的真实密钥。仅后端内部使用。"""
-    return _apply_env_overrides(_read_config_raw(), include_secrets=True)
+    return _attach_bark_endpoints(_apply_env_overrides(_read_config_raw(), include_secrets=True))
 
 
 def _strip_masked_values(value):
@@ -218,7 +304,7 @@ def _strip_masked_values(value):
 
 def get_config():
     """获取当前配置，敏感字段仅返回脱敏占位符。"""
-    return _apply_env_overrides(_read_config_raw(), include_secrets=False)
+    return _attach_bark_endpoints(_apply_env_overrides(_read_config_raw(), include_secrets=False))
 
 def update_config(new_config):
     """更新配置"""
@@ -227,6 +313,9 @@ def update_config(new_config):
         # 读取当前配置
         current_config = _normalize_config_shape(_read_config_raw())
         new_config = _strip_masked_values(new_config)
+        bark_payload = new_config.get("bark_config") if isinstance(new_config.get("bark_config"), dict) else None
+        bark_endpoints_provided = bark_payload is not None and "endpoints" in bark_payload
+        bark_endpoints = bark_payload.get("endpoints", []) if bark_endpoints_provided else None
         
         # 更新配置
         for key, value in new_config.items():
@@ -237,6 +326,10 @@ def update_config(new_config):
                 current_config[key] = value
 
         current_config = _normalize_config_shape(current_config)
+        current_config.setdefault("bark_config", {})["endpoints"] = []
+
+        if bark_endpoints_provided:
+            _write_bark_endpoints(bark_endpoints)
 
         # 更新最后修改时间
         current_config["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -246,7 +339,7 @@ def update_config(new_config):
             json.dump(current_config, f, ensure_ascii=False, indent=4)
         
         logger.info("配置已更新")
-        return True, current_config
+        return True, get_config()
     except Exception as e:
         logger.error(f"更新配置失败: {str(e)}")
         return False, str(e)
@@ -327,6 +420,26 @@ def validate_config(config):
         ]:
             if field not in sms_config:
                 return False, f"sms_config.{field} 字段缺失"
+
+    bark_config = merged.get("bark_config")
+    if not isinstance(bark_config, dict):
+        return False, "bark_config 字段必须是对象"
+    if not isinstance(bark_config.get("enabled"), bool):
+        return False, "bark_config.enabled 字段必须是布尔类型"
+    for field in ["auto_send_enabled", "lease_expiry_enabled", "rent_reminder_enabled"]:
+        if not isinstance(bark_config.get(field), bool):
+            return False, f"bark_config.{field} 字段必须是布尔类型"
+    try:
+        datetime.strptime(bark_config.get("send_time", ""), "%H:%M")
+    except (TypeError, ValueError):
+        return False, "bark_config.send_time 必须是 HH:MM 格式"
+    for field in ["title", "group", "sound", "icon"]:
+        if not isinstance(bark_config.get(field), str):
+            return False, f"bark_config.{field} 字段必须是字符串"
+    try:
+        normalize_bark_endpoints(bark_config.get("endpoints", []))
+    except ValueError as error:
+        return False, str(error)
 
     # 邮件配置
     for cfg_key in ["tenant_email_config", "landlord_email_config"]:

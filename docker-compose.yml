@@ -10,6 +10,8 @@ services:
       - ./data/homes_sql:/app/Backend-System/sql
       - ./data/homes_cfg:/app/Backend-System/config
       - ./data/homes_uploads:/app/Backend-System/static/uploads
+    env_file:
+      - ./Backend-System/.env
     environment:
       - TZ=Asia/Shanghai
     # 以前台模式启动，并显式指定主配置文件（包含 conf.d）

@@ -25,6 +25,18 @@
         "tenant_template_text": "",
         "landlord_template_text": ""
     },
+    "bark_config": {
+        "enabled": true,
+        "auto_send_enabled": true,
+        "send_time": "09:00",
+        "lease_expiry_enabled": true,
+        "rent_reminder_enabled": true,
+        "title": "从江房屋登记系统",
+        "group": "房屋提醒",
+        "sound": "",
+        "icon": "",
+        "endpoints": []
+    },
     "tenant_email_config": {
         "sender": "system@example.com",
         "subject": "租期即将到期通知",
@@ -44,7 +56,7 @@
             "phone": "15286304124"
         }
     ],
-    "last_updated": "2026-07-22 16:21:28",
+    "last_updated": "2026-07-30 16:16:05",
     "notification_methods": [
         "email"
     ]

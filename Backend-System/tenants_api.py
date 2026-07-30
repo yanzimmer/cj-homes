@@ -15,6 +15,13 @@ from local_ai_settings import load_ai_settings
 from ocr_settings import build_ocr_status, record_ocr_usage
 from rent_ledger_api import _rebuild_rent_ledger_year
 from rooms_api import _compose_room_no, _find_room_by_no, _normalize_building_code
+from tenant_stays_service import (
+    checkout_current_stay,
+    create_tenant_stay,
+    ensure_tenant_stays_schema,
+    get_current_stay,
+    sync_legacy_tenant_from_stay,
+)
 
 
 tenants_bp = Blueprint('tenants', __name__, url_prefix='/api')
@@ -62,13 +69,22 @@ def _refresh_tenant_statuses(conn):
     cursor.execute(
         """
         UPDATE tenants
-        SET status = CASE
-            WHEN check_out_date IS NOT NULL
-              AND TRIM(check_out_date) <> ''
-              AND DATE('now','localtime') >= DATE(check_out_date)
-            THEN '已退租'
-            ELSE '在住'
-        END
+        SET status = CASE WHEN EXISTS (
+                SELECT 1 FROM tenant_stays s
+                WHERE s.tenant_id = tenants.id AND s.status = '在住'
+            ) THEN '在住' ELSE '已退租' END,
+            room_id = COALESCE(
+                (SELECT s.room_id FROM tenant_stays s WHERE s.tenant_id = tenants.id AND s.status = '在住' ORDER BY s.id DESC LIMIT 1),
+                (SELECT s.room_id FROM tenant_stays s WHERE s.tenant_id = tenants.id ORDER BY s.check_in_date DESC, s.id DESC LIMIT 1)
+            ),
+            check_in_date = COALESCE(
+                (SELECT s.check_in_date FROM tenant_stays s WHERE s.tenant_id = tenants.id AND s.status = '在住' ORDER BY s.id DESC LIMIT 1),
+                (SELECT s.check_in_date FROM tenant_stays s WHERE s.tenant_id = tenants.id ORDER BY s.check_in_date DESC, s.id DESC LIMIT 1)
+            ),
+            check_out_date = COALESCE(
+                (SELECT COALESCE(NULLIF(s.actual_check_out_date, ''), s.planned_check_out_date) FROM tenant_stays s WHERE s.tenant_id = tenants.id AND s.status = '在住' ORDER BY s.id DESC LIMIT 1),
+                (SELECT COALESCE(NULLIF(s.actual_check_out_date, ''), s.planned_check_out_date) FROM tenant_stays s WHERE s.tenant_id = tenants.id ORDER BY s.check_in_date DESC, s.id DESC LIMIT 1)
+            )
         """
     )
 
@@ -80,10 +96,14 @@ def _refresh_room_statuses(conn):
         UPDATE rooms
         SET status = CASE
             WHEN EXISTS (
-                SELECT 1 FROM tenants t
-                WHERE t.room_id = rooms.id
-                  AND t.status = '在住'
-                  AND DATE('now','localtime') BETWEEN t.check_in_date AND t.check_out_date
+                SELECT 1 FROM tenant_stays s
+                WHERE s.room_id = rooms.id
+                  AND s.status = '在住'
+                  AND DATE('now','localtime') >= DATE(s.check_in_date)
+                  AND (
+                    COALESCE(TRIM(s.planned_check_out_date), '') = ''
+                    OR DATE('now','localtime') <= DATE(s.planned_check_out_date)
+                  )
             ) THEN '已入住'
             ELSE '空闲'
         END
@@ -94,20 +114,17 @@ def _refresh_room_statuses(conn):
 def _checkout_tenant(conn, where_clause, params):
     cursor = conn.cursor()
     affected_years = _load_tenant_ledger_years(conn, where_clause, params)
-    today = date.today().isoformat()
     cursor.execute(
-        f"""
-        UPDATE tenants
-        SET check_out_date = ?,
-            status = '已退租'
-        WHERE {where_clause} AND status = '在住'
-        """,
-        (today, *params),
+        f"SELECT id FROM tenants WHERE {where_clause} LIMIT 1",
+        params,
     )
-
-    if cursor.rowcount == 0:
+    row = cursor.fetchone()
+    if not row:
         return None
-
+    result = checkout_current_stay(conn, int(row[0]))
+    if not result:
+        return None
+    _, today = result
     _refresh_tenant_statuses(conn)
     _refresh_room_statuses(conn)
     _sync_rent_ledger_years(conn, affected_years)
@@ -173,9 +190,10 @@ def _load_tenant_ledger_years(conn, where_clause, params):
     cursor = conn.cursor()
     cursor.execute(
         f"""
-        SELECT check_in_date, check_out_date
-        FROM tenants
-        WHERE {where_clause}
+        SELECT s.check_in_date, COALESCE(NULLIF(s.actual_check_out_date, ''), s.planned_check_out_date)
+        FROM tenant_stays s
+        JOIN tenants t ON t.id = s.tenant_id
+        WHERE {where_clause.replace('id_card', 't.id_card').replace('id =', 't.id =')}
         """,
         params,
     )
@@ -188,6 +206,52 @@ def _load_tenant_ledger_years(conn, where_clause, params):
 def _sync_rent_ledger_years(conn, years):
     for year in sorted(int(year) for year in set(years) if year):
         _rebuild_rent_ledger_year(conn, year)
+
+
+def _update_current_stay_from_tenant_fields(conn, tenant_id, update_data):
+    stay = get_current_stay(conn, tenant_id)
+    if not stay:
+        return
+    assignments = []
+    values = []
+    field_map = {
+        "check_in_date": "check_in_date",
+        "check_out_date": "planned_check_out_date",
+        "room_id": "room_id",
+        "remarks": "remarks",
+    }
+    for source_field, stay_field in field_map.items():
+        if source_field in update_data:
+            assignments.append(f"{stay_field} = ?")
+            values.append(update_data[source_field])
+    if not assignments:
+        return
+    assignments.append("updated_at = datetime('now','localtime')")
+    values.append(int(stay["id"]))
+    conn.execute(
+        f"UPDATE tenant_stays SET {', '.join(assignments)} WHERE id = ?",
+        tuple(values),
+    )
+    sync_legacy_tenant_from_stay(conn, tenant_id, int(stay["id"]))
+
+
+def _serialize_stay(row):
+    return {
+        "id": int(row[0]),
+        "tenant_id": int(row[1]),
+        "room_id": row[2],
+        "room_no": row[3] or "",
+        "building": _normalize_building_code(row[4]),
+        "check_in_date": row[5] or "",
+        "planned_check_out_date": row[6] or "",
+        "actual_check_out_date": row[7] or "",
+        "rent_amount": round(float(row[8] or 0), 2),
+        "rent_unit": row[9] or "月",
+        "deposit_amount": round(float(row[10] or 0), 2),
+        "status": row[11] or "已退租",
+        "remarks": row[12] or "",
+        "created_at": row[13] or "",
+    }
 
 
 def _extract_json_object(text):
@@ -420,6 +484,7 @@ def api_list_tenants(current_user):
                   check_out_date:
                     type: string
     """
+    ensure_tenant_stays_schema()
     conn = connect()
     cursor = conn.cursor()
 
@@ -446,11 +511,23 @@ def api_list_tenants(current_user):
 
     cursor.execute(
         """
-        SELECT t.id, t.name, t.gender, t.nation, t.birth_date, t.id_card, 
+        SELECT t.id, t.name, t.gender, t.nation, t.birth_date, t.id_card,
                t.address, t.phone, t.emergency_contact_name, t.emergency_contact_phone, 
-               t.check_in_date, t.check_out_date, r.room_no, r.building, t.remarks, t.status
+               s.check_in_date,
+               COALESCE(NULLIF(s.actual_check_out_date, ''), s.planned_check_out_date),
+               r.room_no, r.building, t.remarks,
+               COALESCE(s.status, t.status), s.id,
+               (SELECT COUNT(*) FROM tenant_stays history WHERE history.tenant_id = t.id)
         FROM tenants t
-        LEFT JOIN rooms r ON t.room_id = r.id
+        LEFT JOIN tenant_stays s ON s.id = (
+            SELECT current_stay.id
+            FROM tenant_stays current_stay
+            WHERE current_stay.tenant_id = t.id
+            ORDER BY CASE WHEN current_stay.status = '在住' THEN 0 ELSE 1 END,
+                     current_stay.check_in_date DESC, current_stay.id DESC
+            LIMIT 1
+        )
+        LEFT JOIN rooms r ON s.room_id = r.id
         ORDER BY r.room_no, t.name
         """
     )
@@ -476,6 +553,8 @@ def api_list_tenants(current_user):
             'building': _normalize_building_code(row[13]),
             'remarks': row[14],
             'status': row[15],
+            'current_stay_id': row[16],
+            'stay_count': int(row[17] or 0),
         })
 
     q = (request.args.get('q') or request.args.get('search') or '').strip().lower()
@@ -531,7 +610,7 @@ def api_list_tenants(current_user):
         'phone',
         'emergency_contact_name', 'emergency_contact_phone',
         'check_in_date', 'check_out_date', 'room_no', 'building',
-        'remarks', 'status'
+        'remarks', 'status', 'current_stay_id', 'stay_count'
     ]
     selected_fields = parse_fields_arg(request.args, allowed_fields)
     tenants = project_fields(tenants, selected_fields, always_include=['id'])
@@ -587,6 +666,82 @@ def api_checkout_tenant_by_id(current_user, tenant_id):
     return jsonify({'message': '租户退租成功', 'checkout_date': today})
 
 
+@tenants_bp.route('/tenants/by-id/<int:tenant_id>/stays', methods=['GET'])
+@token_required
+def api_list_tenant_stays(current_user, tenant_id):
+    ensure_tenant_stays_schema()
+    conn = connect()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM tenants WHERE id = ?", (tenant_id,))
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({'error': f'租户 #{tenant_id} 不存在'}), 404
+    cursor.execute(
+        """
+        SELECT s.id, s.tenant_id, s.room_id, r.room_no, r.building,
+               s.check_in_date, s.planned_check_out_date, s.actual_check_out_date,
+               s.rent_amount, s.rent_unit, s.deposit_amount, s.status,
+               s.remarks, s.created_at
+        FROM tenant_stays s
+        LEFT JOIN rooms r ON r.id = s.room_id
+        WHERE s.tenant_id = ?
+        ORDER BY s.check_in_date DESC, s.id DESC
+        """,
+        (tenant_id,),
+    )
+    stays = [_serialize_stay(row) for row in cursor.fetchall()]
+    conn.close()
+    return jsonify({'stays': stays, 'total': len(stays)})
+
+
+@tenants_bp.route('/tenants/by-id/<int:tenant_id>/stays', methods=['POST'])
+@token_required
+def api_create_tenant_stay(current_user, tenant_id):
+    ensure_tenant_stays_schema()
+    data = request.json or {}
+    required_fields = ['room_no', 'check_in_date', 'check_out_date']
+    if not all(str(data.get(field) or '').strip() for field in required_fields):
+        return jsonify({'error': '请选择房间、入住日期和计划退房日期'}), 400
+    conn = connect()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name FROM tenants WHERE id = ?", (tenant_id,))
+    tenant = cursor.fetchone()
+    if not tenant:
+        conn.close()
+        return jsonify({'error': f'租户 #{tenant_id} 不存在'}), 404
+    room = _resolve_room_for_tenant(conn, data.get('room_no'), data.get('building'))
+    if not room:
+        conn.close()
+        return jsonify({'error': f"房间 {data.get('room_no')} 不存在"}), 404
+    try:
+        stay_id = create_tenant_stay(
+            conn,
+            tenant_id,
+            int(room[0]),
+            data.get('check_in_date'),
+            data.get('check_out_date'),
+            data.get('remarks', ''),
+        )
+        _refresh_tenant_statuses(conn)
+        _refresh_room_statuses(conn)
+        years = _collect_lease_years(data.get('check_in_date'), data.get('check_out_date'))
+        _sync_rent_ledger_years(conn, years)
+        conn.commit()
+        return jsonify({
+            'message': f"租户 {tenant[1]} 已再次入住",
+            'tenant_id': tenant_id,
+            'stay_id': stay_id,
+        }), 201
+    except (ValueError, sqlite3.IntegrityError) as exc:
+        conn.rollback()
+        return jsonify({'error': str(exc)}), 400
+    except sqlite3.Error as exc:
+        conn.rollback()
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        conn.close()
+
+
 @tenants_bp.route('/tenants', methods=['POST'])
 @token_required
 def api_add_tenant(current_user):
@@ -599,6 +754,7 @@ def api_add_tenant(current_user):
     if not data or not all(k in data for k in required_fields):
         return jsonify({'error': '缺少必要参数', 'required': required_fields}), 400
 
+    ensure_tenant_stays_schema()
     conn = connect()
     room = _resolve_room_for_tenant(conn, data.get('room_no'), data.get('building'))
     if not room:
@@ -612,6 +768,18 @@ def api_add_tenant(current_user):
     id_card = _clean_text(data.get('id_card')).upper() or None
     birth_date = _clean_text(data.get('birth_date')) or _derive_birth_date_from_id_card(id_card)
     status = _normalize_tenant_status(data.get('status'))
+    if id_card:
+        cursor.execute("SELECT id, status FROM tenants WHERE id_card = ? LIMIT 1", (id_card,))
+        existing = cursor.fetchone()
+        if existing:
+            can_recheckin = get_current_stay(conn, int(existing[0])) is None
+            conn.close()
+            return jsonify({
+                'error': '该身份证号已有人员档案，请使用“再次入住”保留历史记录',
+                'code': 'TENANT_ALREADY_EXISTS',
+                'tenant_id': int(existing[0]),
+                'can_recheckin': can_recheckin,
+            }), 409
 
     cursor.execute("SELECT room_no, price, price_unit FROM rooms WHERE id = ? LIMIT 1", (room_id,))
     room_row = cursor.fetchone()
@@ -649,6 +817,16 @@ def api_add_tenant(current_user):
             ),
         )
         tenant_id = cursor.lastrowid
+        stay_id = create_tenant_stay(
+            conn,
+            tenant_id,
+            room_id,
+            data['check_in_date'],
+            data['check_out_date'],
+            remarks,
+        )
+        if status == '已退租':
+            checkout_current_stay(conn, tenant_id, data.get('check_out_date'))
         _refresh_tenant_statuses(conn)
         _refresh_room_statuses(conn)
         _sync_rent_ledger_years(
@@ -658,7 +836,7 @@ def api_add_tenant(current_user):
         conn.commit()
         conn.close()
 
-        return jsonify({'message': f"租户 {data['name']} 已添加", 'id': tenant_id, 'id_card': id_card or ''})
+        return jsonify({'message': f"租户 {data['name']} 已添加", 'id': tenant_id, 'stay_id': stay_id, 'id_card': id_card or ''})
     except sqlite3.Error as e:
         conn.close()
         return jsonify({'error': str(e)}), 500
@@ -681,6 +859,12 @@ def api_delete_tenant_by_id(current_user, tenant_id):
         if status != '已退租':
             conn.close()
             return jsonify({'error': '在住状态不可删除，请先办理退租'}), 400
+
+        cursor.execute("SELECT COUNT(*) FROM tenant_stays WHERE tenant_id = ?", (tenant_id,))
+        stay_count = int(cursor.fetchone()[0] or 0)
+        if stay_count > 0:
+            conn.close()
+            return jsonify({'error': f'该人员有 {stay_count} 条入住历史，不能删除人员档案'}), 400
 
         cursor.execute("DELETE FROM tenant_moves WHERE tenant_id = ?", (tenant_id,))
         moves_deleted = cursor.rowcount
@@ -860,6 +1044,10 @@ def api_update_tenant(current_user, id_card):
             conn.close()
             return jsonify({'error': f'租户 {id_card} 不存在'}), 404
 
+        cursor.execute("SELECT id FROM tenants WHERE id_card = ? LIMIT 1", (id_card,))
+        tenant_row = cursor.fetchone()
+        if tenant_row:
+            _update_current_stay_from_tenant_fields(conn, int(tenant_row[0]), update_data)
         _refresh_tenant_statuses(conn)
         _refresh_room_statuses(conn)
         affected_years.update(_load_tenant_ledger_years(conn, "id_card = ?", (id_card,)))
@@ -910,6 +1098,7 @@ def api_update_tenant_by_id(current_user, tenant_id):
             conn.close()
             return jsonify({'error': f'租户 #{tenant_id} 不存在'}), 404
 
+        _update_current_stay_from_tenant_fields(conn, tenant_id, update_data)
         _refresh_tenant_statuses(conn)
         _refresh_room_statuses(conn)
         affected_years.update(_load_tenant_ledger_years(conn, "id = ?", (tenant_id,)))
@@ -962,6 +1151,11 @@ def api_delete_tenant(current_user, id_card):
         if status != '已退租':
             conn.close()
             return jsonify({'error': '在住状态不可删除，请先办理退租'}), 400
+        cursor.execute("SELECT COUNT(*) FROM tenant_stays WHERE tenant_id = ?", (tenant_id,))
+        stay_count = int(cursor.fetchone()[0] or 0)
+        if stay_count > 0:
+            conn.close()
+            return jsonify({'error': f'该人员有 {stay_count} 条入住历史，不能删除人员档案'}), 400
         # 先级联清理关联的搬迁记录，避免外键约束失败
         cursor.execute("DELETE FROM tenant_moves WHERE tenant_id = ?", (tenant_id,))
         moves_deleted = cursor.rowcount

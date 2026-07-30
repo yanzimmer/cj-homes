@@ -48,6 +48,18 @@ DEFAULT_CONFIG = {
         "tenant_template_id": "",
         "landlord_template_id": "",
     },
+    "bark_config": {
+        "enabled": True,
+        "auto_send_enabled": True,
+        "send_time": "09:00",
+        "lease_expiry_enabled": True,
+        "rent_reminder_enabled": True,
+        "title": "从江房屋登记系统",
+        "group": "房屋提醒",
+        "sound": "",
+        "icon": "",
+        "endpoints": [],
+    },
     "landlords": [
         {
             "name": "默认房东",

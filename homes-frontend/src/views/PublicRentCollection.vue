@@ -168,7 +168,11 @@ const tenantOutstandingPeriods = computed(() => {
   const periods = Array.isArray(overview.value?.outstanding_periods) ? overview.value.outstanding_periods : []
   const tenantId = Number(selectedTenantId.value || 0)
   if (!tenantId) return periods
-  return periods.filter((item) => Number(item.tenant_id || 0) === tenantId)
+  const stayId = Number(selectedTenantOption.value?.stay_id || 0)
+  return periods.filter((item) => (
+    Number(item.tenant_id || 0) === tenantId
+    && (!stayId || Number(item.stay_id || 0) === stayId)
+  ))
 })
 
 const orderStatusLabel = computed(() => {

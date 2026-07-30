@@ -3,6 +3,7 @@ venv/
 homes-frontend/node_modules/
 Backend-System/__pycache__/
 Backend-System/.env
+Backend-System/config/bark_endpoints.json
 Backend-System/config/ai_settings.json
 Backend-System/config/ocr_settings.json
 Backend-System/config/room_feature_options.json

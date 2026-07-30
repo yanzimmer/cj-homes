@@ -102,6 +102,8 @@ export const roomsApi = {
 export const tenantsApi = {
   listTenants: (params = {}) => apiClient.get('/tenants', { params }),
   addTenant: (tenantData) => apiClient.post('/tenants', tenantData),
+  listTenantStays: (tenantId) => apiClient.get(`/tenants/by-id/${tenantId}/stays`),
+  createTenantStay: (tenantId, stayData) => apiClient.post(`/tenants/by-id/${tenantId}/stays`, stayData),
   updateTenant: (tenantId, tenantData) => {
     const tenantRecordId = tenantData?.id ?? tenantId
     const idCard = String(tenantData?.id_card || '').trim()
@@ -154,7 +156,9 @@ export const notifyApi = {
   updateConfig: (configData) => apiClient.put('/notification-config', configData),
   testEmail: (payload) => apiClient.post('/test-email', payload),
   testSms: (payload) => apiClient.post('/test-sms', payload),
+  testBark: (payload) => apiClient.post('/test-bark', payload),
   sendNotification: (data) => apiClient.post('/notify/send', data),
+  runDueNotifications: () => apiClient.post('/notify/run-due'),
   getHistory: (days = 30) => apiClient.get(`/notify/history?days=${days}`)
 }
 

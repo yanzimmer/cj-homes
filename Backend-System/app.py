@@ -12,6 +12,7 @@ from flasgger import Swagger
 from common import BASE_DIR, SECRET_KEY, JWT_EXPIRATION_DELTA, connect
 from contract_templates_api import templates_bp, ensure_contract_templates_schema
 from contracts_api import contracts_bp, ensure_contracts_schema
+from tenant_stays_service import ensure_tenant_stays_schema
 from auth_api import auth_bp, ensure_totp_schema
 from dashboard_api import dashboard_bp
 from notify_api import notify_bp
@@ -57,7 +58,7 @@ app.config['JWT_EXPIRATION_DELTA'] = JWT_EXPIRATION_DELTA
 app.config['SWAGGER'] = {
     'title': 'Homes Rental Management API',
     'uiversion': 3,
-    'version': '1.2.0',
+    'version': '1.3.0',
     'description': 'API documentation for Homes Rental Management System',
     'securityDefinitions': {
         'Bearer': {
@@ -77,7 +78,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 log_paths = configure_logging(app)
 app.logger.info(f"后端文件日志目录: {log_paths['log_dir']}")
 APP_STARTED_AT = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-BACKEND_APP_VERSION = os.getenv("BACKEND_APP_VERSION", "1.2.0")
+BACKEND_APP_VERSION = os.getenv("BACKEND_APP_VERSION", "1.3.0")
 REPO_ROOT = os.path.dirname(BASE_DIR)
 
 
@@ -119,6 +120,7 @@ SENSITIVE_LOG_KEYS = {
     "api_key",
     "answer",
     "authorization",
+    "bark_url",
     "code",
     "id_card_image",
     "image",
@@ -552,6 +554,9 @@ app.register_blueprint(notify_bp)
 ensure_session_schema()
 ensure_rooms_schema()
 ensure_self_checkin_schema()
+tenant_stays_backup = ensure_tenant_stays_schema()
+if tenant_stays_backup:
+    app.logger.info("入住记录迁移前备份已创建: %s", tenant_stays_backup)
 ensure_rent_collection_schema()
 app.register_blueprint(rooms_bp)
 app.register_blueprint(self_checkin_bp)

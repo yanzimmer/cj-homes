@@ -283,11 +283,11 @@ def _load_rent_reminder_stats(conn, advance_days, today):
             e.actual_amount,
             e.status
         FROM rent_ledger_entries e
-        LEFT JOIN tenants t ON t.id = e.tenant_id
+        LEFT JOIN tenant_stays s ON s.id = e.stay_id
         WHERE COALESCE(TRIM(e.period_start), '') <> ''
           AND COALESCE(e.due_amount, 0) > COALESCE(e.allocated_amount, e.actual_amount, 0)
           AND COALESCE(TRIM(e.status), '未交') <> '已交'
-          AND COALESCE(TRIM(t.status), '在住') <> '已退租'
+          AND COALESCE(TRIM(s.status), '在住') <> '已退租'
         ORDER BY date(e.period_start) ASC, e.id ASC
         """
     )
@@ -384,12 +384,23 @@ def api_dashboard_stats(current_user):
                 t.id,
                 t.name,
                 t.phone,
-                t.status,
-                t.check_in_date,
-                t.check_out_date,
+                COALESCE(s.status, t.status) AS status,
+                COALESCE(s.check_in_date, t.check_in_date) AS check_in_date,
+                COALESCE(
+                    NULLIF(s.actual_check_out_date, ''),
+                    s.planned_check_out_date,
+                    t.check_out_date
+                ) AS check_out_date,
                 r.room_no
             FROM tenants t
-            LEFT JOIN rooms r ON r.id = t.room_id
+            LEFT JOIN tenant_stays s ON s.id = (
+                SELECT selected.id FROM tenant_stays selected
+                WHERE selected.tenant_id = t.id
+                ORDER BY CASE WHEN selected.status = '在住' THEN 0 ELSE 1 END,
+                         selected.check_in_date DESC, selected.id DESC
+                LIMIT 1
+            )
+            LEFT JOIN rooms r ON r.id = s.room_id
             """
         )
         tenant_rows = cursor.fetchall()

@@ -2,3 +2,4 @@
 Backend-System/sql/hotel.db
 Backend-System/config/notification_config.json
 Backend-System/config/ocr_config.json
+Backend-System/config/bark_endpoints.json

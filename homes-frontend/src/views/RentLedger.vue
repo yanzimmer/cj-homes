@@ -68,7 +68,7 @@
 
       <div v-if="mobileMode" class="ledger-mobile-list">
         <el-empty v-if="filteredLedgerRows.length === 0" description="当前条件下暂无收租台账" :image-size="48" />
-        <article v-for="group in filteredLedgerRows" :key="group.tenantId" class="ledger-mobile-card">
+        <article v-for="group in filteredLedgerRows" :key="ledgerGroupKey(group)" class="ledger-mobile-card">
           <div class="ledger-mobile-card__header">
             <div>
               <div class="ledger-mobile-card__title">
@@ -89,7 +89,7 @@
               <el-button
                 size="small"
                 plain
-                :loading="exportingTenantId === group.tenantId"
+                :loading="exportingTenantId === ledgerGroupKey(group)"
                 @click="exportTenantExcel(group)"
               >
                 导出 Excel
@@ -165,7 +165,7 @@
         :data="filteredLedgerRows"
         border
         class="ledger-table"
-        row-key="tenantId"
+        :row-key="ledgerGroupKey"
         :expand-row-keys="expandedRowKeys"
         @expand-change="handleExpandChange"
         :header-cell-style="{ textAlign: 'center' }"
@@ -301,7 +301,7 @@
               <el-button
                 size="small"
                 plain
-                :loading="exportingTenantId === row.tenantId"
+                :loading="exportingTenantId === ledgerGroupKey(row)"
                 @click="exportTenantExcel(row)"
               >
                 导出 Excel
@@ -717,7 +717,7 @@ function exportTenantExcel(group) {
     return
   }
 
-  exportingTenantId.value = group.tenantId
+  exportingTenantId.value = ledgerGroupKey(group)
   try {
     const workbook = XLSX.utils.book_new()
     const rows = buildTenantExportRows(group)
@@ -736,18 +736,22 @@ function exportTenantExcel(group) {
   }
 }
 
+function ledgerGroupKey(group) {
+  return group?.stayId ? `stay-${group.stayId}` : `tenant-${group?.tenantId || 'unknown'}`
+}
+
 function isRowExpanded(row) {
-  return expandedRowKeys.value.includes(row.tenantId)
+  return expandedRowKeys.value.includes(ledgerGroupKey(row))
 }
 
 function syncExpandedRowKeys() {
-  const validIds = new Set(filteredLedgerRows.value.map((item) => item.tenantId))
+  const validIds = new Set(filteredLedgerRows.value.map(ledgerGroupKey))
   expandedRowKeys.value = expandedRowKeys.value.filter((item) => validIds.has(item))
   mobileExpandedTenantIds.value = mobileExpandedTenantIds.value.filter((item) => validIds.has(item))
 }
 
 function handleExpandChange(_row, expandedRows) {
-  expandedRowKeys.value = expandedRows.map((item) => item.tenantId)
+  expandedRowKeys.value = expandedRows.map(ledgerGroupKey)
 }
 
 function toggleRowDetails(row) {
@@ -757,15 +761,15 @@ function toggleRowDetails(row) {
 }
 
 function isMobilePeriodsExpanded(row) {
-  return mobileExpandedTenantIds.value.includes(row.tenantId)
+  return mobileExpandedTenantIds.value.includes(ledgerGroupKey(row))
 }
 
 function toggleMobilePeriods(row) {
   if (isMobilePeriodsExpanded(row)) {
-    mobileExpandedTenantIds.value = mobileExpandedTenantIds.value.filter((item) => item !== row.tenantId)
+    mobileExpandedTenantIds.value = mobileExpandedTenantIds.value.filter((item) => item !== ledgerGroupKey(row))
     return
   }
-  mobileExpandedTenantIds.value = [...mobileExpandedTenantIds.value, row.tenantId]
+  mobileExpandedTenantIds.value = [...mobileExpandedTenantIds.value, ledgerGroupKey(row)]
 }
 
 function applySearch() {
